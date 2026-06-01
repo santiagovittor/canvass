@@ -8,3 +8,6 @@ credentials/*.json
 .DS_Store
 coverage/
 credentials/email-signature.html
+.vscode/
+.claude/
+check-db.js

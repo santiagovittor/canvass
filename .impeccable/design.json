@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-01T00:00:00Z",
+  "title": "Design System: Maps Scraper",
+  "extensions": {
+    "colorMeta": {
+      "safelight":      { "role": "primary",  "displayName": "Safelight",      "canonical": "oklch(65% 0.165 55)",  "tonalRamp": ["oklch(15% 0.05 55)", "oklch(25% 0.08 55)", "oklch(35% 0.11 55)", "oklch(45% 0.14 55)", "oklch(55% 0.16 55)", "oklch(65% 0.165 55)", "oklch(75% 0.13 55)", "oklch(90% 0.07 55)"] },
+      "film-base":      { "role": "neutral",  "displayName": "Film Base",       "canonical": "oklch(8% 0.006 50)",   "tonalRamp": ["oklch(8% 0.006 50)", "oklch(12% 0.008 50)", "oklch(16% 0.009 50)", "oklch(20% 0.010 50)", "oklch(28% 0.012 50)", "oklch(40% 0.015 50)", "oklch(55% 0.018 50)", "oklch(70% 0.020 50)"] },
+      "developer-tray": { "role": "neutral",  "displayName": "Developer Tray",  "canonical": "oklch(13% 0.008 50)",  "tonalRamp": ["oklch(8% 0.006 50)", "oklch(13% 0.008 50)", "oklch(18% 0.010 50)", "oklch(24% 0.012 50)", "oklch(32% 0.014 50)", "oklch(44% 0.016 50)", "oklch(58% 0.018 50)", "oklch(73% 0.020 50)"] },
+      "print-surface":  { "role": "neutral",  "displayName": "Print Surface",   "canonical": "oklch(17% 0.010 50)",  "tonalRamp": ["oklch(8% 0.006 50)", "oklch(13% 0.008 50)", "oklch(17% 0.010 50)", "oklch(23% 0.012 50)", "oklch(31% 0.014 50)", "oklch(43% 0.016 50)", "oklch(57% 0.018 50)", "oklch(72% 0.020 50)"] },
+      "contact-print":  { "role": "neutral",  "displayName": "Contact Print",   "canonical": "oklch(93% 0.010 50)",  "tonalRamp": ["oklch(20% 0.010 50)", "oklch(35% 0.012 50)", "oklch(50% 0.012 50)", "oklch(65% 0.012 50)", "oklch(78% 0.012 50)", "oklch(86% 0.011 50)", "oklch(90% 0.010 50)", "oklch(93% 0.010 50)"] },
+      "silver-halide":  { "role": "neutral",  "displayName": "Silver Halide",   "canonical": "oklch(61% 0.015 50)",  "tonalRamp": ["oklch(20% 0.008 50)", "oklch(30% 0.010 50)", "oklch(40% 0.012 50)", "oklch(50% 0.014 50)", "oklch(61% 0.015 50)", "oklch(72% 0.014 50)", "oklch(82% 0.012 50)", "oklch(92% 0.008 50)"] },
+      "shadow-detail":  { "role": "neutral",  "displayName": "Shadow Detail",   "canonical": "oklch(56% 0.014 50)",  "tonalRamp": ["oklch(20% 0.008 50)", "oklch(30% 0.010 50)", "oklch(40% 0.012 50)", "oklch(56% 0.014 50)", "oklch(65% 0.014 50)", "oklch(75% 0.013 50)", "oklch(85% 0.011 50)", "oklch(93% 0.008 50)"] },
+      "exposure-alert": { "role": "tertiary", "displayName": "Exposure Alert",  "canonical": "oklch(77% 0.18 85)",   "tonalRamp": ["oklch(15% 0.06 85)", "oklch(25% 0.09 85)", "oklch(38% 0.14 85)", "oklch(50% 0.17 85)", "oklch(63% 0.19 85)", "oklch(77% 0.18 85)", "oklch(88% 0.12 85)", "oklch(95% 0.06 85)"] },
+      "stop-bath":      { "role": "tertiary", "displayName": "Stop Bath",       "canonical": "oklch(64% 0.24 10)",   "tonalRamp": ["oklch(15% 0.08 10)", "oklch(25% 0.12 10)", "oklch(38% 0.18 10)", "oklch(50% 0.22 10)", "oklch(64% 0.24 10)", "oklch(76% 0.20 10)", "oklch(87% 0.13 10)", "oklch(94% 0.07 10)"] },
+      "fix-complete":   { "role": "tertiary", "displayName": "Fix Complete",    "canonical": "oklch(82% 0.18 145)",  "tonalRamp": ["oklch(15% 0.06 145)", "oklch(25% 0.10 145)", "oklch(38% 0.15 145)", "oklch(50% 0.18 145)", "oklch(65% 0.20 145)", "oklch(82% 0.18 145)", "oklch(90% 0.12 145)", "oklch(96% 0.06 145)"] }
+    },
+    "typographyMeta": {
+      "body":         { "displayName": "Body",         "purpose": "All UI text, table content, labels, input values." },
+      "label":        { "displayName": "Caption",      "purpose": "Table column headers, pill text, bento labels. Uppercase only at this scale." },
+      "mono":         { "displayName": "Mono Body",    "purpose": "All numeric values, coordinates, IDs, timestamps. No exceptions." },
+      "mono-display": { "displayName": "Mono Display", "purpose": "Large stat values in bento KPI cells. The largest text scale in the system." }
+    },
+    "shadows": [
+      { "name": "safelight-glow-sm",  "value": "0 0 12px rgba(232, 147, 10, 0.35)", "purpose": "Progress bar fill: signals active scrape/enrich." },
+      { "name": "safelight-glow-lg",  "value": "0 0 24px rgba(232, 147, 10, 0.35)", "purpose": "Primary button hover: invites interaction." }
+    ],
+    "motion": [
+      { "name": "state-transition", "value": "150ms ease",                              "purpose": "Color and border state changes (hover, active)." },
+      { "name": "progress-fill",    "value": "200ms ease-out",                          "purpose": "Progress bar width. Smooth but not laggy." },
+      { "name": "row-enter",        "value": "300ms ease-out (opacity + translateY 4px)", "purpose": "New table rows entering from scrape stream." },
+      { "name": "safelight-pulse",  "value": "1.4s ease-in-out infinite",              "purpose": "Enriching-state pulse on progress fill and pill dot." },
+      { "name": "sidebar-reveal",   "value": "400ms cubic-bezier(0.22,1,0.36,1)",     "purpose": "Sidebar sliding in on first polygon draw." }
+    ],
+    "breakpoints": [
+      { "name": "panel-collapse", "value": "1279px", "purpose": "Below this, the 3-column app-grid collapses; sidebars become absolutely positioned." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Main action trigger. Safelight background, warm near-black text, amber glow on hover.",
+      "html": "<button class=\"ds-btn-primary\">Start scrape</button>",
+      "css": ".ds-btn-primary { background: #E8930A; color: #1C0E02; font-family: 'Outfit', system-ui, sans-serif; font-weight: 600; font-size: 14px; padding: 10px 18px; border-radius: 8px; border: none; cursor: pointer; box-shadow: none; transition: box-shadow 200ms ease, transform 100ms ease; } .ds-btn-primary:hover { box-shadow: 0 0 24px rgba(232, 147, 10, 0.35); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:disabled { background: #221C14; color: #8A7D70; cursor: not-allowed; transform: none; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Alternative action. Transparent with warm border; border and background shift to amber tint on hover.",
+      "html": "<button class=\"ds-btn-secondary\">Export CSV</button>",
+      "css": ".ds-btn-secondary { background: transparent; color: #EDE8E0; border: 1px solid rgba(255, 245, 235, 0.13); font-family: 'Outfit', system-ui, sans-serif; font-weight: 500; font-size: 14px; padding: 10px 18px; border-radius: 8px; cursor: pointer; transition: border-color 150ms, background 150ms; } .ds-btn-secondary:hover { border-color: #E8930A; background: rgba(232, 147, 10, 0.12); } .ds-btn-secondary:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Destructive action. Stop Bath tinted background and text.",
+      "html": "<button class=\"ds-btn-danger\">Cancel job</button>",
+      "css": ".ds-btn-danger { background: rgba(255, 77, 109, 0.12); color: #FF4D6D; border: 1px solid rgba(255, 77, 109, 0.3); font-family: 'Outfit', system-ui, sans-serif; font-weight: 500; font-size: 14px; padding: 8px 14px; border-radius: 8px; cursor: pointer; transition: background 150ms; } .ds-btn-danger:hover { background: rgba(255, 77, 109, 0.2); } .ds-btn-danger:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Primary content container. Developer Tray surface with warm specular gradient overlay.",
+      "html": "<div class=\"ds-panel\"><p style=\"color:#EDE8E0;font-family:Outfit,sans-serif;font-size:14px;margin:0\">Panel content</p></div>",
+      "css": ".ds-panel { background: linear-gradient(180deg, rgba(255, 245, 235, 0.02) 0%, transparent 100%), #1A1610; border: 1px solid rgba(255, 245, 235, 0.07); border-radius: 12px; padding: 20px; }"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "chip",
+      "refersTo": "pill",
+      "description": "Job lifecycle state indicator. Uppercase 11px with colored dot.",
+      "html": "<span class=\"ds-pill ds-pill--running\"><span class=\"ds-pill-dot\"></span>Scraping</span>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; gap: 6px; font-family: 'Outfit', system-ui, sans-serif; font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 10px; border-radius: 100px; } .ds-pill-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; } .ds-pill--running { background: rgba(232, 147, 10, 0.12); color: #E8930A; } .ds-pill--running .ds-pill-dot { background: #E8930A; } .ds-pill--done { background: rgba(74, 222, 128, 0.12); color: #4ADE80; } .ds-pill--done .ds-pill-dot { background: #4ADE80; } .ds-pill--error { background: rgba(255, 77, 109, 0.12); color: #FF4D6D; } .ds-pill--error .ds-pill-dot { background: #FF4D6D; } .ds-pill--pending { background: #221C14; color: #8A7D70; } .ds-pill--pending .ds-pill-dot { background: #8A7D70; }"
+    },
+    {
+      "name": "Progress Bar",
+      "kind": "custom",
+      "refersTo": "progress",
+      "description": "6px track, Safelight fill with semantic glow. Width is the only dynamic inline style.",
+      "html": "<div class=\"ds-progress-track\"><div class=\"ds-progress-fill\" style=\"width:65%\"></div></div>",
+      "css": ".ds-progress-track { height: 6px; background: #221C14; border-radius: 3px; overflow: hidden; } .ds-progress-fill { height: 100%; background: #E8930A; border-radius: 3px; box-shadow: 0 0 12px rgba(232, 147, 10, 0.35); transition: width 200ms ease-out; }"
+    },
+    {
+      "name": "Tab Strip",
+      "kind": "nav",
+      "refersTo": "tab-strip",
+      "description": "Top-level view navigation. Developer Tray base, Shadow Detail inactive, Safelight active with 2px bottom indicator.",
+      "html": "<div class=\"ds-tab-strip\"><button class=\"ds-tab-btn ds-tab-btn--active\">Scraper</button><button class=\"ds-tab-btn\">Explorer</button><button class=\"ds-tab-btn\">Outreach</button></div>",
+      "css": ".ds-tab-strip { display: flex; align-items: center; gap: 4px; padding: 0 16px; height: 40px; background: #1A1610; border-bottom: 1px solid rgba(255, 245, 235, 0.07); } .ds-tab-btn { background: none; border: none; border-bottom: 2px solid transparent; padding: 0 12px; height: 100%; font-family: 'Outfit', system-ui, sans-serif; font-size: 13px; font-weight: 500; color: #8A7D70; cursor: pointer; transition: color 150ms, border-color 150ms; } .ds-tab-btn:hover { color: #9A8F7E; } .ds-tab-btn--active { color: #E8930A; border-bottom-color: #E8930A; } .ds-tab-btn:focus-visible { outline: 2px solid #E8930A; outline-offset: -2px; }"
+    },
+    {
+      "name": "Bento Stat Cell",
+      "kind": "custom",
+      "refersTo": "bento-cell",
+      "description": "At-a-glance numeric KPI. Uppercase caption over Mono Display value.",
+      "html": "<div class=\"ds-bento-cell\"><span class=\"ds-bento-label\">Businesses</span><span class=\"ds-bento-value\">1,247</span></div>",
+      "css": ".ds-bento-cell { background: #221C14; border: 1px solid rgba(255, 245, 235, 0.07); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 6px; } .ds-bento-label { font-family: 'Outfit', system-ui, sans-serif; font-weight: 500; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #8A7D70; } .ds-bento-value { font-family: 'JetBrains Mono', 'SF Mono', monospace; font-weight: 600; font-size: 28px; color: #EDE8E0; line-height: 1; font-variant-numeric: tabular-nums; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Darkroom",
+    "overview": "This tool is designed around the feeling of working in a darkroom: warm near-black surfaces, a single amber safelight as the only saturated color, and the focused calm of a space built for deliberate, precise work. The warmth is not decorative. It comes from the materials themselves: the dark field tilts faintly toward brown and amber, as if the surfaces have absorbed the light from years of use. The safelight glows where attention belongs.\n\nThe aesthetic rejects two failure modes: the cold terminal-native dark mode (monospace everywhere, harsh blue-white) and the clinical data-dashboard (flat gray surfaces, blue accent, enterprise-neutral). Dense and readable is the operating principle. Data is the product. The interface frames it without celebrating itself.",
+    "keyCharacteristics": [
+      "Warm near-black base: every surface tilts amber, not blue or cool",
+      "Single accent: Safelight (#E8930A) is the only saturated color — it marks active state, interactive affordance, and progress",
+      "Two typefaces: Outfit for all UI text, JetBrains Mono for every number without exception",
+      "Tonal depth through background steps, not shadows",
+      "Glow as semantic signal: the amber glow appears only on active elements and progress fills"
+    ],
+    "rules": [
+      { "name": "The One Safelight Rule",       "body": "#E8930A appears on one element per composition. Its scarcity is the point. If two elements on the same screen both use the accent, one of them is wrong.",          "section": "colors" },
+      { "name": "The Warm Canvas Rule",         "body": "All backgrounds tilt amber, never blue. If a neutral feels cold or gray, add warmth (shift toward hue 50-60 in OKLCH). The surface temperature is part of the brand.", "section": "colors" },
+      { "name": "The Warm-Signal Separation",   "body": "Safelight (#E8930A) and Exposure Alert (#F5B700) must never appear adjacent or in competing roles. Safelight means interactive. Alert means warning.",                 "section": "colors" },
+      { "name": "The Flat-By-Default Rule",     "body": "Panels are flat at rest. No drop shadows on cards, sidebars, or tables. Elevation is a background color step, not a shadow.",                                           "section": "elevation" },
+      { "name": "The Semantic Glow Rule",       "body": "The amber glow (rgba(232,147,10,0.35)) is a system signal, not a visual style. It means: this element is active or invites interaction.",                               "section": "elevation" },
+      { "name": "The Mono Number Rule",         "body": "Every rendered number uses JetBrains Mono. A number in Outfit is always a bug. This is a system invariant, not a stylistic preference.",                                "section": "typography" },
+      { "name": "The No-Display-Heading Rule",  "body": "This tool has no hero sections, no display headings, no large-scale typographic moments. The largest deliberate text is 28px mono in bento stat cells.",               "section": "typography" }
+    ],
+    "dos": [
+      "Do tint all neutral backgrounds toward amber (hue 50-60 in OKLCH). The warmth is structural, not decorative.",
+      "Do use JetBrains Mono for every number without exception.",
+      "Do let Safelight appear once per composition. Its rarity is the point.",
+      "Do convey depth through background steps. No drop shadows on resting surfaces.",
+      "Do verify WCAG AA on Shadow Detail text on every background it appears against.",
+      "Do write button labels as verb + object ('Start scrape', 'Export CSV', 'Send email')."
+    ],
+    "donts": [
+      "Don't use teal, blue, or any cool saturated color as accent or interactive state.",
+      "Don't use white backgrounds, white cards, or light mode surfaces.",
+      "Don't make it feel like a CRM. No badge-heavy status columns, no enterprise-blue table headers.",
+      "Don't make it feel like a 2024 AI SaaS product. No purple, no cream backgrounds, no glassmorphism defaults.",
+      "Don't use Notion or Linear visual language: no white card grids, no large editorial whitespace.",
+      "Don't add a second accent color. Warn, error, and success are semantic-only.",
+      "Don't use border-left or border-right greater than 1px as a decorative stripe.",
+      "Don't render numbers in Outfit. Every count, coordinate, percentage, and ID uses JetBrains Mono.",
+      "Don't use border-radius above 12px on panels or cards."
+    ]
+  }
+}

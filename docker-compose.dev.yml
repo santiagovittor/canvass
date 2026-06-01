@@ -1,0 +1,34 @@
+services:
+  gosom:
+    image: gosom/google-maps-scraper:latest
+    ports: ["8080:8080"]
+    volumes: ["./data/gosom:/gmapsdata"]
+    command: ["-web", "-addr", ":8080", "-data-folder", "/gmapsdata", "-exit-on-inactivity", "10m"]
+
+  server:
+    image: node:20-bookworm
+    working_dir: /app
+    ports: ["3001:3001"]
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - /app/server/node_modules
+      - /app/client/node_modules
+    environment:
+      NODE_ENV: development
+      GOSOM_URL: http://gosom:8080
+      DATABASE_URL: /app/data/scraper.db
+      GOOGLE_SERVICE_ACCOUNT_PATH: /app/credentials/google-service-account.json
+    command: sh -c "npm install && npm -w server run dev"
+    depends_on: [gosom]
+
+  client:
+    image: node:20-bookworm
+    working_dir: /app
+    ports: ["5173:5173"]
+    volumes:
+      - ./:/app
+      - /app/node_modules
+      - /app/client/node_modules
+    command: sh -c "npm install && npm -w client run dev"
+    depends_on: [server]

@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(docker compose *)",
+      "Bash(docker exec *)",
+      "Bash(docker restart *)",
+      "Bash(npx tsc *)",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=5\")",
+      "Bash(curl -s \"http://localhost:3001/api/businesses/categories\")",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=5&hasEmail=true\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('total:', d['total'], '| rows with email:', sum\\(1 for r in d['rows'] if r['email']\\)\\)\")",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=5&search=farma\")",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=5&minRating=4\")",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=5&orderBy=rating\")",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=10\")",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=10&hasEmail=true\")",
+      "Bash(xargs grep *)",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=11&hasEmail=true\")",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=5&search=Buenos\")",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=5&category=Farmacia\")",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=5&hasPhone=true\")",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=5&orderBy=reviewCount\")",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=3\")",
+      "Bash(curl -s \"http://localhost:3001/api/businesses?page=1&pageSize=5&search=Buenos+Aires\")",
+      "Bash(echo \"exit:$?\")",
+      "Bash(git commit *)",
+      "Skill(update-config)"
+    ]
+  }
+}

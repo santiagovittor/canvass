@@ -1,0 +1,28 @@
+services:
+  gosom:
+    image: gosom/google-maps-scraper:latest
+    restart: unless-stopped
+    volumes:
+      - ./data/gosom:/gmapsdata
+    command: ["-web", "-addr", ":8080", "-data-folder", "/gmapsdata"]
+    expose: ["8080"]
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data:/app/data
+      - ./credentials:/app/credentials
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      GOSOM_URL: http://gosom:8080
+      DATABASE_URL: /app/data/scraper.db
+      GOOGLE_SERVICE_ACCOUNT_PATH: /app/credentials/google-service-account.json
+      APP_AUTH_USER: ${APP_AUTH_USER:-}
+      APP_AUTH_PASS: ${APP_AUTH_PASS:-}
+    depends_on: [gosom]

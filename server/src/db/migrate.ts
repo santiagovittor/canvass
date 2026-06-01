@@ -1,0 +1,70 @@
+import { sqlite } from './index';
+
+export function runMigrations() {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS scrape_jobs (
+      id TEXT PRIMARY KEY,
+      search_term TEXT NOT NULL,
+      language TEXT NOT NULL DEFAULT 'es',
+      bbox_json TEXT NOT NULL,
+      grid_cell_km REAL NOT NULL,
+      cell_count INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      businesses_found INTEGER NOT NULL DEFAULT 0,
+      enrichment_progress INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS businesses (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      address TEXT,
+      phone TEXT,
+      website TEXT,
+      hours_json TEXT,
+      rating REAL,
+      review_count INTEGER,
+      category TEXT,
+      latitude REAL,
+      longitude REAL,
+      instagram TEXT,
+      facebook TEXT,
+      twitter TEXT,
+      tiktok TEXT,
+      linkedin TEXT,
+      youtube TEXT,
+      emails_json TEXT,
+      social_enriched INTEGER NOT NULL DEFAULT 0,
+      scraped_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS businesses_job_id_idx ON businesses(job_id);
+  `);
+
+  const cols = (sqlite.prepare('PRAGMA table_info(businesses)').all() as { name: string }[]).map(r => r.name);
+  if (!cols.includes('outreach_status')) {
+    sqlite.exec('ALTER TABLE businesses ADD COLUMN outreach_status TEXT');
+  }
+  if (!cols.includes('outreach_note')) {
+    sqlite.exec('ALTER TABLE businesses ADD COLUMN outreach_note TEXT');
+  }
+  if (!cols.includes('loc_country')) {
+    sqlite.exec('ALTER TABLE businesses ADD COLUMN loc_country TEXT');
+  }
+  if (!cols.includes('loc_state')) {
+    sqlite.exec('ALTER TABLE businesses ADD COLUMN loc_state TEXT');
+  }
+  if (!cols.includes('loc_city')) {
+    sqlite.exec('ALTER TABLE businesses ADD COLUMN loc_city TEXT');
+  }
+  if (!cols.includes('loc_neighbourhood')) {
+    sqlite.exec('ALTER TABLE businesses ADD COLUMN loc_neighbourhood TEXT');
+  }
+  if (!cols.includes('location_enriched')) {
+    sqlite.exec('ALTER TABLE businesses ADD COLUMN location_enriched INTEGER NOT NULL DEFAULT 0');
+  }
+
+}

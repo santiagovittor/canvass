@@ -1,0 +1,10 @@
+node_modules/
+dist/
+build/
+.env
+data/
+credentials/*.json
+*.log
+.DS_Store
+coverage/
+credentials/email-signature.html

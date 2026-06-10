@@ -12,6 +12,7 @@ export function KpiStrip({ kpis }: KpiStripProps) {
     { label: 'With email', value: fmt.format(kpis.withEmail) },
     { label: 'Email yield', value: `${kpis.emailYieldPct}%` },
     { label: 'Contacted', value: fmt.format(kpis.contacted) },
+    { label: 'Open rate', value: `${kpis.openRatePct}%` },
     { label: 'Response rate', value: `${kpis.responseRatePct}%` },
     { label: 'Streak', value: `${kpis.currentStreak}d` },
   ];

@@ -15,6 +15,7 @@ import outreachRouter from './routes/outreach';
 import outreachQueueRouter from './routes/outreachQueue';
 import adminRouter from './routes/admin';
 import analyticsRouter from './routes/analytics';
+import trackRouter from './routes/track';
 import { enrichLocationJob } from './services/locationEnricher';
 import { db } from './db';
 import { businesses } from './db/schema';
@@ -40,6 +41,8 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+// Tracking pixel must stay above authMiddleware — fetched by recipients' mail clients
+app.use('/t', trackRouter);
 app.use(authMiddleware);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));

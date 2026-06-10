@@ -45,18 +45,26 @@ export async function sendEmail(
     return { success: false, error: 'Invalid email address', remaining: DAILY_CAP - getDailySendCount() };
   }
 
+  // Open-tracking pixel only when PUBLIC_URL is set (must be internet-reachable)
+  const publicBase = env.PUBLIC_URL?.replace(/\/+$/, '') ?? null;
+  const trackingToken = publicBase ? crypto.randomUUID() : null;
+
   try {
     const transport = getTransport();
+    const pixel = trackingToken
+      ? `<img src="${publicBase}/t/${trackingToken}.gif" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0">`
+      : '';
+    const bodyHtml = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222222;line-height:1.6;white-space:pre-wrap;">${body}</div>`;
     await transport.sendMail({
       from: env.GMAIL_FROM,
       to,
       subject,
       text: body,
-      ...(signatureHtml !== null ? {
-        html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222222;line-height:1.6;white-space:pre-wrap;">${body}</div><br><br>${signatureHtml}`,
+      ...(signatureHtml !== null || trackingToken !== null ? {
+        html: bodyHtml + (signatureHtml !== null ? `<br><br>${signatureHtml}` : '') + pixel,
       } : {}),
     });
-    recordEmailSend(businessId, 'sent');
+    recordEmailSend(businessId, 'sent', undefined, trackingToken);
     markContacted(businessId);
     return { success: true, remaining: DAILY_CAP - getDailySendCount() };
   } catch (err) {

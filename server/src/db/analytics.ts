@@ -29,6 +29,18 @@ export function getKpiCounts(): KpiCounts {
   return row;
 }
 
+export interface OpenStats { trackedSends: number; openedSends: number }
+
+export function getOpenStats(): OpenStats {
+  const trackedSends = (sqlite.prepare(`
+    SELECT COUNT(*) AS n FROM email_sends WHERE status = 'sent' AND tracking_token IS NOT NULL
+  `).get() as { n: number }).n;
+  const openedSends = (sqlite.prepare(`
+    SELECT COUNT(DISTINCT send_id) AS n FROM email_opens
+  `).get() as { n: number }).n;
+  return { trackedSends, openedSends };
+}
+
 export interface DailySendRow { day: string; n: number }
 
 // All-time daily counts of successful sends. sent_at is stored as a UTC-3

@@ -46,6 +46,15 @@ sqlite.exec(`
     body TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS email_opens (
+    id TEXT PRIMARY KEY,
+    send_id TEXT NOT NULL,
+    business_id TEXT NOT NULL,
+    opened_at TEXT NOT NULL,
+    user_agent TEXT
+  );
+  CREATE INDEX IF NOT EXISTS email_opens_send_id_idx ON email_opens(send_id);
+  CREATE INDEX IF NOT EXISTS email_opens_business_id_idx ON email_opens(business_id);
 `);
 
 // Must run before any prepared statement references top_gap
@@ -53,6 +62,13 @@ const draftCols = (sqlite.prepare('PRAGMA table_info(outreach_drafts)').all() as
 if (!draftCols.includes('top_gap')) {
   sqlite.exec('ALTER TABLE outreach_drafts ADD COLUMN top_gap TEXT');
 }
+
+// Must run before stmtInsertSend is prepared
+const sendCols = (sqlite.prepare('PRAGMA table_info(email_sends)').all() as { name: string }[]).map(r => r.name);
+if (!sendCols.includes('tracking_token')) {
+  sqlite.exec('ALTER TABLE email_sends ADD COLUMN tracking_token TEXT');
+}
+sqlite.exec('CREATE INDEX IF NOT EXISTS email_sends_tracking_token_idx ON email_sends(tracking_token)');
 
 export const db = drizzle(sqlite, { schema });
 export { sqlite };
@@ -386,17 +402,37 @@ export function getDailySendCount(): number {
   return stmtSendCount.get(todayUtcMinus3())?.n ?? 0;
 }
 
-const stmtInsertSend = sqlite.prepare<[string, string, string, string, string | null], void>(`
-  INSERT INTO email_sends (id, business_id, sent_at, status, error_text) VALUES (?, ?, ?, ?, ?)
+const stmtInsertSend = sqlite.prepare<[string, string, string, string, string | null, string | null], void>(`
+  INSERT INTO email_sends (id, business_id, sent_at, status, error_text, tracking_token) VALUES (?, ?, ?, ?, ?, ?)
 `);
 
-export function recordEmailSend(businessId: string, status: 'sent' | 'failed', errorText?: string): void {
+export function recordEmailSend(businessId: string, status: 'sent' | 'failed', errorText?: string, trackingToken?: string | null): void {
   // sent_at stored as UTC-3 shifted ISO string — matches todayUtcMinus3() slice prefix
-  stmtInsertSend.run(crypto.randomUUID(), businessId, nowUtcMinus3(), status, errorText ?? null);
+  stmtInsertSend.run(crypto.randomUUID(), businessId, nowUtcMinus3(), status, errorText ?? null, trackingToken ?? null);
+}
+
+const stmtFindSendByToken = sqlite.prepare<[string], { id: string; business_id: string }>(`
+  SELECT id, business_id FROM email_sends WHERE tracking_token = ?
+`);
+
+export function findSendByToken(token: string): { id: string; business_id: string } | undefined {
+  return stmtFindSendByToken.get(token);
+}
+
+const stmtInsertOpen = sqlite.prepare<[string, string, string, string, string | null], void>(`
+  INSERT INTO email_opens (id, send_id, business_id, opened_at, user_agent) VALUES (?, ?, ?, ?, ?)
+`);
+
+export function insertEmailOpen(sendId: string, businessId: string, userAgent: string | null): void {
+  stmtInsertOpen.run(crypto.randomUUID(), sendId, businessId, nowUtcMinus3(), userAgent);
 }
 
 export function markContacted(businessId: string): void {
-  db.update(businesses).set({ outreachStatus: 'contacted' }).where(eq(businesses.id, businessId)).run();
+  // Guard: a concurrent reply (IMAP checker or manual) must not be clobbered by a follow-up send
+  sqlite.prepare(`
+    UPDATE businesses SET outreach_status = 'contacted'
+    WHERE id = ? AND (outreach_status IS NULL OR outreach_status = 'contacted')
+  `).run(businessId);
 }
 
 // ── Draft persistence ─────────────────────────────────────────────────────────

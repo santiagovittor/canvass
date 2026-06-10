@@ -6,6 +6,7 @@ import {
   getCategoryZoneMatrix,
   getCategoryYields,
   getBandYields,
+  getOpenStats,
   GeoPoint,
   MatrixRow,
 } from '../db/analytics';
@@ -16,6 +17,7 @@ export interface AnalyticsPayload {
     withEmail: number;
     emailYieldPct: number;
     contacted: number;
+    openRatePct: number;
     responseRatePct: number;
     currentStreak: number;
   };
@@ -183,6 +185,7 @@ function buildInsights(
 
 export function getAnalytics(): AnalyticsPayload {
   const kpis = getKpiCounts();
+  const openStats = getOpenStats();
   const dailySends = getDailySends();
   const repliedDays = getRepliedSendDays();
   const today = todayUtcMinus3();
@@ -207,6 +210,7 @@ export function getAnalytics(): AnalyticsPayload {
       withEmail: kpis.withEmail,
       emailYieldPct: pct(kpis.withEmail, kpis.totalLeads),
       contacted: kpis.contactedAll,
+      openRatePct: pct(openStats.openedSends, openStats.trackedSends),
       responseRatePct: pct(kpis.replied, kpis.contactedAll),
       currentStreak: current,
     },

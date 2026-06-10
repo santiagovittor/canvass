@@ -13,7 +13,7 @@ export function Analytics() {
     return (
       <div className="an-page">
         <div className="an-kpi-strip">
-          {Array.from({ length: 6 }, (_, i) => (
+          {Array.from({ length: 7 }, (_, i) => (
             <div key={i} className="an-kpi an-skeleton" />
           ))}
         </div>

@@ -19,6 +19,7 @@ const schema = z.object({
   GMAIL_FROM: z.string().email().optional(),
   GMAIL_SENDER_NAME: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  PUBLIC_URL: z.string().url().optional(),
 }).refine(
   d => (d.APP_AUTH_USER == null) === (d.APP_AUTH_PASS == null),
   { message: 'AUTH_USER and AUTH_PASS must both be set or both be unset' },

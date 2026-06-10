@@ -20,6 +20,7 @@ export interface AnalyticsPayload {
     withEmail: number;
     emailYieldPct: number;
     contacted: number;
+    openRatePct: number;
     responseRatePct: number;
     currentStreak: number;
   };

@@ -46,4 +46,5 @@ export const businesses = sqliteTable('businesses', {
   locNeighbourhood: text('loc_neighbourhood'),
   locationEnriched: integer('location_enriched').notNull().default(0),
   followUpStatus: text('follow_up_status'),
+  repliedAt: text('replied_at'),
 });

@@ -17,6 +17,7 @@ import adminRouter from './routes/admin';
 import analyticsRouter from './routes/analytics';
 import trackRouter from './routes/track';
 import { enrichLocationJob } from './services/locationEnricher';
+import { startReplyChecker } from './services/replyChecker';
 import { db } from './db';
 import { businesses } from './db/schema';
 import { and, eq, isNotNull } from 'drizzle-orm';
@@ -70,6 +71,8 @@ if (env.NODE_ENV === 'production') {
 app.listen(env.PORT, () => {
   console.log(`Server running on :${env.PORT} [${env.NODE_ENV}]`);
 });
+
+startReplyChecker();
 
 function shutdown() {
   sqlite.pragma('wal_checkpoint(FULL)');

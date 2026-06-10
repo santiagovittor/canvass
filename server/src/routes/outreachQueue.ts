@@ -5,6 +5,7 @@ import { eq, sql } from 'drizzle-orm';
 import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveEmailExample, getFollowUpLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens } from '../db';
 import { composeEmail, composeFollowUp } from '../services/geminiComposer';
 import { sendEmail, signatureHtml } from '../services/emailSender';
+import { checkReplies } from '../services/replyChecker';
 import { analyzeWebsite } from '../services/websiteAnalyzer';
 import type { WebsiteAnalysis } from '../services/websiteAnalyzer';
 
@@ -189,6 +190,19 @@ router.get('/draft/:businessId', (req, res) => {
 
 router.get('/signature', (_req, res) => {
   res.json({ html: signatureHtml });
+});
+
+router.post('/check-replies', async (_req, res) => {
+  try {
+    const result = await checkReplies();
+    res.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'not_configured') {
+      return res.status(409).json({ error: 'not_configured' });
+    }
+    res.status(502).json({ error: message });
+  }
 });
 
 router.get('/stats', (_req, res) => {

@@ -5,6 +5,7 @@ import { EmailComposer } from '../components/Outreach/EmailComposer';
 import { BusinessContext } from '../components/Outreach/BusinessContext';
 import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft } from '../lib/outreachApi';
 import { patchOutreach, getConfig } from '../lib/api';
+import { useSSE } from '../hooks/useSSE';
 import type { OutreachLead, OutreachStats, WebsiteAnalysis } from '../lib/outreachApi';
 
 interface Draft {
@@ -187,6 +188,17 @@ export function Outreach({ onEmailSent }: OutreachProps) {
       fetchStats();
     } catch (err) { console.error('[Outreach]', err); }
   }, [fetchStats]);
+
+  // Live updates from open tracking + reply detection
+  useSSE({
+    'email:opened': () => {
+      if (modeRef.current === 'followup') setLeadRefreshTrigger(n => n + 1);
+    },
+    'email:replied': () => {
+      setLeadRefreshTrigger(n => n + 1);
+      fetchStats();
+    },
+  });
 
   const handleModeChange = useCallback((m: QueueMode) => {
     setMode(m);

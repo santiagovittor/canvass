@@ -74,5 +74,8 @@ export function runMigrations() {
   if (!cols.includes('follow_up_status')) {
     sqlite.exec('ALTER TABLE businesses ADD COLUMN follow_up_status TEXT');
   }
+  if (!cols.includes('replied_at')) {
+    sqlite.exec('ALTER TABLE businesses ADD COLUMN replied_at TEXT');
+  }
 
 }

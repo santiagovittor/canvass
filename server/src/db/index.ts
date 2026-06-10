@@ -53,6 +53,10 @@ sqlite.exec(`
     opened_at TEXT NOT NULL,
     user_agent TEXT
   );
+  CREATE TABLE IF NOT EXISTS app_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
   CREATE INDEX IF NOT EXISTS email_opens_send_id_idx ON email_opens(send_id);
   CREATE INDEX IF NOT EXISTS email_opens_business_id_idx ON email_opens(business_id);
 `);
@@ -160,6 +164,7 @@ export function updateOutreach(id: string, status: string | null, note?: string 
   return db.update(businesses)
     .set({
       outreachStatus: status,
+      ...(status === 'replied' ? { repliedAt: nowUtcMinus3() } : {}),
       ...(note !== undefined ? { outreachNote: note } : {}),
     })
     .where(eq(businesses.id, id))
@@ -633,4 +638,36 @@ export function getLastSentAt(businessId: string): string | null {
 
 export function hasOpens(businessId: string): boolean {
   return sqlite.prepare(`SELECT 1 FROM email_opens WHERE business_id = ? LIMIT 1`).get(businessId) !== undefined;
+}
+
+// ── Reply detection ───────────────────────────────────────────────────────────
+
+export function getMeta(key: string): string | null {
+  const row = sqlite.prepare(`SELECT value FROM app_meta WHERE key = ?`).get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setMeta(key: string, value: string): void {
+  sqlite.prepare(`
+    INSERT INTO app_meta (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(key, value);
+}
+
+export function getContactedBusinessEmails(): { id: string; name: string; emails: string[] }[] {
+  const rows = sqlite.prepare(`
+    SELECT id, name, emails_json FROM businesses WHERE outreach_status = 'contacted'
+  `).all() as { id: string; name: string; emails_json: string | null }[];
+  return rows
+    .map(r => ({ id: r.id, name: r.name, emails: parseEmails(r.emails_json).map(e => e.toLowerCase()) }))
+    .filter(r => r.emails.length > 0);
+}
+
+export function markReplied(businessId: string): boolean {
+  // Only flips 'contacted' → 'replied': idempotent, respects manual transitions
+  const result = sqlite.prepare(`
+    UPDATE businesses SET outreach_status = 'replied', replied_at = ?
+    WHERE id = ? AND outreach_status = 'contacted'
+  `).run(nowUtcMinus3(), businessId);
+  return result.changes > 0;
 }

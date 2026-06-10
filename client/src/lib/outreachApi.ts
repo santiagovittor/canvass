@@ -53,6 +53,13 @@ export interface OutreachLead {
   has_draft: boolean;
 }
 
+export interface FollowUpLead extends OutreachLead {
+  last_sent_at: string;
+  send_count: number;
+  open_count: number;
+  last_opened_at: string | null;
+}
+
 export interface OutreachStats {
   sent_today: number;
   remaining: number;
@@ -79,6 +86,24 @@ export function getOutreachLeads(page: number, filters: OutreachLeadFilters = {}
 
 export function getOutreachCategories(): Promise<string[]> {
   return request('/outreach/categories');
+}
+
+export function getFollowUpLeads(page: number, days: number): Promise<{ rows: FollowUpLead[]; total: number }> {
+  return request(`/outreach/follow-ups?page=${page}&days=${days}`);
+}
+
+export function generateFollowUp(businessId: string): Promise<{ subject: string; body: string }> {
+  return request('/outreach/generate-follow-up', {
+    method: 'POST',
+    body: JSON.stringify({ businessId }),
+  });
+}
+
+export function skipFollowUp(businessId: string): Promise<void> {
+  return request(`/outreach/follow-up/${businessId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action: 'skip' }),
+  }).then(() => undefined);
 }
 
 export async function analyzeWebsite(businessId: string): Promise<WebsiteAnalysis> {

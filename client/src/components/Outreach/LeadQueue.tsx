@@ -1,15 +1,28 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { OutreachLead, OutreachLeadFilters } from '../../lib/outreachApi';
-import { getOutreachLeads, getOutreachCategories, countryFlag } from '../../lib/outreachApi';
+import type { OutreachLead, FollowUpLead, OutreachLeadFilters } from '../../lib/outreachApi';
+import { getOutreachLeads, getFollowUpLeads, getOutreachCategories, countryFlag } from '../../lib/outreachApi';
+
+export type QueueMode = 'new' | 'followup';
 
 interface LeadQueueProps {
   activeLead: OutreachLead | null;
   onSelect: (lead: OutreachLead) => void;
   onLeadsChange: (leads: OutreachLead[]) => void;
   refreshTrigger?: number;
+  mode: QueueMode;
+  onModeChange: (mode: QueueMode) => void;
+  onMarkReplied: (lead: OutreachLead) => void;
 }
 
 const PAGE_SIZE = 25;
+const DAYS_STORAGE_KEY = 'outreach.followUpDays';
+
+const relTimeFmt = new Intl.RelativeTimeFormat('es', { numeric: 'always' });
+
+function daysAgo(utcMinus3Iso: string): number {
+  // last_sent_at is a UTC-3 shifted ISO string — shift "now" the same way
+  return Math.max(0, Math.floor((Date.now() - 3 * 60 * 60 * 1000 - new Date(utcMinus3Iso).getTime()) / 86_400_000));
+}
 
 const PILL_BASE: React.CSSProperties = {
   background: 'transparent',
@@ -31,13 +44,17 @@ const PILL_ACTIVE: React.CSSProperties = {
   fontWeight: 500,
 };
 
-export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger }: LeadQueueProps) {
+export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger, mode, onModeChange, onMarkReplied }: LeadQueueProps) {
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [country, setCountry] = useState('');
   const [hasWebsite, setHasWebsite] = useState<boolean | undefined>(undefined);
   const [category, setCategory] = useState('');
   const [validEmailOnly, setValidEmailOnly] = useState(true);
+  const [followUpDays, setFollowUpDays] = useState(() => {
+    const stored = parseInt(localStorage.getItem(DAYS_STORAGE_KEY) ?? '', 10);
+    return Number.isFinite(stored) && stored >= 1 ? stored : 4;
+  });
   const [page, setPage] = useState(1);
   const [leads, setLeads] = useState<OutreachLead[]>([]);
   const [total, setTotal] = useState(0);
@@ -68,6 +85,11 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger 
     getOutreachCategories().then(setCategories).catch(() => {});
   }, []);
 
+  // Mode switch: reset page
+  useEffect(() => {
+    setPage(1);
+  }, [mode]);
+
   // Main fetch
   useEffect(() => {
     let cancelled = false;
@@ -78,7 +100,10 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger 
       category: category || undefined,
       validEmail: validEmailOnly ? true : undefined,
     };
-    getOutreachLeads(page, filters)
+    const fetchPromise = mode === 'followup'
+      ? getFollowUpLeads(page, followUpDays)
+      : getOutreachLeads(page, filters);
+    fetchPromise
       .then(result => {
         if (!cancelled) {
           setLeads(result.rows);
@@ -88,7 +113,16 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger 
       })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [page, fetchKey, debouncedSearch, country, hasWebsite, category, validEmailOnly]);
+  }, [page, fetchKey, debouncedSearch, country, hasWebsite, category, validEmailOnly, mode, followUpDays]);
+
+  const handleDaysChange = useCallback((raw: string) => {
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 1) {
+      setFollowUpDays(n);
+      localStorage.setItem(DAYS_STORAGE_KEY, String(n));
+      setPage(1);
+    }
+  }, []);
 
   const handleCountry = useCallback((val: string) => {
     const next = country === val ? '' : val;
@@ -136,7 +170,9 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger 
           fontWeight: 600,
           color: 'var(--text-secondary)',
         }}>
-          Lead Queue{activeFilterCount > 0 ? ` · ${activeFilterCount} filtro${activeFilterCount !== 1 ? 's' : ''}` : ''}
+          {mode === 'followup'
+            ? 'Follow-ups'
+            : `Lead Queue${activeFilterCount > 0 ? ` · ${activeFilterCount} filtro${activeFilterCount !== 1 ? 's' : ''}` : ''}`}
         </span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
           {total}
@@ -153,6 +189,42 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger 
         gap: 6,
         background: 'var(--bg-elevated)',
       }}>
+        {/* Row 0: queue mode */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button style={mode === 'new' ? PILL_ACTIVE : PILL_BASE} onClick={() => onModeChange('new')}>
+            Nuevos
+          </button>
+          <button style={mode === 'followup' ? PILL_ACTIVE : PILL_BASE} onClick={() => onModeChange('followup')}>
+            Follow-up
+          </button>
+        </div>
+
+        {mode === 'followup' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>Esperar</span>
+            <input
+              type="number"
+              min={1}
+              aria-label="Days to wait before follow-up"
+              value={followUpDays}
+              onChange={e => handleDaysChange(e.target.value)}
+              style={{
+                width: 48,
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                padding: '4px 6px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 12,
+                color: 'var(--text-primary)',
+                outline: 'none',
+              }}
+            />
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>días sin respuesta</span>
+          </div>
+        )}
+
+        {mode === 'new' && (<>
         {/* Row 1: search + category */}
         <div style={{ display: 'flex', gap: 6 }}>
           <input
@@ -223,6 +295,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger 
           <button aria-label="No website" style={hasWebsite === false ? PILL_ACTIVE : PILL_BASE} onClick={() => handleHasWebsite(false)}>Sin sitio</button>
           <button aria-label="Has website" style={hasWebsite === true ? PILL_ACTIVE : PILL_BASE} onClick={() => handleHasWebsite(true)}>Con sitio</button>
         </div>
+        </>)}
       </div>
 
       {/* List */}
@@ -235,7 +308,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger 
             fontSize: 13,
             color: 'var(--text-muted)',
           }}>
-            No leads in queue
+            {mode === 'followup' ? 'Sin follow-ups pendientes' : 'No leads in queue'}
           </div>
         )}
         {leads.map(lead => {
@@ -310,7 +383,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger 
                     )
                   }
                 </div>
-                {lead.category && (
+                {mode === 'new' && lead.category && (
                   <div style={{
                     fontFamily: 'var(--font-ui)',
                     fontSize: 11,
@@ -323,7 +396,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger 
                     {lead.category}
                   </div>
                 )}
-                {lead.locNeighbourhood && (
+                {mode === 'new' && lead.locNeighbourhood && (
                   <div style={{
                     fontFamily: 'var(--font-ui)',
                     fontSize: 11,
@@ -336,6 +409,50 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger 
                     {lead.locNeighbourhood}
                   </div>
                 )}
+                {mode === 'followup' && (() => {
+                  const fu = lead as FollowUpLead;
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' as const }}>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+                        {relTimeFmt.format(-daysAgo(fu.last_sent_at), 'day')}
+                      </span>
+                      {fu.send_count > 1 && (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+                          ×{fu.send_count}
+                        </span>
+                      )}
+                      <span style={{
+                        fontFamily: 'var(--font-ui)',
+                        fontSize: 10,
+                        fontWeight: 500,
+                        padding: '1px 5px',
+                        borderRadius: 3,
+                        ...(fu.open_count > 0
+                          ? { color: 'var(--accent)', background: 'var(--accent-dim)' }
+                          : { color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)' }),
+                      }}>
+                        {fu.open_count > 0 ? 'abierto' : 'sin abrir'}
+                      </span>
+                      <button
+                        onClick={e => { e.stopPropagation(); onMarkReplied(lead); }}
+                        title="Marcar como respondido"
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          padding: 0,
+                          fontFamily: 'var(--font-ui)',
+                          fontSize: 10,
+                          fontWeight: 500,
+                          color: 'var(--success)',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        Respondió
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Right: flag + draft indicator + email indicator */}

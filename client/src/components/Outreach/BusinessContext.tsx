@@ -8,6 +8,7 @@ const FOOD_CATS = /restaurant|café|cafe|bar|comida|panadería|panaderia|helader
 interface BusinessContextProps {
   lead: OutreachLead | null;
   analysis?: WebsiteAnalysis | null;
+  onMarkReplied?: () => void;
 }
 
 function normalizeWebsite(raw: string | null): string {
@@ -77,7 +78,7 @@ function SocialIcons({ lead }: { lead: OutreachLead }) {
   );
 }
 
-export function BusinessContext({ lead, analysis }: BusinessContextProps) {
+export function BusinessContext({ lead, analysis, onMarkReplied }: BusinessContextProps) {
   if (!lead) {
     return (
       <div style={{
@@ -121,6 +122,16 @@ export function BusinessContext({ lead, analysis }: BusinessContextProps) {
           {lead.name}
         </div>
       </div>
+
+      {onMarkReplied && (
+        <button
+          className="btn-secondary"
+          onClick={onMarkReplied}
+          style={{ color: 'var(--success)', fontSize: 12 }}
+        >
+          Marcar respondido ✓
+        </button>
+      )}
 
       {/* Rating + review count */}
       {lead.rating !== null && (

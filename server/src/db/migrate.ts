@@ -71,5 +71,8 @@ export function runMigrations() {
   if (!cols.includes('location_enriched')) {
     sqlite.exec('ALTER TABLE businesses ADD COLUMN location_enriched INTEGER NOT NULL DEFAULT 0');
   }
+  if (!cols.includes('follow_up_status')) {
+    sqlite.exec('ALTER TABLE businesses ADD COLUMN follow_up_status TEXT');
+  }
 
 }

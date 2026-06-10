@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { LeadQueue } from '../components/Outreach/LeadQueue';
+import type { QueueMode } from '../components/Outreach/LeadQueue';
 import { EmailComposer } from '../components/Outreach/EmailComposer';
 import { BusinessContext } from '../components/Outreach/BusinessContext';
-import { generateEmail, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft } from '../lib/outreachApi';
+import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft } from '../lib/outreachApi';
 import { patchOutreach, getConfig } from '../lib/api';
 import type { OutreachLead, OutreachStats, WebsiteAnalysis } from '../lib/outreachApi';
 
@@ -16,6 +17,7 @@ interface OutreachProps {
 }
 
 export function Outreach({ onEmailSent }: OutreachProps) {
+  const [mode, setMode] = useState<QueueMode>('new');
   const [activeLead, setActiveLead] = useState<OutreachLead | null>(null);
   const [pendingLead, setPendingLead] = useState<OutreachLead | null>(null);
   const [leadRefreshTrigger, setLeadRefreshTrigger] = useState(0);
@@ -38,11 +40,13 @@ export function Outreach({ onEmailSent }: OutreachProps) {
   const isAnalyzingRef = useRef(false);
   const isGeneratingRef = useRef(false);
   const isSendingRef = useRef(false);
+  const modeRef = useRef<QueueMode>('new');
   const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   activeLeadRef.current = activeLead;
   isAnalyzingRef.current = isAnalyzing;
   isGeneratingRef.current = isGenerating;
   isSendingRef.current = isSending;
+  modeRef.current = mode;
 
   const fetchStats = useCallback(async () => {
     try {
@@ -74,7 +78,9 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     setIsGenerating(true);
     setError(null);
     try {
-      const result = await generateEmail(lead.id);
+      const result = modeRef.current === 'followup'
+        ? await generateFollowUp(lead.id)
+        : await generateEmail(lead.id);
       setDraft({ subject: result.subject, body: result.body });
       setIsAiDraft(true);
       setSavingState('saving');
@@ -157,9 +163,40 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     setDraft({ subject: '', body: '' });
     setIsAiDraft(false);
     try {
-      await patchOutreach(lead.id, 'skip');
+      // Follow-up skip leaves outreach_status untouched — the lead stays 'contacted'
+      if (modeRef.current === 'followup') {
+        await skipFollowUp(lead.id);
+      } else {
+        await patchOutreach(lead.id, 'skip');
+      }
       setLeadRefreshTrigger(n => n + 1);
     } catch (err) { console.error('[Outreach]', err); }
+  }, []);
+
+  const handleMarkReplied = useCallback(async (lead: OutreachLead) => {
+    const rows = queueLeadsRef.current;
+    const idx = rows.findIndex(r => r.id === lead.id);
+    if (activeLeadRef.current?.id === lead.id) {
+      setActiveLead(rows[idx + 1] ?? rows[idx - 1] ?? null);
+      setDraft({ subject: '', body: '' });
+      setIsAiDraft(false);
+    }
+    try {
+      await patchOutreach(lead.id, 'replied');
+      setLeadRefreshTrigger(n => n + 1);
+      fetchStats();
+    } catch (err) { console.error('[Outreach]', err); }
+  }, [fetchStats]);
+
+  const handleModeChange = useCallback((m: QueueMode) => {
+    setMode(m);
+    setActiveLead(null);
+    setPendingLead(null);
+    setDraft({ subject: '', body: '' });
+    setIsAiDraft(false);
+    setAnalysis(null);
+    setError(null);
+    setSavingState('idle');
   }, []);
 
   // Keyboard shortcuts
@@ -245,8 +282,12 @@ export function Outreach({ onEmailSent }: OutreachProps) {
         onSelect={handleSelectLead}
         onLeadsChange={handleLeadsChange}
         refreshTrigger={leadRefreshTrigger}
+        mode={mode}
+        onModeChange={handleModeChange}
+        onMarkReplied={handleMarkReplied}
       />
       <EmailComposer
+        mode={mode}
         lead={activeLead}
         draft={draft}
         isAiDraft={isAiDraft}
@@ -268,7 +309,11 @@ export function Outreach({ onEmailSent }: OutreachProps) {
         onConfirmSwitch={handleConfirmSwitch}
         onCancelSwitch={handleCancelSwitch}
       />
-      <BusinessContext lead={activeLead} analysis={analysis} />
+      <BusinessContext
+        lead={activeLead}
+        analysis={analysis}
+        onMarkReplied={mode === 'followup' && activeLead ? () => handleMarkReplied(activeLead) : undefined}
+      />
     </div>
   );
 }

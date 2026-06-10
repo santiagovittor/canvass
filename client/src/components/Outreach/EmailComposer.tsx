@@ -7,6 +7,7 @@ interface Draft {
 }
 
 interface EmailComposerProps {
+  mode: 'new' | 'followup';
   lead: OutreachLead | null;
   draft: Draft;
   isAiDraft: boolean;
@@ -32,7 +33,7 @@ interface EmailComposerProps {
 const DAILY_CAP = 30;
 
 export function EmailComposer({
-  lead, draft, isAiDraft, isAnalyzing, isGenerating, isSending,
+  mode, lead, draft, isAiDraft, isAnalyzing, isGenerating, isSending,
   remaining, error, savingState, onDraftChange, onAnalyzeAndGenerate, onGenerate, onSend, onSkip,
   signatureHtml, senderName, senderEmail,
   pendingLead, onConfirmSwitch, onCancelSwitch,
@@ -61,7 +62,8 @@ export function EmailComposer({
 
   const sentToday = DAILY_CAP - remaining;
   const canSend = !!(lead?.valid_email) && !isAnalyzing && !isGenerating && !isSending && !isSent && draft.subject.trim() && draft.body.trim();
-  const hasWebsite = !!(lead?.website);
+  // Follow-ups never run website analysis — the angle comes from the original email
+  const hasWebsite = mode === 'new' && !!(lead?.website);
   const busy = isAnalyzing || isGenerating || isSending;
 
   function handleSendClick() {
@@ -230,9 +232,9 @@ export function EmailComposer({
         }}>
           <span style={{ color: 'var(--accent)', fontWeight: 500 }}>S</span> send
           {' · '}
-          <span style={{ color: 'var(--accent)', fontWeight: 500 }}>X</span> skip
+          <span style={{ color: 'var(--accent)', fontWeight: 500 }}>X</span> {mode === 'followup' ? 'skip follow-up' : 'skip'}
           {' · '}
-          <span style={{ color: 'var(--accent)', fontWeight: 500 }}>R</span> regenerate
+          <span style={{ color: 'var(--accent)', fontWeight: 500 }}>R</span> {mode === 'followup' ? 'generate follow-up' : 'regenerate'}
         </div>
 
         {previewing ? (
@@ -360,7 +362,7 @@ export function EmailComposer({
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, flexShrink: 0 }}>
                 <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>
                   <span style={{ fontFamily: 'var(--font-mono)', color: wordColor }}>{words}</span>
-                  {' words · target 60–90'}
+                  {mode === 'followup' ? ' words · target ≤80' : ' words · target 60–90'}
                 </span>
                 {(() => {
                   const base = { fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 100, letterSpacing: '0.04em' } as const;
@@ -527,7 +529,9 @@ export function EmailComposer({
               disabled={busy}
               style={{ flex: '0 0 auto' }}
             >
-              {isAnalyzing ? 'Analyzing…' : isGenerating ? 'Generating…' : hasWebsite ? 'Analyze & Generate' : 'Generate'}
+              {isAnalyzing ? 'Analyzing…' : isGenerating ? 'Generating…'
+                : mode === 'followup' ? 'Generate follow-up'
+                : hasWebsite ? 'Analyze & Generate' : 'Generate'}
             </button>
             <button
               className="btn-primary"

@@ -274,6 +274,170 @@ BANNED STRUCTURES:
 Reply ONLY with valid JSON, no extra text, no markdown:
 {"subject":"...","body":"..."}`;
 
+const FOLLOWUP_ES = `Sos un copywriter de cold email B2B para negocios en Argentina.
+Estás escribiendo un FOLLOW-UP: ya le enviaste un primer email a este negocio
+hace unos días y no respondió. El email original está en el mensaje del usuario.
+
+VOZ: primera persona del singular únicamente.
+Nunca "nosotros", "implementamos", "ofrecemos", "trabajamos".
+Siempre: "implemento", "trabajo", "desarrollo", "diseño".
+
+REGISTRO: siempre "usted". Nunca "vos", nunca "tú".
+
+DATOS (en el mensaje del usuario):
+name, category, neighbourhood, daysSinceSent,
+originalSubject, originalBody (el primer email; puede ser null),
+wasOpened (true si abrió el primer email — NUNCA mencionar esto)
+
+ESTRUCTURA (en orden):
+1. {{GREETING}}, {{PROFESSIONAL_TITLE}}
+   (línea en blanco después del saludo)
+2. Referencia breve y neutral al primer email — UNA oración.
+   Modelo: "Le escribí hace unos días sobre [tema del email original]."
+   Si originalBody es null: "Le escribí hace unos días sobre el sitio de su negocio."
+   PROHIBIDO: cualquier reproche — nunca "no recibí respuesta",
+   "no tuve novedades", "como no me contestó", "entiendo que esté ocupado".
+3. Ángulo NUEVO — un párrafo, máximo 2 oraciones.
+   NO repitas el pitch del email original. Elegí un beneficio o problema
+   DISTINTO al que usaste la primera vez, relevante para su categoría.
+   Si wasOpened es true: sé más concreto y directo sobre el valor
+   (un resultado tangible, un ejemplo específico para su rubro).
+   Si wasOpened es false: replanteá la propuesta de valor desde cero
+   con otras palabras, como si fuera la primera vez que la lee.
+4. CTA suave — UNA oración corta.
+   Ejemplos: "¿Le interesa que lo conversemos esta semana?"
+   "Si le sirve, le muestro un ejemplo en 10 minutos."
+5. Cierre — una sola palabra: "Saludos,"
+
+SUBJECT — 3 a 5 palabras, todo minúsculas, sin signos de exclamación.
+Distinto al subject original. Nunca "re:" ni "seguimiento" ni "follow up".
+
+LONGITUD — LÍMITE DURO: body completo de 40 a 80 palabras.
+Más corto que el original. Máximo 2 oraciones por párrafo.
+
+PROHIBIDO ABSOLUTO:
+- Mencionar que abrió, leyó, vio o recibió el email anterior
+- Reprochar la falta de respuesta de cualquier forma
+- Repetir frases del email original
+- Presentarte de nuevo con nombre completo (ya se presentó la primera vez)
+
+FRASES PROHIBIDAS:
+espero que este correo lo encuentre bien, me pongo en contacto,
+solución integral, potenciar, sinergia, innovación, a medida,
+en el mercado actual, me complace, le escribo para ofrecerle,
+no dude en contactarme, mundo digital, presencia online,
+era digital, transformación digital, estamos para ayudarlo,
+podría ser que, quizás le interese, me permito contactarlo,
+quedo a su disposición, será un placer, gracias por su tiempo,
+gracias por leer, actualmente, en la actualidad, hoy en día,
+hemos trabajado, contamos con, nuestro equipo
+
+Responder ÚNICAMENTE con JSON válido, sin texto adicional, sin markdown:
+{"subject":"...","body":"..."}`;
+
+const FOLLOWUP_EN = `You are a B2B cold email copywriter. Plain, direct American English.
+You are writing a FOLLOW-UP: you already sent this business a first email
+a few days ago and got no reply. The original email is in the user message.
+
+DATA (in the user message):
+name, category, neighbourhood, daysSinceSent,
+originalSubject, originalBody (the first email; may be null),
+wasOpened (true if they opened the first email — NEVER mention this)
+
+STRUCTURE (in order):
+1. Brief neutral reference to the first email — ONE sentence.
+   Model: "I emailed you a few days ago about [topic of original email]."
+   If originalBody is null: "I emailed you a few days ago about your business website."
+   BANNED: any guilt-trip — never "I haven't heard back", "since you didn't
+   reply", "I know you're busy".
+2. NEW angle — one paragraph, max 2 sentences.
+   Do NOT repeat the original pitch. Pick a DIFFERENT benefit or problem
+   than the first email, relevant to their category.
+   If wasOpened is true: be more concrete and direct about the value
+   (a tangible outcome, a specific example for their industry).
+   If wasOpened is false: restate the value proposition from scratch
+   in different words, as if they're reading it for the first time.
+3. Soft CTA — ONE short sentence.
+   Examples: "Worth a quick chat this week?" "Happy to show you an example in 10 minutes."
+4. Close: nothing — no sign-off, no name.
+
+SUBJECT: 3–5 words, all lowercase, no exclamation marks.
+Different from the original subject. Never "re:" or "follow up" or "checking in".
+
+LENGTH — HARD LIMIT: full body 40–80 words. Shorter than the original.
+
+ABSOLUTELY BANNED:
+- Mentioning they opened, read, saw, or received the previous email
+- Guilt-tripping about the lack of reply in any form
+- Repeating phrases from the original email
+- Re-introducing yourself (you already did in the first email)
+
+BANNED PHRASES:
+I hope this email finds you well, I wanted to reach out,
+I came across your business, synergy, leverage, innovative,
+cutting-edge, tailored solutions, in today's competitive landscape,
+I'd love to connect, let's hop on a call, feel free to reach out,
+don't hesitate to contact me, take your business to the next level,
+just checking in, just following up, just bumping this
+
+Reply ONLY with valid JSON, no extra text, no markdown:
+{"subject":"...","body":"..."}`;
+
+async function callGemini(systemPrompt: string, userPayload: Record<string, unknown>): Promise<{ subject: string; body: string }> {
+  if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
+
+  const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-3.5-flash',
+    systemInstruction: systemPrompt,
+  });
+
+  const result = await model.generateContent(JSON.stringify(userPayload));
+  const text = result.response.text().trim();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error(`Gemini returned non-JSON: ${text.slice(0, 200)}`);
+  }
+
+  if (
+    typeof parsed !== 'object' || parsed === null ||
+    typeof (parsed as Record<string, unknown>).subject !== 'string' ||
+    typeof (parsed as Record<string, unknown>).body !== 'string'
+  ) {
+    throw new Error(`Gemini JSON missing subject/body: ${text.slice(0, 200)}`);
+  }
+
+  return {
+    subject: (parsed as { subject: string; body: string }).subject,
+    body: (parsed as { subject: string; body: string }).body,
+  };
+}
+
+export async function composeFollowUp(
+  business: BusinessForEmail,
+  original: { subject: string; body: string } | null,
+  daysSinceSent: number | null,
+  wasOpened: boolean,
+): Promise<{ subject: string; body: string }> {
+  const isArgentina = business.locCountry === 'Argentina';
+  const systemPrompt = (isArgentina ? FOLLOWUP_ES : FOLLOWUP_EN)
+    .replaceAll('{{GREETING}}', getGreeting())
+    .replaceAll('{{PROFESSIONAL_TITLE}}', getProfessionalTitle(business.category));
+
+  return callGemini(systemPrompt, {
+    name: business.name,
+    category: business.category,
+    neighbourhood: business.locNeighbourhood,
+    daysSinceSent,
+    originalSubject: original?.subject ?? null,
+    originalBody: original?.body ?? null,
+    wasOpened,
+  });
+}
+
 export async function composeEmail(
   business: BusinessForEmail,
   analysis?: WebsiteAnalysis,
@@ -290,12 +454,6 @@ export async function composeEmail(
     .replace('{{OFFER_CONTEXT}}', offerContext + analysisContext)
     .replaceAll('{{GREETING}}', greeting)
     .replaceAll('{{PROFESSIONAL_TITLE}}', title);
-
-  const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({
-    model: 'gemini-3.5-flash',
-    systemInstruction: systemPrompt,
-  });
 
   let userPayload: Record<string, unknown> = {
     name: business.name,
@@ -339,29 +497,6 @@ export async function composeEmail(
     };
   }
 
-  const userMessage = JSON.stringify(userPayload);
-
-  const result = await model.generateContent(userMessage);
-  const text = result.response.text().trim();
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error(`Gemini returned non-JSON: ${text.slice(0, 200)}`);
-  }
-
-  if (
-    typeof parsed !== 'object' || parsed === null ||
-    typeof (parsed as Record<string, unknown>).subject !== 'string' ||
-    typeof (parsed as Record<string, unknown>).body !== 'string'
-  ) {
-    throw new Error(`Gemini JSON missing subject/body: ${text.slice(0, 200)}`);
-  }
-
-  return {
-    subject: (parsed as { subject: string; body: string }).subject,
-    body: (parsed as { subject: string; body: string }).body,
-    topGap,
-  };
+  const { subject, body } = await callGemini(systemPrompt, userPayload);
+  return { subject, body, topGap };
 }

@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { db } from '../db';
 import { businesses } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
-import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveEmailExample } from '../db';
-import { composeEmail } from '../services/geminiComposer';
+import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveEmailExample, getFollowUpLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens } from '../db';
+import { composeEmail, composeFollowUp } from '../services/geminiComposer';
 import { sendEmail, signatureHtml } from '../services/emailSender';
 import { analyzeWebsite } from '../services/websiteAnalyzer';
 import type { WebsiteAnalysis } from '../services/websiteAnalyzer';
@@ -31,6 +31,54 @@ router.get('/leads', (req, res) => {
 
 router.get('/categories', (_req, res) => {
   res.json(getDistinctOutreachCategories());
+});
+
+router.get('/follow-ups', (req, res) => {
+  const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
+  const days = Math.max(1, parseInt(String(req.query.days ?? '4'), 10) || 4);
+  res.json(getFollowUpLeads(page, 25, days));
+});
+
+router.post('/generate-follow-up', async (req, res) => {
+  const { businessId } = req.body as { businessId?: unknown };
+  if (typeof businessId !== 'string') {
+    return res.status(400).json({ error: 'businessId required' });
+  }
+
+  const row = db.select().from(businesses).where(eq(businesses.id, businessId)).get();
+  if (!row) return res.status(404).json({ error: 'Business not found' });
+
+  const original = getLatestSentEmail(businessId);
+  const lastSentAt = getLastSentAt(businessId);
+  const daysSinceSent = lastSentAt
+    ? Math.floor((Date.now() - 3 * 60 * 60 * 1000 - new Date(lastSentAt).getTime()) / 86_400_000)
+    : null;
+
+  try {
+    const result = await composeFollowUp({
+      name: row.name,
+      category: row.category ?? null,
+      website: row.website ?? null,
+      locCountry: row.locCountry ?? null,
+      locNeighbourhood: row.locNeighbourhood ?? null,
+      rating: row.rating ?? null,
+      reviewCount: row.reviewCount ?? null,
+    }, original, daysSinceSent, hasOpens(businessId));
+    res.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ error: message });
+  }
+});
+
+router.patch('/follow-up/:businessId', (req, res) => {
+  const { action } = req.body as { action?: unknown };
+  if (action !== 'skip') {
+    return res.status(400).json({ error: "action must be 'skip'" });
+  }
+  const found = setFollowUpStatus(req.params.businessId, 'skip');
+  if (!found) return res.status(404).json({ error: 'Business not found' });
+  res.json({ ok: true });
 });
 
 router.post('/analyze', async (req, res) => {
@@ -111,6 +159,8 @@ router.post('/send', async (req, res) => {
       neighbourhood: row.locNeighbourhood ?? null,
       subject,
       body,
+      // row was read before sendEmail flipped the status: 'contacted' means this send is a follow-up
+      kind: row.outreachStatus === 'contacted' ? 'followup' : 'initial',
     });
   } catch (err) {
     console.error('[outreach/send] saveEmailExample failed:', err);

@@ -70,6 +70,13 @@ if (!sendCols.includes('tracking_token')) {
 }
 sqlite.exec('CREATE INDEX IF NOT EXISTS email_sends_tracking_token_idx ON email_sends(tracking_token)');
 
+// Must run before stmtInsertExample is prepared. Follow-ups are excluded from
+// the few-shot pool that seeds initial-email generation.
+const exampleCols = (sqlite.prepare('PRAGMA table_info(email_examples)').all() as { name: string }[]).map(r => r.name);
+if (!exampleCols.includes('kind')) {
+  sqlite.exec(`ALTER TABLE email_examples ADD COLUMN kind TEXT NOT NULL DEFAULT 'initial'`);
+}
+
 export const db = drizzle(sqlite, { schema });
 export { sqlite };
 
@@ -491,9 +498,9 @@ export function getCategoryBucket(category: string | null): string {
   return 'other';
 }
 
-const stmtInsertExample = sqlite.prepare<[string, string | null, string, string | null, string | null, string, string, string], void>(`
-  INSERT INTO email_examples (business_id, category, category_bucket, top_gap, neighbourhood, subject, body, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+const stmtInsertExample = sqlite.prepare<[string, string | null, string, string | null, string | null, string, string, string, string], void>(`
+  INSERT INTO email_examples (business_id, category, category_bucket, top_gap, neighbourhood, subject, body, created_at, kind)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 export function saveEmailExample(data: {
@@ -503,24 +510,127 @@ export function saveEmailExample(data: {
   neighbourhood: string | null;
   subject: string;
   body: string;
+  kind?: 'initial' | 'followup';
 }): void {
   const bucket = getCategoryBucket(data.category);
   const now = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
-  stmtInsertExample.run(data.businessId, data.category, bucket, data.topGap, data.neighbourhood, data.subject, data.body, now);
+  stmtInsertExample.run(data.businessId, data.category, bucket, data.topGap, data.neighbourhood, data.subject, data.body, now, data.kind ?? 'initial');
 }
 
 const stmtExactMatch = sqlite.prepare<[string, string], { subject: string; body: string }>(`
   SELECT subject, body FROM email_examples
-  WHERE top_gap = ? AND category_bucket = ?
+  WHERE top_gap = ? AND category_bucket = ? AND kind = 'initial'
   ORDER BY created_at DESC LIMIT 1
 `);
 const stmtGapOnly = sqlite.prepare<[string], { subject: string; body: string }>(`
   SELECT subject, body FROM email_examples
-  WHERE top_gap = ?
+  WHERE top_gap = ? AND kind = 'initial'
   ORDER BY created_at DESC LIMIT 1
 `);
 
 export function getMatchingExample(topGap: string | null, categoryBucket: string): { subject: string; body: string } | null {
   if (!topGap) return null;
   return stmtExactMatch.get(topGap, categoryBucket) ?? stmtGapOnly.get(topGap) ?? null;
+}
+
+// ── Follow-up queue ───────────────────────────────────────────────────────────
+
+export interface FollowUpLead extends OutreachLead {
+  last_sent_at: string;
+  send_count: number;
+  open_count: number;
+  last_opened_at: string | null;
+}
+
+type RawFollowUpRow = RawLeadRow & {
+  last_sent_at: string;
+  send_count: number;
+  open_count: number;
+  last_opened_at: string | null;
+};
+
+export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: FollowUpLead[]; total: number } {
+  const offset = (page - 1) * pageSize;
+  // Both sides UTC-3 shifted ISO strings → lexicographic comparison is valid
+  const cutoff = new Date(Date.now() - 3 * 60 * 60 * 1000 - minDays * 86_400_000).toISOString();
+
+  const lastSendJoin = `
+    JOIN (
+      SELECT business_id, MAX(sent_at) AS last_sent_at, COUNT(*) AS send_count
+      FROM email_sends WHERE status = 'sent' GROUP BY business_id
+    ) ls ON ls.business_id = b.id
+  `;
+  const whereClause = `
+    WHERE b.outreach_status = 'contacted'
+      AND b.follow_up_status IS NULL
+      AND ls.last_sent_at < ?
+  `;
+
+  const leadsSQL = `
+    SELECT b.id, b.name, b.address, b.phone, b.website, b.emails_json, b.category, b.rating, b.review_count,
+           b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status,
+           b.latitude, b.longitude, b.instagram, b.facebook, b.twitter, b.tiktok, b.linkedin, b.youtube,
+           CASE WHEN d.business_id IS NOT NULL THEN 1 ELSE 0 END AS has_draft,
+           ls.last_sent_at, ls.send_count,
+           COALESCE(op.open_count, 0) AS open_count, op.last_opened_at
+    FROM businesses b
+    ${lastSendJoin}
+    LEFT JOIN (
+      SELECT business_id, COUNT(DISTINCT send_id) AS open_count, MAX(opened_at) AS last_opened_at
+      FROM email_opens GROUP BY business_id
+    ) op ON op.business_id = b.id
+    LEFT JOIN outreach_drafts d ON d.business_id = b.id
+    ${whereClause}
+    ORDER BY ls.last_sent_at ASC
+    LIMIT ? OFFSET ?
+  `;
+  const countSQL = `SELECT COUNT(*) AS n FROM businesses b ${lastSendJoin} ${whereClause}`;
+
+  const raw = sqlite.prepare<(string | number)[], RawFollowUpRow>(leadsSQL).all(cutoff, pageSize, offset);
+  const total = sqlite.prepare<[string], { n: number }>(countSQL).get(cutoff)?.n ?? 0;
+
+  const rows: FollowUpLead[] = raw.map(r => {
+    const emails = parseEmails(r.emails_json);
+    const first = emails[0] ?? null;
+    return {
+      id: r.id, name: r.name, address: r.address, phone: r.phone,
+      website: r.website, emailsJson: r.emails_json, category: r.category,
+      rating: r.rating, reviewCount: r.review_count,
+      locCountry: r.loc_country, locNeighbourhood: r.loc_neighbourhood,
+      locCity: r.loc_city, outreachStatus: r.outreach_status,
+      valid_email: first !== null && validateEmail(first),
+      first_email: first,
+      latitude: r.latitude, longitude: r.longitude,
+      instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
+      tiktok: r.tiktok, linkedin: r.linkedin, youtube: r.youtube,
+      has_draft: r.has_draft === 1,
+      last_sent_at: r.last_sent_at, send_count: r.send_count,
+      open_count: r.open_count, last_opened_at: r.last_opened_at,
+    };
+  });
+
+  return { rows, total };
+}
+
+export function setFollowUpStatus(businessId: string, status: 'skip' | null): boolean {
+  const result = sqlite.prepare(`UPDATE businesses SET follow_up_status = ? WHERE id = ?`)
+    .run(status, businessId);
+  return result.changes > 0;
+}
+
+export function getLatestSentEmail(businessId: string): { subject: string; body: string } | null {
+  // id is AUTOINCREMENT — reliable "latest"; created_at has second-resolution ties
+  return (sqlite.prepare(`
+    SELECT subject, body FROM email_examples WHERE business_id = ? ORDER BY id DESC LIMIT 1
+  `).get(businessId) as { subject: string; body: string } | undefined) ?? null;
+}
+
+export function getLastSentAt(businessId: string): string | null {
+  return (sqlite.prepare(`
+    SELECT MAX(sent_at) AS t FROM email_sends WHERE business_id = ? AND status = 'sent'
+  `).get(businessId) as { t: string | null }).t;
+}
+
+export function hasOpens(businessId: string): boolean {
+  return sqlite.prepare(`SELECT 1 FROM email_opens WHERE business_id = ? LIMIT 1`).get(businessId) !== undefined;
 }

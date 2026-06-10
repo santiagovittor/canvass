@@ -32,7 +32,7 @@ export function MapView({ onPolygonChange, cells, cellCount }: MapViewProps) {
   }, [onPolygonChange]);
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <div className="map-wrapper">
       <MapContainer
         center={[-34.6037, -58.3816]}
         zoom={13}
@@ -41,7 +41,7 @@ export function MapView({ onPolygonChange, cells, cellCount }: MapViewProps) {
       >
         <TileLayer
           url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
           subdomains="abcd"
           maxZoom={20}
         />
@@ -51,26 +51,33 @@ export function MapView({ onPolygonChange, cells, cellCount }: MapViewProps) {
       </MapContainer>
 
       {/* Logo chip */}
-      <div style={{
+      <div className="glass-warm" style={{
         position: 'absolute',
         top: '16px',
         left: '16px',
         zIndex: 1000,
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-        background: 'rgba(22,25,32,0.70)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: '10px',
-        padding: '8px 14px',
+        borderRadius: '8px',
+        padding: '7px 12px',
         fontFamily: 'var(--font-ui)',
         fontWeight: 600,
-        fontSize: '13px',
+        fontSize: '12px',
         color: 'var(--text-primary)',
-        letterSpacing: '0.06em',
+        letterSpacing: '0.08em',
         userSelect: 'none',
         pointerEvents: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
       }}>
-        MAPS <span style={{ color: 'var(--accent)' }}>·</span> SCRAPER
+        <span style={{
+          display: 'inline-block',
+          width: '6px',
+          height: '6px',
+          borderRadius: '50%',
+          background: 'var(--accent)',
+          flexShrink: 0,
+        }} />
+        MAPS·SCRAPER
       </div>
 
       {/* Geocoding search */}
@@ -86,20 +93,23 @@ export function MapView({ onPolygonChange, cells, cellCount }: MapViewProps) {
           zIndex: 999,
           pointerEvents: 'none',
           textAlign: 'center',
-          animation: 'pulse 2.4s ease-in-out infinite',
+          animation: 'pulse 2.8s ease-in-out infinite',
         }}>
-          <div style={{
-            width: '100px',
-            height: '68px',
-            border: '2px dashed var(--accent)',
-            borderRadius: '4px',
-            margin: '0 auto',
-          }} />
+          <svg width="80" height="60" viewBox="0 0 80 60" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block', margin: '0 auto' }}>
+            <path d="M4 18L4 4L18 4" stroke="#E8930A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M62 4L76 4L76 18" stroke="#E8930A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M4 42L4 56L18 56" stroke="#E8930A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M62 56L76 56L76 42" stroke="#E8930A" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            <line x1="40" y1="25" x2="40" y2="35" stroke="#E8930A" strokeWidth="1" strokeOpacity="0.55" strokeLinecap="round"/>
+            <line x1="35" y1="30" x2="45" y2="30" stroke="#E8930A" strokeWidth="1" strokeOpacity="0.55" strokeLinecap="round"/>
+          </svg>
           <div style={{
             fontFamily: 'var(--font-ui)',
-            fontSize: '13px',
+            fontSize: '12px',
+            fontWeight: 500,
             color: 'var(--text-muted)',
-            marginTop: '10px',
+            marginTop: '12px',
+            letterSpacing: '0.04em',
           }}>
             Dibujá un área para comenzar
           </div>

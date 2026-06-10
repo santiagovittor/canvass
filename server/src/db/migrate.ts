@@ -44,6 +44,11 @@ export function runMigrations() {
     CREATE INDEX IF NOT EXISTS businesses_job_id_idx ON businesses(job_id);
   `);
 
+  const jobCols = (sqlite.prepare('PRAGMA table_info(scrape_jobs)').all() as { name: string }[]).map(r => r.name);
+  if (!jobCols.includes('cells_done')) {
+    sqlite.exec('ALTER TABLE scrape_jobs ADD COLUMN cells_done INTEGER NOT NULL DEFAULT 0');
+  }
+
   const cols = (sqlite.prepare('PRAGMA table_info(businesses)').all() as { name: string }[]).map(r => r.name);
   if (!cols.includes('outreach_status')) {
     sqlite.exec('ALTER TABLE businesses ADD COLUMN outreach_status TEXT');

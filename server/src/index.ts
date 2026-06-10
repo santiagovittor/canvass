@@ -14,6 +14,7 @@ import businessesRouter from './routes/businesses';
 import outreachRouter from './routes/outreach';
 import outreachQueueRouter from './routes/outreachQueue';
 import adminRouter from './routes/admin';
+import analyticsRouter from './routes/analytics';
 import { enrichLocationJob } from './services/locationEnricher';
 import { db } from './db';
 import { businesses } from './db/schema';
@@ -54,6 +55,7 @@ app.use('/api/businesses', businessesRouter);
 app.use('/api/businesses', outreachRouter);
 app.use('/api/outreach', outreachQueueRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/analytics', analyticsRouter);
 app.use('/events', eventsRouter);
 
 if (env.NODE_ENV === 'production') {

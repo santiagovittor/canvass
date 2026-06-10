@@ -1,7 +1,7 @@
 import type { Response } from 'express';
 import { db } from './db';
 import { scrapeJobs } from './db/schema';
-import { or, eq } from 'drizzle-orm';
+import { or, eq, desc } from 'drizzle-orm';
 
 const clients = new Set<Response>();
 
@@ -31,9 +31,15 @@ export function register(res: Response) {
       enrichmentProgress: scrapeJobs.enrichmentProgress,
       businessesFound: scrapeJobs.businessesFound,
       cellCount: scrapeJobs.cellCount,
+      cellsDone: scrapeJobs.cellsDone,
     })
     .from(scrapeJobs)
-    .where(or(eq(scrapeJobs.status, 'running'), eq(scrapeJobs.status, 'enriching')))
+    .where(or(
+      eq(scrapeJobs.status, 'running'),
+      eq(scrapeJobs.status, 'enriching'),
+      eq(scrapeJobs.status, 'error'),
+    ))
+    .orderBy(desc(scrapeJobs.createdAt))
     .limit(1)
     .get();
 
@@ -44,6 +50,7 @@ export function register(res: Response) {
       progress: activeJob.enrichmentProgress,
       businessesFound: activeJob.businessesFound,
       cellCount: activeJob.cellCount,
+      cellsDone: activeJob.cellsDone,
     })}\n\n`);
   } else {
     safeWrite(res, `event: snapshot\ndata: ${JSON.stringify({ type: 'idle' })}\n\n`);

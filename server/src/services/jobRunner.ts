@@ -192,6 +192,7 @@ async function runJob(
 
       broadcast('businesses_updated', { jobId, count: businessesFound });
       cellsDone++;
+      db.update(scrapeJobs).set({ cellsDone }).where(eq(scrapeJobs.id, jobId)).run();
     }
 
     console.log('[jobRunner] total businesses found:', businessesFound, 'for job', jobId);

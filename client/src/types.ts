@@ -90,6 +90,6 @@ export interface JobDoneEvent { jobId: string; }
 export interface JobErrorEvent { jobId: string; message: string; }
 export interface EnrichProgressEvent { jobId: string; done: number; total: number; }
 export interface BusinessesUpdatedEvent { jobId: string; count: number; }
-export interface SnapshotActiveEvent { id: string; status: JobStatus; progress: number; businessesFound: number; cellCount: number; }
+export interface SnapshotActiveEvent { id: string; status: JobStatus; progress: number; businessesFound: number; cellCount: number; cellsDone: number; }
 export interface SnapshotIdleEvent { type: 'idle'; }
 export type SnapshotEvent = SnapshotActiveEvent | SnapshotIdleEvent;

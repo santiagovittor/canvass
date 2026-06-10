@@ -43,7 +43,7 @@ export function AreaStats({ cellCount, cellSizeKm, onCellSizeChange, jobActive, 
 
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-          <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+          <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
             Cell Size
           </span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-secondary)' }}>
@@ -67,7 +67,7 @@ export function AreaStats({ cellCount, cellSizeKm, onCellSizeChange, jobActive, 
           border: '1px solid rgba(255,77,109,0.3)',
           borderRadius: '8px',
           padding: '10px 14px',
-          color: '#FF4D6D',
+          color: 'var(--error)',
           fontFamily: 'var(--font-ui)',
           fontSize: '13px',
         }}>
@@ -80,7 +80,7 @@ export function AreaStats({ cellCount, cellSizeKm, onCellSizeChange, jobActive, 
           border: '1px solid rgba(245,183,0,0.3)',
           borderRadius: '8px',
           padding: '10px 14px',
-          color: '#F5B700',
+          color: 'var(--warn)',
           fontFamily: 'var(--font-ui)',
           fontSize: '13px',
         }}>

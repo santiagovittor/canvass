@@ -46,7 +46,14 @@ export function Sidebar({
         background: 'var(--bg-panel)',
         borderRight: '1px solid var(--border)',
       }}>
-        <span style={{ fontFamily: 'var(--font-ui)', fontSize: '13px', color: 'var(--text-muted)', textAlign: 'center', padding: '0 20px' }}>
+        <span style={{
+          fontFamily: 'var(--font-ui)',
+          fontSize: '12px',
+          color: 'var(--text-muted)',
+          textAlign: 'center',
+          padding: '0 24px',
+          letterSpacing: '0.03em',
+        }}>
           Draw an area to begin
         </span>
       </div>
@@ -65,37 +72,29 @@ export function Sidebar({
         borderRight: '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
-        gap: '12px',
-        padding: '16px',
       }}
     >
-      <div className="panel" style={{ borderRadius: '0 12px 12px 0', borderLeft: 'none' }}>
-        <div style={{ marginBottom: '16px' }}>
-          <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-            Area
-          </span>
-        </div>
-        <AreaStats cellCount={cellCount} cellSizeKm={cellSizeKm} onCellSizeChange={onCellSizeChange} jobActive={jobActive} cellsDone={cellsDone} />
+      <div className="sidebar-section">
+        <div className="sidebar-section-label">Area</div>
+        <AreaStats
+          cellCount={cellCount}
+          cellSizeKm={cellSizeKm}
+          onCellSizeChange={onCellSizeChange}
+          jobActive={jobActive}
+          cellsDone={cellsDone}
+        />
       </div>
 
       {!jobActive && (
-        <div className="panel" style={{ borderRadius: '0 12px 12px 0', borderLeft: 'none' }}>
-          <div style={{ marginBottom: '16px' }}>
-            <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Search
-            </span>
-          </div>
+        <div className="sidebar-section">
+          <div className="sidebar-section-label">Search</div>
           <SearchPanel disabled={cellCount === 0} isDanger={isDanger} onStart={onStart} />
         </div>
       )}
 
       {(jobActive || (jobStatus && jobStatus !== 'pending')) && jobId && jobStatus && (
-        <div className="panel" style={{ borderRadius: '0 12px 12px 0', borderLeft: 'none' }}>
-          <div style={{ marginBottom: '16px' }}>
-            <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-              Progress
-            </span>
-          </div>
+        <div className="sidebar-section">
+          <div className="sidebar-section-label">Progress</div>
           <JobProgress
             jobId={jobId}
             status={jobStatus}

@@ -11,38 +11,26 @@ export function SearchPanel({ disabled, isDanger, onStart }: SearchPanelProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [language, setLanguage] = useState('es');
   const [extractEmails, setExtractEmails] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!searchTerm.trim()) {
+      setConfirming(true);
+      setTimeout(() => setConfirming(false), 2000);
+    }
     onStart(searchTerm.trim(), language, extractEmails);
-  };
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    background: 'var(--bg-elevated)',
-    border: '1px solid var(--border)',
-    borderRadius: '8px',
-    padding: '10px 14px',
-    fontFamily: 'var(--font-ui)',
-    fontSize: '14px',
-    color: 'var(--text-primary)',
-    outline: 'none',
   };
 
   const labelStyle: React.CSSProperties = {
     display: 'block',
     fontFamily: 'var(--font-ui)',
     fontSize: '11px',
-    fontWeight: 600,
+    fontWeight: 500,
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
     color: 'var(--text-secondary)',
-    marginBottom: '8px',
-  };
-
-  const hintStyle: React.CSSProperties = {
-    display: 'block',
-    fontFamily: 'var(--font-ui)',
-    fontSize: '11px',
-    color: 'var(--text-muted)',
+    marginBottom: '7px',
   };
 
   return (
@@ -51,24 +39,31 @@ export function SearchPanel({ disabled, isDanger, onStart }: SearchPanelProps) {
         <label style={labelStyle}>Search Term</label>
         <input
           type="text"
+          className="input-field"
           value={searchTerm}
           onChange={e => setSearchTerm(e.target.value)}
           placeholder="e.g. restaurantes, peluquerías…"
-          style={inputStyle}
-          onFocus={e => (e.target.style.borderColor = 'var(--border-strong)')}
-          onBlur={e => (e.target.style.borderColor = 'var(--border)')}
         />
-        <span style={{ ...hintStyle, marginTop: '6px' }}>
-          Dejá vacío para buscar todo tipo de negocio
+        <span style={{
+          display: 'block',
+          fontFamily: 'var(--font-ui)',
+          fontSize: '11px',
+          color: confirming ? 'var(--accent)' : 'var(--text-muted)',
+          opacity: confirming ? 0.7 : 1,
+          marginTop: '6px',
+          transition: 'color 0.2s, opacity 0.2s',
+        }}>
+          {confirming ? 'Buscando todos los negocios…' : 'Dejá vacío para buscar todo tipo de negocio'}
         </span>
       </div>
 
       <div>
         <label style={labelStyle}>Language</label>
         <select
+          className="input-field"
           value={language}
           onChange={e => setLanguage(e.target.value)}
-          style={{ ...inputStyle, cursor: 'pointer' }}
+          style={{ cursor: 'pointer' }}
         >
           <option value="es">Español</option>
           <option value="en">English</option>
@@ -83,9 +78,21 @@ export function SearchPanel({ disabled, isDanger, onStart }: SearchPanelProps) {
           onChange={e => setExtractEmails(e.target.checked)}
           style={{ marginTop: '2px', accentColor: 'var(--accent)', cursor: 'pointer' }}
         />
-        <label htmlFor="extractEmails" style={{ fontFamily: 'var(--font-ui)', fontSize: '13px', color: 'var(--text-secondary)', cursor: 'pointer', lineHeight: '1.4' }}>
+        <label htmlFor="extractEmails" style={{
+          fontFamily: 'var(--font-ui)',
+          fontSize: '13px',
+          color: 'var(--text-secondary)',
+          cursor: 'pointer',
+          lineHeight: '1.4',
+        }}>
           Extract emails
-          <span style={{ ...hintStyle, marginTop: '2px' }}>
+          <span style={{
+            display: 'block',
+            fontFamily: 'var(--font-ui)',
+            fontSize: '11px',
+            color: 'var(--text-muted)',
+            marginTop: '2px',
+          }}>
             Slower (~2×). Recommended off.
           </span>
         </label>

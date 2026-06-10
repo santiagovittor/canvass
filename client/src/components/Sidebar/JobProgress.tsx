@@ -44,7 +44,7 @@ export function JobProgress({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+          <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
             Cells
           </span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-secondary)' }}>
@@ -68,7 +68,7 @@ export function JobProgress({
       {(isEnriching || enrichedDone > 0) && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
               Social Profiles
             </span>
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-secondary)' }}>

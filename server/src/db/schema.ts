@@ -10,6 +10,7 @@ export const scrapeJobs = sqliteTable('scrape_jobs', {
   status: text('status', { enum: ['pending', 'running', 'enriching', 'done', 'error'] }).notNull().default('pending'),
   businessesFound: integer('businesses_found').notNull().default(0),
   enrichmentProgress: integer('enrichment_progress').notNull().default(0),
+  cellsDone: integer('cells_done').notNull().default(0),
   errorMessage: text('error_message'),
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),

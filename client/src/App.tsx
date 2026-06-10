@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar/Sidebar';
 import { ResultsPanel } from './components/Results/ResultsPanel';
 import { BusinessExplorer } from './components/Explorer/BusinessExplorer';
 import { Outreach } from './pages/Outreach';
+import { Analytics } from './pages/Analytics';
 import { useSSE } from './hooks/useSSE';
 import { useScrape } from './hooks/useScrape';
 import { useResults } from './hooks/useResults';
@@ -41,6 +42,10 @@ export default function App() {
       updateBusinessCount(e.businessesFound);
       setHydratedCellCount(e.cellCount);
       if (e.status === 'enriching') updateEnrichProgress(e.progress, e.businessesFound);
+      if (e.status === 'error') {
+        updateProgress(e.cellsDone);
+        if (e.businessesFound > 0) getResults(e.id).then(setResults).catch(() => {});
+      }
     },
     'job:started': (data) => {
       const e = data as JobStartedEvent;
@@ -112,12 +117,35 @@ export default function App() {
   const sidebarVisible = geometry !== null || jobActive;
   const displayCellCount = count || hydratedCellCount;
 
-  const [view, setView] = useState<'scraper' | 'explorer' | 'outreach'>('scraper');
+  const [view, setView] = useState<'scraper' | 'explorer' | 'outreach' | 'analytics'>('scraper');
   const [outreachSentAt, setOutreachSentAt] = useState(0);
 
   return (
     <div className="app-root">
       <div className="tab-strip">
+        <span style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          fontFamily: 'var(--font-ui)',
+          fontWeight: 700,
+          fontSize: '11px',
+          letterSpacing: '0.1em',
+          color: 'var(--text-secondary)',
+          userSelect: 'none',
+          paddingRight: '12px',
+          marginRight: '4px',
+          borderRight: '1px solid var(--border)',
+        }}>
+          <span style={{
+            width: '7px',
+            height: '7px',
+            borderRadius: '2px',
+            background: 'var(--accent)',
+            flexShrink: 0,
+          }} />
+          MAPS·SCRAPER
+        </span>
         <button
           className={`tab-btn${view === 'scraper' ? ' tab-btn--active' : ''}`}
           onClick={() => setView('scraper')}
@@ -135,6 +163,12 @@ export default function App() {
           onClick={() => setView('outreach')}
         >
           Outreach
+        </button>
+        <button
+          className={`tab-btn${view === 'analytics' ? ' tab-btn--active' : ''}`}
+          onClick={() => setView('analytics')}
+        >
+          Analytics
         </button>
       </div>
 
@@ -161,15 +195,19 @@ export default function App() {
             cells={cells}
             cellCount={count}
           />
-          <ResultsPanel jobId={jobId} results={results} />
+          <ResultsPanel jobId={jobId} results={results} status={status} cellsDone={cellsDone} totalCells={displayCellCount} />
         </div>
       ) : view === 'explorer' ? (
         <div className="view-fill">
           <BusinessExplorer refreshTrigger={outreachSentAt} />
         </div>
-      ) : (
+      ) : view === 'outreach' ? (
         <div className="view-fill">
           <Outreach onEmailSent={() => setOutreachSentAt(Date.now())} />
+        </div>
+      ) : (
+        <div className="view-fill">
+          <Analytics />
         </div>
       )}
     </div>

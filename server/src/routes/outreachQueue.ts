@@ -8,6 +8,7 @@ import { sendEmail, signatureHtml } from '../services/emailSender';
 import { checkReplies } from '../services/replyChecker';
 import { analyzeWebsite } from '../services/websiteAnalyzer';
 import type { WebsiteAnalysis } from '../services/websiteAnalyzer';
+import { UTC_MINUS_3_OFFSET_MS } from '../util/time';
 
 const DAILY_CAP = 30;
 
@@ -52,7 +53,7 @@ router.post('/generate-follow-up', async (req, res) => {
   const original = getLatestSentEmail(businessId);
   const lastSentAt = getLastSentAt(businessId);
   const daysSinceSent = lastSentAt
-    ? Math.floor((Date.now() - 3 * 60 * 60 * 1000 - new Date(lastSentAt).getTime()) / 86_400_000)
+    ? Math.floor((Date.now() - UTC_MINUS_3_OFFSET_MS - new Date(lastSentAt).getTime()) / 86_400_000)
     : null;
 
   try {
@@ -142,12 +143,11 @@ router.post('/send', async (req, res) => {
 
   const emails = parseEmails(row.emailsJson ?? null);
   const to = emails[0];
-  console.error('[outreach/send] raw emailsJson:', row.emailsJson, '→ parsed:', to);
   if (!to || !validateEmail(to)) {
     return res.status(422).json({ error: 'no_valid_email', field: 'emailsJson' });
   }
 
-  const result = await sendEmail(to, subject, body, businessId);
+  const result = await sendEmail(to, subject, body, businessId, row.locCountry ?? null);
   if (!result.success) {
     return res.status(result.error === 'Daily limit reached' ? 429 : 502).json(result);
   }

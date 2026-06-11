@@ -39,6 +39,7 @@ export async function sendEmail(
   subject: string,
   body: string,
   businessId: string,
+  country: string | null = null,
 ): Promise<{ success: boolean; error?: string; remaining: number }> {
   if (!validateEmail(to)) {
     console.error('[emailSender] invalid email address:', to);
@@ -55,13 +56,17 @@ export async function sendEmail(
       ? `<img src="${publicBase}/t/${trackingToken}.gif" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0">`
       : '';
     const bodyHtml = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222222;line-height:1.6;white-space:pre-wrap;">${body}</div>`;
+    // Argentina keeps the /ar landing path; every other country gets the root site
+    const sig = signatureHtml !== null && country !== 'Argentina'
+      ? signatureHtml.replace('https://santiagovittor.store/ar', 'https://santiagovittor.store')
+      : signatureHtml;
     await transport.sendMail({
       from: env.GMAIL_FROM,
       to,
       subject,
       text: body,
-      ...(signatureHtml !== null || trackingToken !== null ? {
-        html: bodyHtml + (signatureHtml !== null ? `<br><br>${signatureHtml}` : '') + pixel,
+      ...(sig !== null || trackingToken !== null ? {
+        html: bodyHtml + (sig !== null ? `<br><br>${sig}` : '') + pixel,
       } : {}),
     });
     recordEmailSend(businessId, 'sent', undefined, trackingToken);

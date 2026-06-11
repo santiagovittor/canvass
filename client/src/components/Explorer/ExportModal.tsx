@@ -87,7 +87,7 @@ export function ExportModal({ onClose, filters, total }: ExportModalProps) {
               href={state.url}
               target="_blank"
               rel="noopener noreferrer"
-              style={{ display: 'block', width: '100%', padding: '10px 16px', background: 'var(--accent)', color: '#071614', borderRadius: '8px', fontFamily: 'var(--font-ui)', fontSize: '14px', fontWeight: 600, textAlign: 'center', textDecoration: 'none', marginTop: '4px', boxSizing: 'border-box' }}
+              style={{ display: 'block', width: '100%', padding: '10px 16px', background: 'var(--accent)', color: 'var(--accent-ink)', borderRadius: '8px', fontFamily: 'var(--font-ui)', fontSize: '14px', fontWeight: 600, textAlign: 'center', textDecoration: 'none', marginTop: '4px', boxSizing: 'border-box' }}
               onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 0 20px var(--accent-glow)')}
               onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}
             >
@@ -150,7 +150,7 @@ export function ExportModal({ onClose, filters, total }: ExportModalProps) {
               style={{
                 padding: '10px 16px',
                 background: 'var(--accent)',
-                color: '#071614',
+                color: 'var(--accent-ink)',
                 border: 'none',
                 borderRadius: '8px',
                 cursor: (isLoading || selected.size === 0) ? 'not-allowed' : 'pointer',

@@ -16,7 +16,7 @@ A personal B2B lead generation pipeline built on Google Maps data. The user draw
 
 Premium, warm, focused.
 
-The tool should feel like a precision instrument that has been cared for — not a dashboard demo, not a dev terminal. Warmth comes from typographic rhythm, intentional spacing, and the teal accent reading as a considered choice rather than a default. Focus means nothing competes: each view has one primary action, everything else supports it.
+The tool should feel like a precision instrument that has been cared for — not a dashboard demo, not a dev terminal. Warmth comes from typographic rhythm, intentional spacing, and the amber accent reading as a considered choice rather than a default. Focus means nothing competes: each view has one primary action, everything else supports it.
 
 ## Anti-references
 

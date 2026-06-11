@@ -48,6 +48,12 @@ export function runMigrations() {
   if (!jobCols.includes('cells_done')) {
     sqlite.exec('ALTER TABLE scrape_jobs ADD COLUMN cells_done INTEGER NOT NULL DEFAULT 0');
   }
+  if (!jobCols.includes('geometry_json')) {
+    sqlite.exec('ALTER TABLE scrape_jobs ADD COLUMN geometry_json TEXT');
+  }
+  if (!jobCols.includes('extract_emails')) {
+    sqlite.exec('ALTER TABLE scrape_jobs ADD COLUMN extract_emails INTEGER NOT NULL DEFAULT 1');
+  }
 
   const cols = (sqlite.prepare('PRAGMA table_info(businesses)').all() as { name: string }[]).map(r => r.name);
   if (!cols.includes('outreach_status')) {
@@ -76,6 +82,9 @@ export function runMigrations() {
   }
   if (!cols.includes('replied_at')) {
     sqlite.exec('ALTER TABLE businesses ADD COLUMN replied_at TEXT');
+  }
+  if (!cols.includes('reply_type')) {
+    sqlite.exec('ALTER TABLE businesses ADD COLUMN reply_type TEXT');
   }
 
 }

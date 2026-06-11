@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./data/gosom:/gmapsdata
-    command: ["-web", "-addr", ":8080", "-data-folder", "/gmapsdata"]
+    command: ["-web", "-addr", ":8080", "-data-folder", "/gmapsdata", "-c", "4"]
     expose: ["8080"]
 
   app:

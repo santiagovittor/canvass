@@ -114,7 +114,6 @@ router.post('/export-sheets', async (req, res) => {
       ? (body.columns as unknown[]).filter((c): c is string => typeof c === 'string')
       : [];
     const rows = exportBusinesses(filters);
-    console.log(`[export] rows=${rows.length} first.emailsJson=${rows[0]?.emailsJson ?? 'N/A'}`);
     const activeCols = columns.filter(c => c in COLUMN_MAP);
     if (activeCols.length === 0) {
       res.status(400).json({ error: 'No valid columns selected' });

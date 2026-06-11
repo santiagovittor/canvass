@@ -11,6 +11,9 @@ export const scrapeJobs = sqliteTable('scrape_jobs', {
   businessesFound: integer('businesses_found').notNull().default(0),
   enrichmentProgress: integer('enrichment_progress').notNull().default(0),
   cellsDone: integer('cells_done').notNull().default(0),
+  // Persisted for boot-time resume of interrupted jobs; NULL on legacy rows (not resumable)
+  geometryJson: text('geometry_json'),
+  extractEmails: integer('extract_emails').notNull().default(1),
   errorMessage: text('error_message'),
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),
@@ -47,4 +50,5 @@ export const businesses = sqliteTable('businesses', {
   locationEnriched: integer('location_enriched').notNull().default(0),
   followUpStatus: text('follow_up_status'),
   repliedAt: text('replied_at'),
+  replyType: text('reply_type', { enum: ['auto', 'real', 'unknown'] }),
 });

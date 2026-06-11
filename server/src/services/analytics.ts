@@ -10,6 +10,7 @@ import {
   GeoPoint,
   MatrixRow,
 } from '../db/analytics';
+import { todayUtcMinus3 } from '../util/time';
 
 export interface AnalyticsPayload {
   kpis: {
@@ -36,11 +37,6 @@ export interface AnalyticsPayload {
   points: GeoPoint[];
   matrix: MatrixRow[];
   insights: { title: string; body: string }[];
-}
-
-// Matches todayUtcMinus3() in db/index.ts — sent_at day boundaries are UTC-3.
-function todayUtcMinus3(): string {
-  return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 function addDays(isoDay: string, delta: number): string {

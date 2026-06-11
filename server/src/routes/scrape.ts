@@ -13,7 +13,7 @@ const scrapeSchema = z.object({
   searchTerm: z.string().optional().default(''),
   language: z.string().min(2).max(5).default('es'),
   gridCellKm: z.number().min(0.1).max(10).default(0.4),
-  extractEmails: z.boolean().default(false),
+  extractEmails: z.boolean().default(true),
 });
 
 router.post('/', async (req, res) => {
@@ -40,8 +40,14 @@ router.post('/', async (req, res) => {
     return;
   }
 
-  const jobId = await startJob({ geometry, searchTerm, language, gridCellKm, extractEmails });
-  res.json({ jobId });
+  try {
+    const jobId = await startJob({ geometry, searchTerm, language, gridCellKm, extractEmails });
+    res.json({ jobId });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    // Zero-cell guard and other validation throws are user errors, not server faults
+    res.status(message.includes('Polygon too small') ? 400 : 500).json({ error: message });
+  }
 });
 
 export default router;

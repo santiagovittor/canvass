@@ -3,7 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import { env } from './env';
 import { runMigrations } from './db/migrate';
-import { sqlite, markOrphanedJobsFailed } from './db';
+import { sqlite } from './db';
 import { authMiddleware } from './middleware/auth';
 import scrapeRouter from './routes/scrape';
 import jobsRouter from './routes/jobs';
@@ -18,12 +18,13 @@ import analyticsRouter from './routes/analytics';
 import trackRouter from './routes/track';
 import { enrichLocationJob } from './services/locationEnricher';
 import { startReplyChecker } from './services/replyChecker';
+import { resumeOrphanedJobs } from './services/jobRunner';
 import { db } from './db';
 import { businesses } from './db/schema';
 import { and, eq, isNotNull } from 'drizzle-orm';
 
 runMigrations();
-markOrphanedJobsFailed();
+resumeOrphanedJobs();
 
 // Backfill location enrichment for rows scraped before this feature landed
 (async () => {

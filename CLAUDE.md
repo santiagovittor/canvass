@@ -30,6 +30,8 @@ Port map: `5173` = Vite dev, `3001` = Express API, `3050` = gosom scraper contai
 
 Default location (Buenos Aires): lat `-34.6037`, lng `-58.3816`, zoom `13`.
 
+Grid default 0.4 km is tuned for dense urban areas: smaller cells = more gosom jobs but better coverage; overlap dupes are absorbed by place_id dedup + upsert. For sparse areas raise cell size in the UI rather than changing the default.
+
 ---
 
 ## 1. Think Before Coding

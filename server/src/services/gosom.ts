@@ -57,9 +57,8 @@ export async function createJob(params: GosomJobParams): Promise<string> {
     zoom: 15,
     depth: 5,
     email: params.email,
-    max_time: 3600,
+    max_time: 900, // bounds a stuck job well under the 30-min poll timeout; normal jobs finish in ~90s
   };
-  console.log('[gosom] createJob body:', JSON.stringify(body));
   const result = await gosomRequest<{ id: string }>('POST', '/api/v1/jobs', body);
   return result.id;
 }
@@ -100,7 +99,6 @@ export async function downloadResults(id: string): Promise<Record<string, unknow
   }
 
   const raw = await resBody.text();
-  console.log('[gosom] downloadResults statusCode:', statusCode, 'raw length:', raw.length, 'first 300:', raw.substring(0, 300));
 
   // Try JSON first
   const trimmed = raw.trimStart();
@@ -114,7 +112,6 @@ export async function downloadResults(id: string): Promise<Record<string, unknow
   const lines = raw.trim().split('\n').filter(l => l.trim());
   if (lines.length < 2) throw new Error(`gosom returned no parseable results for job ${id}`);
   const headers = parseCsvLine(lines[0]);
-  console.log('[gosom] CSV headers:', headers);
   const rows = lines.slice(1).map(line => {
     const values = parseCsvLine(line);
     const obj: Record<string, unknown> = {};

@@ -3,7 +3,8 @@ services:
     image: gosom/google-maps-scraper:latest
     ports: ["8080:8080"]
     volumes: ["./data/gosom:/gmapsdata"]
-    command: ["-web", "-addr", ":8080", "-data-folder", "/gmapsdata", "-exit-on-inactivity", "10m"]
+    command: ["-web", "-addr", ":8080", "-data-folder", "/gmapsdata", "-exit-on-inactivity", "10m", "-c", "4"]
+    restart: unless-stopped
 
   server:
     image: node:20-bookworm

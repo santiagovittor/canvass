@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto';
-import { eq, sql } from 'drizzle-orm';
+import { eq, or, sql } from 'drizzle-orm';
 import { db } from '../db';
 import { scrapeJobs, businesses } from '../db/schema';
 import { broadcast } from '../sse';
@@ -48,6 +48,13 @@ export async function startJob(params: StartJobParams): Promise<string> {
   const count = computeCellCount(bbox, params.gridCellKm);
   const now = new Date().toISOString();
 
+  // Zero-cell guard runs here (synchronously) so the route can 400 instead of
+  // returning a jobId that immediately errors. runJob recomputes the same grid.
+  const ring = params.geometry.coordinates[0];
+  const usableCells = computeGrid(bbox, params.gridCellKm).filter(cell =>
+    pointInPolygon((cell.minLon + cell.maxLon) / 2, (cell.minLat + cell.maxLat) / 2, ring));
+  if (usableCells.length === 0) throw new Error('Polygon too small for current cell size — try reducing cell size or drawing a larger area.');
+
   db.insert(scrapeJobs).values({
     id: jobId,
     searchTerm: params.searchTerm,
@@ -56,6 +63,8 @@ export async function startJob(params: StartJobParams): Promise<string> {
     gridCellKm: params.gridCellKm,
     cellCount: count,
     status: 'pending',
+    geometryJson: JSON.stringify(params.geometry),
+    extractEmails: params.extractEmails ? 1 : 0,
     createdAt: now,
   }).run();
 
@@ -66,11 +75,39 @@ export async function startJob(params: StartJobParams): Promise<string> {
   return jobId;
 }
 
+// On boot, re-enter jobs interrupted by a server restart instead of failing them.
+// computeGrid order is deterministic, so cellsDone identifies the first unfinished
+// cell; the in-flight cell is redone and the place_id upsert makes that idempotent.
+export function resumeOrphanedJobs(): void {
+  const orphans = db.select().from(scrapeJobs)
+    .where(or(eq(scrapeJobs.status, 'running'), eq(scrapeJobs.status, 'enriching')))
+    .all();
+  for (const job of orphans) {
+    if (!job.geometryJson) {
+      // Legacy row from before geometry was persisted — not resumable
+      db.update(scrapeJobs).set({ status: 'error', errorMessage: 'Server restarted' }).where(eq(scrapeJobs.id, job.id)).run();
+      continue;
+    }
+    const params: StartJobParams = {
+      geometry: JSON.parse(job.geometryJson),
+      searchTerm: job.searchTerm,
+      language: job.language,
+      gridCellKm: job.gridCellKm,
+      extractEmails: job.extractEmails === 1,
+    };
+    const bbox = JSON.parse(job.bboxJson) as ReturnType<typeof bboxFromGeoJSON>;
+    console.log(`[jobRunner] resuming job ${job.id} from cell ${job.cellsDone}/${job.cellCount}`);
+    runJob(job.id, params, bbox, job.cellCount, { startCell: job.cellsDone, businessesFound: job.businessesFound })
+      .catch(err => console.error(`Job ${job.id} unhandled error:`, err));
+  }
+}
+
 async function runJob(
   jobId: string,
   params: StartJobParams,
   bbox: ReturnType<typeof bboxFromGeoJSON>,
   count: number,
+  resume?: { startCell: number; businessesFound: number },
 ): Promise<void> {
   const ac = new AbortController();
   cancellers.set(jobId, ac);
@@ -88,14 +125,15 @@ async function runJob(
     const totalCells = cells.length;
     const totalJobs = cells.length * categories.length;
     const seenIds = new Set<string>();
-    let cellsDone = 0;
-    let jobsDone = 0;
-    let businessesFound = 0;
+    const startCell = Math.min(resume?.startCell ?? 0, cells.length);
+    let cellsDone = startCell;
+    let jobsDone = startCell * categories.length;
+    let businessesFound = resume?.businessesFound ?? 0;
 
     db.update(scrapeJobs).set({ status: 'running', cellCount: totalCells }).where(eq(scrapeJobs.id, jobId)).run();
     broadcast('job:started', { jobId, cellCount: totalCells, totalJobs });
 
-    for (let i = 0; i < cells.length; i++) {
+    for (let i = startCell; i < cells.length; i++) {
       if (ac.signal.aborted) return;
       const cell = cells[i];
       const centerLat = (cell.minLat + cell.maxLat) / 2;
@@ -117,10 +155,7 @@ async function runJob(
         await pollUntilDone(gosomId, ac.signal);
         if (ac.signal.aborted) return;
 
-        console.log('[jobRunner] downloading results for gosom job', gosomId, 'category:', category);
         const rawResults = await gosom.downloadResults(gosomId);
-        console.log('[jobRunner] downloaded', rawResults?.length, 'results for gosom job', gosomId);
-        if (rawResults.length > 0) console.log('[jobRunner] sample first result keys:', Object.keys(rawResults[0]));
         const scrapedAt = new Date().toISOString();
 
         let countNoLatLng = 0, countOutsidePolygon = 0, countDuplicate = 0, countInserted = 0;
@@ -185,9 +220,7 @@ async function runJob(
         console.log(`[jobRunner] pipeline stats for ${gosomId}: inserted=${countInserted} noLatLng=${countNoLatLng} outsidePolygon=${countOutsidePolygon} duplicate=${countDuplicate}`);
 
         jobsDone++;
-        const progressPayload = { jobId, cellsDone, totalCells, jobsDone, jobsTotal: totalJobs, newBusinesses: countInserted, totalBusinesses: businessesFound };
-        console.log('[jobRunner] broadcasting job:progress', JSON.stringify(progressPayload));
-        broadcast('job:progress', progressPayload);
+        broadcast('job:progress', { jobId, cellsDone, totalCells, jobsDone, jobsTotal: totalJobs, newBusinesses: countInserted, totalBusinesses: businessesFound });
       }
 
       broadcast('businesses_updated', { jobId, count: businessesFound });
@@ -232,23 +265,26 @@ async function runJob(
 
 function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const t = setTimeout(resolve, ms);
-    signal.addEventListener('abort', () => { clearTimeout(t); reject(new Error('Aborted')); }, { once: true });
+    const onAbort = () => { clearTimeout(t); reject(new Error('Aborted')); };
+    // Detach on normal resolve — leaving listeners attached leaks one per poll iteration
+    const t = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(); }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
   });
 }
 
+const POLL_INTERVAL_MS = 5000;
+const MAX_POLL_ITERATIONS = 360; // 360 × 5s = 30 min
+
 async function pollUntilDone(gosomId: string, signal: AbortSignal): Promise<void> {
   let seenWorking = false;
-  const MAX_ITERATIONS = 360; // 360 × 5s = 30 min
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
+  for (let i = 0; i < MAX_POLL_ITERATIONS; i++) {
     if (signal.aborted) return;
     const status = await gosom.getJob(gosomId);
     const s = status.Status?.toLowerCase() ?? '';
-    console.log('[pollUntilDone] gosom job', gosomId, 'status:', s);
     if (s === 'error' || s === 'failed') throw new Error('Gosom job failed');
     if (s === 'working' || s === 'running') seenWorking = true;
     if (seenWorking && (s === 'ok' || s === 'completed' || s === 'done' || s === 'finished' || s === 'success')) return;
-    await abortableDelay(5000, signal);
+    await abortableDelay(POLL_INTERVAL_MS, signal);
   }
   throw new Error('Job timed out after 30 minutes');
 }

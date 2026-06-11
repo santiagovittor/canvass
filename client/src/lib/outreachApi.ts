@@ -58,6 +58,7 @@ export interface FollowUpLead extends OutreachLead {
   send_count: number;
   open_count: number;
   last_opened_at: string | null;
+  reply_type: 'auto' | 'real' | 'unknown' | null;
 }
 
 export interface OutreachStats {

@@ -61,6 +61,15 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
   const [categories, setCategories] = useState<string[]>([]);
   const [fetchKey, setFetchKey] = useState(0);
 
+  // Reset rows during render on mode switch — stale 'new'-mode rows lack
+  // last_sent_at and crash Intl.RelativeTimeFormat in the follow-up renderer
+  const [prevMode, setPrevMode] = useState(mode);
+  if (mode !== prevMode) {
+    setPrevMode(mode);
+    setLeads([]);
+    setTotal(0);
+  }
+
   const onLeadsChangeRef = useRef(onLeadsChange);
   useEffect(() => { onLeadsChangeRef.current = onLeadsChange; });
 
@@ -433,6 +442,19 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                       }}>
                         {fu.open_count > 0 ? 'abierto' : 'sin abrir'}
                       </span>
+                      {fu.reply_type === 'auto' && (
+                        <span style={{
+                          fontFamily: 'var(--font-ui)',
+                          fontSize: 10,
+                          fontWeight: 500,
+                          padding: '1px 5px',
+                          borderRadius: 3,
+                          color: 'var(--text-muted)',
+                          background: 'rgba(255,255,255,0.05)',
+                        }}>
+                          auto
+                        </span>
+                      )}
                       <button
                         onClick={e => { e.stopPropagation(); onMarkReplied(lead); }}
                         title="Marcar como respondido"

@@ -481,6 +481,12 @@ select option {
   text-transform: uppercase;
   color: var(--text-muted);
 }
+.an-kpi-sub {
+  font-family: var(--font-ui);
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--text-muted);
+}
 
 /* Bento rows */
 .an-bento {

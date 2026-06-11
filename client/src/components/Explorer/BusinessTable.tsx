@@ -29,7 +29,7 @@ const STATUS_OPTIONS: { value: OutreachStatus; label: string }[] = [
   { value: 'skip',      label: 'Skip' },
 ];
 
-function pillStyle(status: string | null | undefined): React.CSSProperties {
+function pillStyle(status: string | null | undefined, replyType?: string | null): React.CSSProperties {
   const base: React.CSSProperties = {
     display: 'inline-block',
     fontFamily: 'var(--font-ui)',
@@ -43,17 +43,19 @@ function pillStyle(status: string | null | undefined): React.CSSProperties {
   };
   switch (status) {
     case 'contacted': return { ...base, color: 'var(--accent)',   borderColor: 'var(--accent)' };
-    case 'replied':   return { ...base, color: 'var(--success)', borderColor: 'var(--success)' };
+    case 'replied':   return replyType === 'auto'
+      ? { ...base, color: 'var(--text-muted)', borderColor: 'var(--border-strong)' }
+      : { ...base, color: 'var(--success)', borderColor: 'var(--success)' };
     case 'converted': return { ...base, color: 'var(--success)', borderColor: 'var(--success)' };
     case 'skip':      return { ...base, color: 'var(--text-muted)', borderColor: 'var(--border-strong)' };
     default:          return { ...base, color: 'var(--text-muted)', borderColor: 'transparent' };
   }
 }
 
-function pillLabel(status: string | null | undefined): string {
+function pillLabel(status: string | null | undefined, replyType?: string | null): string {
   switch (status) {
     case 'contacted': return 'Contacted';
-    case 'replied':   return 'Replied';
+    case 'replied':   return replyType === 'auto' ? 'Replied (auto)' : 'Replied';
     case 'converted': return 'Converted ★';
     case 'skip':      return 'Skip';
     default:          return '—';
@@ -266,10 +268,10 @@ export function BusinessTable({ rows, total, loading, page, pageSize, onPageChan
                   <td style={{ ...TD, position: 'relative', overflow: 'visible' }}>
                     <div ref={pickerOpenId === r.id ? pickerRef : null}>
                       <span
-                        style={pillStyle(r.outreachStatus)}
+                        style={pillStyle(r.outreachStatus, r.replyType)}
                         onClick={() => setPickerOpenId(prev => prev === r.id ? null : r.id)}
                       >
-                        {pillLabel(r.outreachStatus)}
+                        {pillLabel(r.outreachStatus, r.replyType)}
                       </span>
                       {pickerOpenId === r.id && (
                         <div style={{

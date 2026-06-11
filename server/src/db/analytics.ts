@@ -5,7 +5,11 @@ import { sqlite } from './index';
 
 const HAS_EMAIL = `(emails_json IS NOT NULL AND emails_json != '[]')`;
 const CONTACTED = `outreach_status IN ('contacted','replied','converted')`;
-const REPLIED = `outreach_status IN ('replied','converted')`;
+// Real replies only: converted always counts; 'auto'/'unknown' excluded.
+// COALESCE keeps unclassified legacy rows counting until the retro pass lands.
+const replied = (p = '') =>
+  `(${p}outreach_status = 'converted' OR (${p}outreach_status = 'replied' AND COALESCE(${p}reply_type,'real') = 'real'))`;
+const REPLIED = replied();
 const ZONE = `COALESCE(NULLIF(loc_neighbourhood,''), NULLIF(loc_city,''))`;
 
 export interface KpiCounts {
@@ -62,7 +66,7 @@ export function getRepliedSendDays(): DailySendRow[] {
     SELECT substr(es.sent_at, 1, 10) AS day, COUNT(DISTINCT es.business_id) AS n
     FROM email_sends es
     JOIN businesses b ON b.id = es.business_id
-    WHERE es.status = 'sent' AND b.${REPLIED}
+    WHERE es.status = 'sent' AND ${replied('b.')}
     GROUP BY day
   `).all() as DailySendRow[];
 }

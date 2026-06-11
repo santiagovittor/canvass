@@ -2,8 +2,9 @@ import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { and, or, like, isNotNull, gte, eq, asc, desc, sql } from 'drizzle-orm';
 import * as schema from './schema';
-import { businesses, scrapeJobs } from './schema';
+import { businesses } from './schema';
 import { env } from '../env';
+import { UTC_MINUS_3_OFFSET_MS, todayUtcMinus3, nowUtcMinus3 } from '../util/time';
 import path from 'path';
 import fs from 'fs';
 
@@ -164,19 +165,13 @@ export function updateOutreach(id: string, status: string | null, note?: string 
   return db.update(businesses)
     .set({
       outreachStatus: status,
-      ...(status === 'replied' ? { repliedAt: nowUtcMinus3() } : {}),
+      // Manual "Mark replied" = a human read the email → real by definition; also overrides misclassification
+      ...(status === 'replied' ? { repliedAt: nowUtcMinus3(), replyType: 'real' as const } : {}),
       ...(note !== undefined ? { outreachNote: note } : {}),
     })
     .where(eq(businesses.id, id))
     .returning()
     .get() ?? null;
-}
-
-export function markOrphanedJobsFailed(): void {
-  db.update(scrapeJobs)
-    .set({ status: 'error', errorMessage: 'Server restarted' })
-    .where(or(eq(scrapeJobs.status, 'running'), eq(scrapeJobs.status, 'enriching')))
-    .run();
 }
 
 export function getDistinctCategories(): string[] {
@@ -196,9 +191,14 @@ export interface LocationHierarchyNode {
   states: { state: string; count: number; cities: { city: string; count: number }[] }[];
 }
 
+export interface LocationHierarchy {
+  countries: LocationHierarchyNode[];
+  pendingCount: number;
+}
+
 export function getLocationHierarchy(
   filters: Omit<BusinessFilters, 'page' | 'pageSize' | 'orderBy' | 'locCountry' | 'locState' | 'locCity'>,
-): LocationHierarchyNode[] {
+): LocationHierarchy {
   const where = buildWhere({ ...filters, locCountry: undefined, locState: undefined, locCity: undefined });
 
   const rows = db
@@ -212,6 +212,13 @@ export function getLocationHierarchy(
     .where(and(where, sql`${businesses.locationEnriched} = 1`, isNotNull(businesses.locCountry)))
     .groupBy(businesses.locCountry, businesses.locState, businesses.locCity)
     .all();
+
+  // Leads not yet location-enriched (or enriched without a country) would otherwise
+  // be invisible in the filter while still appearing in the table
+  const pendingCount = db.select({ n: sql<number>`count(*)` })
+    .from(businesses)
+    .where(and(where, sql`${businesses.locCountry} IS NULL`))
+    .get()?.n ?? 0;
 
   // Build hierarchy in-memory
   const countryMap = new Map<string, Map<string, Map<string, number>>>();
@@ -242,7 +249,10 @@ export function getLocationHierarchy(
     result.push({ country, count: countryCount, states: states.slice(0, 15) });
   }
 
-  return result.sort((a, b) => b.count - a.count).slice(0, 10);
+  return {
+    countries: result.sort((a, b) => b.count - a.count).slice(0, 10),
+    pendingCount,
+  };
 }
 
 // ── Email outreach helpers ────────────────────────────────────────────────────
@@ -268,16 +278,6 @@ export function validateEmail(addr: string): boolean {
   if (blocked.includes(domain)) return false;
   if (domain.endsWith('.local') || domain.endsWith('.internal')) return false;
   return true;
-}
-
-// sent_at is stored as UTC-3 shifted ISO string so that sent_at.slice(0,10)
-// always equals todayUtcMinus3(). Never change one without changing the other.
-function todayUtcMinus3(): string {
-  return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-
-function nowUtcMinus3(): string {
-  return new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
 }
 
 export interface OutreachLead {
@@ -518,7 +518,7 @@ export function saveEmailExample(data: {
   kind?: 'initial' | 'followup';
 }): void {
   const bucket = getCategoryBucket(data.category);
-  const now = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+  const now = nowUtcMinus3();
   stmtInsertExample.run(data.businessId, data.category, bucket, data.topGap, data.neighbourhood, data.subject, data.body, now, data.kind ?? 'initial');
 }
 
@@ -545,6 +545,7 @@ export interface FollowUpLead extends OutreachLead {
   send_count: number;
   open_count: number;
   last_opened_at: string | null;
+  reply_type: string | null;
 }
 
 type RawFollowUpRow = RawLeadRow & {
@@ -552,12 +553,13 @@ type RawFollowUpRow = RawLeadRow & {
   send_count: number;
   open_count: number;
   last_opened_at: string | null;
+  reply_type: string | null;
 };
 
 export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: FollowUpLead[]; total: number } {
   const offset = (page - 1) * pageSize;
   // Both sides UTC-3 shifted ISO strings → lexicographic comparison is valid
-  const cutoff = new Date(Date.now() - 3 * 60 * 60 * 1000 - minDays * 86_400_000).toISOString();
+  const cutoff = new Date(Date.now() - UTC_MINUS_3_OFFSET_MS - minDays * 86_400_000).toISOString();
 
   const lastSendJoin = `
     JOIN (
@@ -565,8 +567,10 @@ export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: 
       FROM email_sends WHERE status = 'sent' GROUP BY business_id
     ) ls ON ls.business_id = b.id
   `;
+  // Auto-replies are not engagement — those leads still owe a follow-up
   const whereClause = `
-    WHERE b.outreach_status = 'contacted'
+    WHERE (b.outreach_status = 'contacted'
+       OR (b.outreach_status = 'replied' AND b.reply_type = 'auto'))
       AND b.follow_up_status IS NULL
       AND ls.last_sent_at < ?
   `;
@@ -576,7 +580,7 @@ export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: 
            b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status,
            b.latitude, b.longitude, b.instagram, b.facebook, b.twitter, b.tiktok, b.linkedin, b.youtube,
            CASE WHEN d.business_id IS NOT NULL THEN 1 ELSE 0 END AS has_draft,
-           ls.last_sent_at, ls.send_count,
+           b.reply_type, ls.last_sent_at, ls.send_count,
            COALESCE(op.open_count, 0) AS open_count, op.last_opened_at
     FROM businesses b
     ${lastSendJoin}
@@ -611,6 +615,7 @@ export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: 
       has_draft: r.has_draft === 1,
       last_sent_at: r.last_sent_at, send_count: r.send_count,
       open_count: r.open_count, last_opened_at: r.last_opened_at,
+      reply_type: r.reply_type,
     };
   });
 
@@ -654,20 +659,53 @@ export function setMeta(key: string, value: string): void {
   `).run(key, value);
 }
 
-export function getContactedBusinessEmails(): { id: string; name: string; emails: string[] }[] {
+export type ReplyType = 'auto' | 'real' | 'unknown';
+
+export interface ReplyCheckTarget {
+  id: string;
+  name: string;
+  emails: string[];
+  lastSentAt: string | null;
+  // retro = already marked replied but never classified (pre-reply_type rows)
+  retro: boolean;
+}
+
+export function getReplyCheckTargets(): ReplyCheckTarget[] {
   const rows = sqlite.prepare(`
-    SELECT id, name, emails_json FROM businesses WHERE outreach_status = 'contacted'
-  `).all() as { id: string; name: string; emails_json: string | null }[];
+    SELECT b.id, b.name, b.emails_json, b.outreach_status, ls.last_sent_at
+    FROM businesses b
+    LEFT JOIN (
+      SELECT business_id, MAX(sent_at) AS last_sent_at
+      FROM email_sends WHERE status = 'sent' GROUP BY business_id
+    ) ls ON ls.business_id = b.id
+    WHERE b.outreach_status = 'contacted'
+       OR (b.outreach_status = 'replied' AND b.reply_type IS NULL)
+  `).all() as { id: string; name: string; emails_json: string | null; outreach_status: string; last_sent_at: string | null }[];
   return rows
-    .map(r => ({ id: r.id, name: r.name, emails: parseEmails(r.emails_json).map(e => e.toLowerCase()) }))
+    .map(r => ({
+      id: r.id,
+      name: r.name,
+      emails: parseEmails(r.emails_json).map(e => e.toLowerCase()),
+      lastSentAt: r.last_sent_at,
+      retro: r.outreach_status === 'replied',
+    }))
     .filter(r => r.emails.length > 0);
 }
 
-export function markReplied(businessId: string): boolean {
+export function markReplied(businessId: string, replyType: ReplyType): boolean {
   // Only flips 'contacted' → 'replied': idempotent, respects manual transitions
   const result = sqlite.prepare(`
-    UPDATE businesses SET outreach_status = 'replied', replied_at = ?
+    UPDATE businesses SET outreach_status = 'replied', replied_at = ?, reply_type = ?
     WHERE id = ? AND outreach_status = 'contacted'
-  `).run(nowUtcMinus3(), businessId);
+  `).run(nowUtcMinus3(), replyType, businessId);
+  return result.changes > 0;
+}
+
+export function setReplyType(businessId: string, replyType: ReplyType): boolean {
+  // Retro classification only — never touches status or replied_at, never overwrites
+  const result = sqlite.prepare(`
+    UPDATE businesses SET reply_type = ?
+    WHERE id = ? AND outreach_status = 'replied' AND reply_type IS NULL
+  `).run(replyType, businessId);
   return result.changes > 0;
 }

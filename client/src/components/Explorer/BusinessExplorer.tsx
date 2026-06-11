@@ -4,7 +4,7 @@ import { getBusinessCategories, patchOutreach, getLocationHierarchy } from '../.
 import { FilterPanel } from './FilterPanel';
 import { BusinessTable } from './BusinessTable';
 import { ExportModal } from './ExportModal';
-import type { BusinessQueryFilters, LocationHierarchyNode } from '../../types';
+import type { BusinessQueryFilters, LocationHierarchy } from '../../types';
 
 const DEFAULT_FILTERS: BusinessQueryFilters = {
   orderBy: 'scraped_at',
@@ -68,7 +68,7 @@ export function BusinessExplorer({ refreshTrigger = 0 }: { refreshTrigger?: numb
   });
   const [categories, setCategories] = useState<string[]>([]);
   const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [locationHierarchy, setLocationHierarchy] = useState<LocationHierarchyNode[]>([]);
+  const [locationHierarchy, setLocationHierarchy] = useState<LocationHierarchy>({ countries: [], pendingCount: 0 });
 
   const { rows, total, withEmail, contacted, loading, updateRow } = useBusinesses(filters, refreshTrigger);
 

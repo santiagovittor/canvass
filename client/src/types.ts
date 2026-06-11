@@ -57,6 +57,7 @@ export type ExplorerBusiness = Omit<Business, 'emailsJson'> & {
   email: string | null;
   outreachStatus?: string | null;
   outreachNote?: string | null;
+  replyType?: string | null;
 };
 
 export interface BusinessQueryFilters {
@@ -80,6 +81,11 @@ export interface LocationHierarchyNode {
   country: string;
   count: number;
   states: { state: string; count: number; cities: { city: string; count: number }[] }[];
+}
+
+export interface LocationHierarchy {
+  countries: LocationHierarchyNode[];
+  pendingCount: number;
 }
 
 // SSE event payloads

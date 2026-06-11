@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '../ui/Button';
-import type { BusinessQueryFilters, LocationHierarchyNode } from '../../types';
+import type { BusinessQueryFilters, LocationHierarchy, LocationHierarchyNode } from '../../types';
 
 interface FilterPanelProps {
   filters: BusinessQueryFilters;
@@ -9,12 +9,29 @@ interface FilterPanelProps {
   total: number;
   loading: boolean;
   onOpenExportModal: () => void;
-  locationHierarchy: LocationHierarchyNode[];
+  locationHierarchy: LocationHierarchy;
   locCountry?: string;
   locState?: string;
   locCity?: string;
   onLocationChange: (level: 'country' | 'state' | 'city', value: string) => void;
   onLocationClear: () => void;
+}
+
+function filterHierarchy(countries: LocationHierarchyNode[], query: string): LocationHierarchyNode[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return countries;
+  const result: LocationHierarchyNode[] = [];
+  for (const c of countries) {
+    if (c.country.toLowerCase().includes(q)) { result.push(c); continue; }
+    const states: LocationHierarchyNode['states'] = [];
+    for (const s of c.states) {
+      if (s.state.toLowerCase().includes(q)) { states.push(s); continue; }
+      const cities = s.cities.filter(ci => ci.city.toLowerCase().includes(q));
+      if (cities.length > 0) states.push({ ...s, cities });
+    }
+    if (states.length > 0) result.push({ ...c, states });
+  }
+  return result;
 }
 
 const labelStyle: React.CSSProperties = {
@@ -47,6 +64,7 @@ export function FilterPanel({
   };
 
   const [expandedCountry, setExpandedCountry] = useState<string | null>(locCountry ?? null);
+  const [locSearch, setLocSearch] = useState('');
 
   // Auto-expand when a country filter becomes active
   useEffect(() => {
@@ -54,6 +72,10 @@ export function FilterPanel({
   }, [locCountry]);
 
   const hasLocFilter = !!(locCountry || locState || locCity);
+
+  const { countries, pendingCount } = locationHierarchy;
+  const searching = locSearch.trim() !== '';
+  const visibleCountries = useMemo(() => filterHierarchy(countries, locSearch), [countries, locSearch]);
 
   return (
     <div style={{
@@ -157,23 +179,35 @@ export function FilterPanel({
           )}
         </div>
 
-        {locationHierarchy.length === 0 ? (
+        {countries.length === 0 && pendingCount === 0 ? (
           <span style={{ fontFamily: 'var(--font-ui)', fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
             Location data loading…
           </span>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
-            {locationHierarchy.map(({ country, count, states }) => {
-              const isExpanded = expandedCountry === country;
+            {countries.length > 5 && (
+              <input
+                type="text"
+                value={locSearch}
+                onChange={e => setLocSearch(e.target.value)}
+                placeholder="filter locations…"
+                style={{ ...inputStyle, fontSize: '12px', padding: '6px 8px', marginBottom: '4px' }}
+                onFocus={e => (e.target.style.borderColor = 'var(--border-strong)')}
+                onBlur={e => (e.target.style.borderColor = 'var(--border)')}
+              />
+            )}
+            {searching && visibleCountries.length === 0 && (
+              <span style={{ fontFamily: 'var(--font-ui)', fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic', padding: '4px 6px' }}>
+                No matches
+              </span>
+            )}
+            {visibleCountries.map(({ country, count, states }) => {
+              const isExpanded = searching || expandedCountry === country;
               const isActive = locCountry === country;
               return (
                 <div key={country}>
-                  {/* Country row */}
-                  <button
-                    onClick={() => {
-                      setExpandedCountry(isExpanded ? null : country);
-                      onLocationChange('country', country);
-                    }}
+                  {/* Country row — chevron expands, name filters */}
+                  <div
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -181,21 +215,28 @@ export function FilterPanel({
                       background: isActive ? 'var(--bg-elevated)' : 'none',
                       border: isActive ? '1px solid var(--border-strong)' : '1px solid transparent',
                       borderRadius: '6px',
-                      padding: '4px 6px',
-                      cursor: 'pointer',
                       gap: '4px',
                     }}
                   >
-                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0, width: '10px' }}>
+                    <button
+                      aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${country}`}
+                      onClick={() => setExpandedCountry(isExpanded ? null : country)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0 4px 6px', fontFamily: 'var(--font-ui)', fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0, width: '16px' }}
+                    >
                       {isExpanded ? '▾' : '▸'}
-                    </span>
-                    <span style={{ fontFamily: 'var(--font-ui)', fontSize: '12px', color: isActive ? 'var(--accent)' : 'var(--text-secondary)', flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {country}
-                    </span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>
-                      {count.toLocaleString()}
-                    </span>
-                  </button>
+                    </button>
+                    <button
+                      onClick={() => onLocationChange('country', country)}
+                      style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px 4px 0', gap: '4px' }}
+                    >
+                      <span style={{ fontFamily: 'var(--font-ui)', fontSize: '12px', color: isActive ? 'var(--accent)' : 'var(--text-secondary)', flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {country}
+                      </span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--text-muted)', flexShrink: 0 }}>
+                        {count.toLocaleString()}
+                      </span>
+                    </button>
+                  </div>
 
                   {/* State rows */}
                   {isExpanded && states.map(({ state, count: stateCount, cities }) => {
@@ -258,6 +299,16 @@ export function FilterPanel({
                 </div>
               );
             })}
+            {pendingCount > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 6px 4px 22px' }}>
+                <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic', flex: 1, textAlign: 'left' }}>
+                  Pending location
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--text-muted)', flexShrink: 0 }}>
+                  {pendingCount.toLocaleString()}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>

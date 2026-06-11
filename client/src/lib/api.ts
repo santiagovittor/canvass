@@ -1,4 +1,4 @@
-import type { ScrapeJob, Business, ExplorerBusiness, BusinessQueryFilters, LocationHierarchyNode } from '../types';
+import type { ScrapeJob, Business, ExplorerBusiness, BusinessQueryFilters, LocationHierarchy } from '../types';
 
 const BASE = '/api';
 
@@ -85,7 +85,7 @@ export function getLocationHierarchy(filters: Pick<BusinessQueryFilters, 'search
   if (filters.hasWebsite)              params.set('hasWebsite', 'true');
   if (filters.hasSocial)               params.set('hasSocial', 'true');
   if (filters.minRating !== undefined) params.set('minRating', String(filters.minRating));
-  return request<LocationHierarchyNode[]>(`/businesses/location-hierarchy?${params}`);
+  return request<LocationHierarchy>(`/businesses/location-hierarchy?${params}`);
 }
 
 export function patchOutreach(id: string, status: string | null) {

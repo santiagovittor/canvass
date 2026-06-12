@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { OutreachLead, FollowUpLead, OutreachLeadFilters } from '../../lib/outreachApi';
-import { getOutreachLeads, getFollowUpLeads, getOutreachCategories, countryFlag } from '../../lib/outreachApi';
+import type { OutreachLead, FollowUpLead, RepliedLead, OutreachLeadFilters } from '../../lib/outreachApi';
+import { getOutreachLeads, getFollowUpLeads, getRepliedLeads, getOutreachCategories, countryFlag } from '../../lib/outreachApi';
 
-export type QueueMode = 'new' | 'followup';
+export type QueueMode = 'new' | 'followup' | 'replied';
 
 interface LeadQueueProps {
   activeLead: OutreachLead | null;
@@ -61,14 +61,17 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
   const [categories, setCategories] = useState<string[]>([]);
   const [fetchKey, setFetchKey] = useState(0);
 
-  // Reset rows during render on mode switch — stale 'new'-mode rows lack
-  // last_sent_at and crash Intl.RelativeTimeFormat in the follow-up renderer
+  // Reset rows on mode switch — stale 'new'-mode rows lack last_sent_at and
+  // crash Intl.RelativeTimeFormat in the follow-up renderer. The setState
+  // schedules a re-render, but React still finishes THIS render pass with the
+  // stale rows, so the render below must use displayLeads, never leads.
   const [prevMode, setPrevMode] = useState(mode);
   if (mode !== prevMode) {
     setPrevMode(mode);
     setLeads([]);
     setTotal(0);
   }
+  const displayLeads = mode !== prevMode ? [] : leads;
 
   const onLeadsChangeRef = useRef(onLeadsChange);
   useEffect(() => { onLeadsChangeRef.current = onLeadsChange; });
@@ -111,7 +114,9 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
     };
     const fetchPromise = mode === 'followup'
       ? getFollowUpLeads(page, followUpDays)
-      : getOutreachLeads(page, filters);
+      : mode === 'replied'
+        ? getRepliedLeads(page)
+        : getOutreachLeads(page, filters);
     fetchPromise
       .then(result => {
         if (!cancelled) {
@@ -181,7 +186,9 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
         }}>
           {mode === 'followup'
             ? 'Follow-ups'
-            : `Lead Queue${activeFilterCount > 0 ? ` · ${activeFilterCount} filtro${activeFilterCount !== 1 ? 's' : ''}` : ''}`}
+            : mode === 'replied'
+              ? 'Respuestas'
+              : `Lead Queue${activeFilterCount > 0 ? ` · ${activeFilterCount} filtro${activeFilterCount !== 1 ? 's' : ''}` : ''}`}
         </span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
           {total}
@@ -205,6 +212,9 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
           </button>
           <button style={mode === 'followup' ? PILL_ACTIVE : PILL_BASE} onClick={() => onModeChange('followup')}>
             Follow-up
+          </button>
+          <button style={mode === 'replied' ? PILL_ACTIVE : PILL_BASE} onClick={() => onModeChange('replied')}>
+            Respondieron
           </button>
         </div>
 
@@ -309,7 +319,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
 
       {/* List */}
       <div style={{ flex: 1, overflowY: 'auto' as const }}>
-        {leads.length === 0 && (
+        {displayLeads.length === 0 && (
           <div style={{
             padding: 24,
             textAlign: 'center' as const,
@@ -317,10 +327,10 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
             fontSize: 13,
             color: 'var(--text-muted)',
           }}>
-            {mode === 'followup' ? 'Sin follow-ups pendientes' : 'No leads in queue'}
+            {mode === 'followup' ? 'Sin follow-ups pendientes' : mode === 'replied' ? 'Sin respuestas todavía' : 'No leads in queue'}
           </div>
         )}
-        {leads.map(lead => {
+        {displayLeads.map(lead => {
           const isActive = activeLead?.id === lead.id;
           const invalid = !lead.valid_email;
           return (
@@ -331,8 +341,8 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
               aria-pressed={isActive}
               aria-disabled={invalid}
               aria-label={`${lead.name}${lead.first_email ? `, ${lead.first_email}` : ''}`}
-              onClick={() => { if (!invalid) onSelect(lead); }}
-              onKeyDown={e => { if (!invalid && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(lead); } }}
+              onClick={() => { if (!invalid && mode !== 'replied') onSelect(lead); }}
+              onKeyDown={e => { if (!invalid && mode !== 'replied' && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(lead); } }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -422,9 +432,11 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                   const fu = lead as FollowUpLead;
                   return (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' as const }}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
-                        {relTimeFmt.format(-daysAgo(fu.last_sent_at), 'day')}
-                      </span>
+                      {fu.last_sent_at && (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+                          {relTimeFmt.format(-daysAgo(fu.last_sent_at), 'day')}
+                        </span>
+                      )}
                       {fu.send_count > 1 && (
                         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
                           ×{fu.send_count}
@@ -472,6 +484,30 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                       >
                         Respondió
                       </button>
+                    </div>
+                  );
+                })()}
+                {mode === 'replied' && (() => {
+                  const rl = lead as RepliedLead;
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' as const }}>
+                      {rl.replied_at && (
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+                          {relTimeFmt.format(-daysAgo(rl.replied_at), 'day')}
+                        </span>
+                      )}
+                      <span style={{
+                        fontFamily: 'var(--font-ui)',
+                        fontSize: 10,
+                        fontWeight: 500,
+                        padding: '1px 5px',
+                        borderRadius: 3,
+                        ...(rl.reply_type === 'real'
+                          ? { color: 'var(--success)', background: 'rgba(74,222,128,0.12)' }
+                          : { color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)' }),
+                      }}>
+                        {rl.reply_type === 'real' ? 'respuesta real' : 'sin clasificar'}
+                      </span>
                     </div>
                   );
                 })()}

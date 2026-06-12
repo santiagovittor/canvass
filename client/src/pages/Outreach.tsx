@@ -299,7 +299,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
         onMarkReplied={handleMarkReplied}
       />
       <EmailComposer
-        mode={mode}
+        mode={mode === 'followup' ? 'followup' : 'new'}
         lead={activeLead}
         draft={draft}
         isAiDraft={isAiDraft}

@@ -622,6 +622,74 @@ export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: 
   return { rows, total };
 }
 
+export interface RepliedLead extends FollowUpLead {
+  replied_at: string | null;
+}
+
+// Real/unknown replies — auto-replies stay in the follow-up queue instead.
+// LEFT JOIN on email_sends: manually marked "Respondió" rows may predate send
+// tracking and must still appear.
+export function getRepliedLeads(page = 1, pageSize = 25): { rows: RepliedLead[]; total: number } {
+  const offset = (page - 1) * pageSize;
+
+  const lastSendJoin = `
+    LEFT JOIN (
+      SELECT business_id, MAX(sent_at) AS last_sent_at, COUNT(*) AS send_count
+      FROM email_sends WHERE status = 'sent' GROUP BY business_id
+    ) ls ON ls.business_id = b.id
+  `;
+  const whereClause = `
+    WHERE b.outreach_status = 'replied'
+      AND (b.reply_type IS NULL OR b.reply_type != 'auto')
+  `;
+
+  const leadsSQL = `
+    SELECT b.id, b.name, b.address, b.phone, b.website, b.emails_json, b.category, b.rating, b.review_count,
+           b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status,
+           b.latitude, b.longitude, b.instagram, b.facebook, b.twitter, b.tiktok, b.linkedin, b.youtube,
+           CASE WHEN d.business_id IS NOT NULL THEN 1 ELSE 0 END AS has_draft,
+           b.reply_type, b.replied_at, ls.last_sent_at, ls.send_count,
+           COALESCE(op.open_count, 0) AS open_count, op.last_opened_at
+    FROM businesses b
+    ${lastSendJoin}
+    LEFT JOIN (
+      SELECT business_id, COUNT(DISTINCT send_id) AS open_count, MAX(opened_at) AS last_opened_at
+      FROM email_opens GROUP BY business_id
+    ) op ON op.business_id = b.id
+    LEFT JOIN outreach_drafts d ON d.business_id = b.id
+    ${whereClause}
+    ORDER BY b.replied_at DESC
+    LIMIT ? OFFSET ?
+  `;
+  const countSQL = `SELECT COUNT(*) AS n FROM businesses b ${whereClause}`;
+
+  const raw = sqlite.prepare<(string | number)[], RawFollowUpRow & { replied_at: string | null }>(leadsSQL).all(pageSize, offset);
+  const total = sqlite.prepare<[], { n: number }>(countSQL).get()?.n ?? 0;
+
+  const rows: RepliedLead[] = raw.map(r => {
+    const emails = parseEmails(r.emails_json);
+    const first = emails[0] ?? null;
+    return {
+      id: r.id, name: r.name, address: r.address, phone: r.phone,
+      website: r.website, emailsJson: r.emails_json, category: r.category,
+      rating: r.rating, reviewCount: r.review_count,
+      locCountry: r.loc_country, locNeighbourhood: r.loc_neighbourhood,
+      locCity: r.loc_city, outreachStatus: r.outreach_status,
+      valid_email: first !== null && validateEmail(first),
+      first_email: first,
+      latitude: r.latitude, longitude: r.longitude,
+      instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
+      tiktok: r.tiktok, linkedin: r.linkedin, youtube: r.youtube,
+      has_draft: r.has_draft === 1,
+      last_sent_at: r.last_sent_at, send_count: r.send_count,
+      open_count: r.open_count, last_opened_at: r.last_opened_at,
+      reply_type: r.reply_type, replied_at: r.replied_at,
+    };
+  });
+
+  return { rows, total };
+}
+
 export function setFollowUpStatus(businessId: string, status: 'skip' | null): boolean {
   const result = sqlite.prepare(`UPDATE businesses SET follow_up_status = ? WHERE id = ?`)
     .run(status, businessId);

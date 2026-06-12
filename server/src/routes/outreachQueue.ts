@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db';
 import { businesses } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
-import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveEmailExample, getFollowUpLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens } from '../db';
+import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveEmailExample, getFollowUpLeads, getRepliedLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens } from '../db';
 import { composeEmail, composeFollowUp } from '../services/geminiComposer';
 import { sendEmail, signatureHtml } from '../services/emailSender';
 import { checkReplies } from '../services/replyChecker';
@@ -39,6 +39,11 @@ router.get('/follow-ups', (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
   const days = Math.max(1, parseInt(String(req.query.days ?? '4'), 10) || 4);
   res.json(getFollowUpLeads(page, 25, days));
+});
+
+router.get('/replied', (req, res) => {
+  const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
+  res.json(getRepliedLeads(page, 25));
 });
 
 router.post('/generate-follow-up', async (req, res) => {

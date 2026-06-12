@@ -61,6 +61,10 @@ export interface FollowUpLead extends OutreachLead {
   reply_type: 'auto' | 'real' | 'unknown' | null;
 }
 
+export interface RepliedLead extends FollowUpLead {
+  replied_at: string | null;
+}
+
 export interface OutreachStats {
   sent_today: number;
   remaining: number;
@@ -91,6 +95,10 @@ export function getOutreachCategories(): Promise<string[]> {
 
 export function getFollowUpLeads(page: number, days: number): Promise<{ rows: FollowUpLead[]; total: number }> {
   return request(`/outreach/follow-ups?page=${page}&days=${days}`);
+}
+
+export function getRepliedLeads(page: number): Promise<{ rows: RepliedLead[]; total: number }> {
+  return request(`/outreach/replied?page=${page}`);
 }
 
 export function generateFollowUp(businessId: string): Promise<{ subject: string; body: string }> {

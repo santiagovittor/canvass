@@ -19,6 +19,8 @@ export default function App() {
   const [cellSizeKm, setCellSizeKm] = useState(DEFAULT_CELL_SIZE_KM);
   const [eventLog, setEventLog] = useState<string[]>([]);
   const [hydratedCellCount, setHydratedCellCount] = useState(0);
+  // Last completed sweep batch — drives the "job is alive" indicator
+  const [sweep, setSweep] = useState<{ jobsDone: number; jobsTotal: number; category: string; at: number } | null>(null);
 
   const bbox = geometry ? bboxFromGeoJSON(geometry) : null;
   const cells: GridCell[] = bbox ? computeGrid(bbox, cellSizeKm) : [];
@@ -57,6 +59,7 @@ export default function App() {
       if (jobId && e.jobId !== jobId) return;
       updateProgress(e.cellsDone);
       updateBusinessCount(e.totalBusinesses);
+      setSweep({ jobsDone: e.jobsDone, jobsTotal: e.jobsTotal, category: e.category, at: Date.now() });
       if (e.cellsDone > loggedCellRef.current) {
         loggedCellRef.current = e.cellsDone;
         log(`Cell ${e.cellsDone + 1} — ${e.totalBusinesses} businesses`);
@@ -103,6 +106,7 @@ export default function App() {
     resetResults();
     setEventLog([]);
     loggedCellRef.current = -1;
+    setSweep(null);
     setJobId(null);
     setStatus(null);
     await start({ geometry, searchTerm, language, gridCellKm: cellSizeKm, extractEmails });
@@ -186,6 +190,7 @@ export default function App() {
             jobId={jobId}
             jobStatus={status}
             cellsDone={cellsDone}
+            sweep={sweep}
             totalResults={businessCount}
             enrichedDone={enrichedDone}
             enrichedTotal={enrichedTotal}

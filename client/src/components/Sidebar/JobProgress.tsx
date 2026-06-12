@@ -1,13 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import type { JobStatus } from '../../types';
+
+export interface SweepActivity {
+  jobsDone: number;
+  jobsTotal: number;
+  category: string;
+  at: number;
+}
 
 interface JobProgressProps {
   jobId: string;
   status: JobStatus;
   cellsDone: number;
   cellCount: number;
+  sweep: SweepActivity | null;
   totalResults: number;
   enrichedDone: number;
   enrichedTotal: number;
@@ -20,6 +28,7 @@ export function JobProgress({
   status,
   cellsDone,
   cellCount,
+  sweep,
   totalResults,
   enrichedDone,
   enrichedTotal,
@@ -33,6 +42,17 @@ export function JobProgress({
   const isRunning = status === 'running';
   const isEnriching = status === 'enriching';
   const isIncomplete = status === 'error' && cellCount > 0 && cellsDone < cellCount;
+
+  // Local 1s clock so "Xs ago" ticks between SSE events — render only, no fetching
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!isRunning || !sweep) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [isRunning, sweep]);
+
+  const agoSec = sweep ? Math.max(0, Math.floor((now - sweep.at) / 1000)) : 0;
+  const ago = agoSec < 60 ? `${agoSec}s` : `${Math.floor(agoSec / 60)}m ${agoSec % 60}s`;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -58,6 +78,35 @@ export function JobProgress({
           <div className="progress-fill" style={{ transform: `scaleX(${scrapeProgress / 100})` }} />
         </div>
       </div>
+
+      {isRunning && sweep && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+              Searches
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              {sweep.jobsDone} / {sweep.jobsTotal}
+            </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+              Last sweep
+            </span>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: '12px', color: 'var(--text-primary)' }}>
+              {sweep.category}
+            </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', fontWeight: 500, letterSpacing: '0.05em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+              Updated
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--accent)' }}>
+              {ago} ago
+            </span>
+          </div>
+        </div>
+      )}
 
       {isIncomplete && (
         <div style={{

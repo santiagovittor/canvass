@@ -90,7 +90,7 @@ export interface LocationHierarchy {
 
 // SSE event payloads
 export interface JobStartedEvent { jobId: string; cellCount: number; }
-export interface JobProgressEvent { jobId: string; cellsDone: number; jobsDone: number; jobsTotal: number; newBusinesses: number; totalBusinesses: number; }
+export interface JobProgressEvent { jobId: string; cellsDone: number; jobsDone: number; jobsTotal: number; category: string; newBusinesses: number; totalBusinesses: number; }
 export interface JobScrapedEvent { jobId: string; count: number; }
 export interface JobDoneEvent { jobId: string; }
 export interface JobErrorEvent { jobId: string; message: string; cellsDone?: number; cellCount?: number; businessesFound?: number; }

@@ -2,6 +2,7 @@ import { AreaStats } from './AreaStats';
 import { SearchPanel } from './SearchPanel';
 import { JobProgress } from './JobProgress';
 import type { JobStatus } from '../../types';
+import type { SweepActivity } from './JobProgress';
 
 interface SidebarProps {
   visible: boolean;
@@ -12,6 +13,7 @@ interface SidebarProps {
   jobId: string | null;
   jobStatus: JobStatus | null;
   cellsDone: number;
+  sweep: SweepActivity | null;
   totalResults: number;
   enrichedDone: number;
   enrichedTotal: number;
@@ -30,6 +32,7 @@ export function Sidebar({
   jobId,
   jobStatus,
   cellsDone,
+  sweep,
   totalResults,
   enrichedDone,
   enrichedTotal,
@@ -102,6 +105,7 @@ export function Sidebar({
             status={jobStatus}
             cellsDone={cellsDone}
             cellCount={cellCount}
+            sweep={sweep}
             totalResults={totalResults}
             enrichedDone={enrichedDone}
             enrichedTotal={enrichedTotal}

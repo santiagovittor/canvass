@@ -244,7 +244,7 @@ async function runJob(
         console.log(`[jobRunner] pipeline stats for ${gosomId}: inserted=${countInserted} noLatLng=${countNoLatLng} outsidePolygon=${countOutsidePolygon} duplicate=${countDuplicate}`);
 
         jobsDone++;
-        broadcast('job:progress', { jobId, cellsDone, totalCells, jobsDone, jobsTotal: totalJobs, newBusinesses: countInserted, totalBusinesses: businessesFound });
+        broadcast('job:progress', { jobId, cellsDone, totalCells, jobsDone, jobsTotal: totalJobs, category, newBusinesses: countInserted, totalBusinesses: businessesFound });
       }
 
       broadcast('businesses_updated', { jobId, count: businessesFound });

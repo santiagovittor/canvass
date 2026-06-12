@@ -100,26 +100,26 @@ export async function downloadResults(id: string): Promise<Record<string, unknow
 
   const raw = await resBody.text();
 
-  // Try JSON first
+  // Try JSON first. An empty array is a legitimate result — a category with
+  // no businesses in the cell — not an error.
   const trimmed = raw.trimStart();
   if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-    const parsed = JSON.parse(raw) as Record<string, unknown>[];
-    if (parsed.length === 0) throw new Error(`gosom returned no parseable results for job ${id}`);
-    return parsed;
+    return JSON.parse(raw) as Record<string, unknown>[];
   }
 
-  // Parse CSV
+  // Parse CSV. A header-only CSV is likewise a legitimate empty result;
+  // only a body with no recognizable header is treated as unparseable.
   const lines = raw.trim().split('\n').filter(l => l.trim());
-  if (lines.length < 2) throw new Error(`gosom returned no parseable results for job ${id}`);
+  if (lines.length === 0 || !lines[0].includes(',')) {
+    throw new Error(`gosom returned no parseable results for job ${id}`);
+  }
   const headers = parseCsvLine(lines[0]);
-  const rows = lines.slice(1).map(line => {
+  return lines.slice(1).map(line => {
     const values = parseCsvLine(line);
     const obj: Record<string, unknown> = {};
     headers.forEach((h, i) => { obj[h.trim()] = values[i] ?? null; });
     return obj;
   });
-  if (rows.length === 0) throw new Error(`gosom returned no parseable results for job ${id}`);
-  return rows;
 }
 
 // gosom's web runner has a known bug (gosom/google-maps-scraper#143): it

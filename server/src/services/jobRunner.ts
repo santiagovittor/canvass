@@ -83,23 +83,36 @@ export function resumeOrphanedJobs(): void {
     .where(or(eq(scrapeJobs.status, 'running'), eq(scrapeJobs.status, 'enriching')))
     .all();
   for (const job of orphans) {
-    if (!job.geometryJson) {
+    if (!resumeJob(job)) {
       // Legacy row from before geometry was persisted — not resumable
       db.update(scrapeJobs).set({ status: 'error', errorMessage: 'Server restarted' }).where(eq(scrapeJobs.id, job.id)).run();
-      continue;
     }
-    const params: StartJobParams = {
-      geometry: JSON.parse(job.geometryJson),
-      searchTerm: job.searchTerm,
-      language: job.language,
-      gridCellKm: job.gridCellKm,
-      extractEmails: job.extractEmails === 1,
-    };
-    const bbox = JSON.parse(job.bboxJson) as ReturnType<typeof bboxFromGeoJSON>;
-    console.log(`[jobRunner] resuming job ${job.id} from cell ${job.cellsDone}/${job.cellCount}`);
-    runJob(job.id, params, bbox, job.cellCount, { startCell: job.cellsDone, businessesFound: job.businessesFound })
-      .catch(err => console.error(`Job ${job.id} unhandled error:`, err));
   }
+}
+
+function resumeJob(job: typeof scrapeJobs.$inferSelect): boolean {
+  if (!job.geometryJson) return false;
+  const params: StartJobParams = {
+    geometry: JSON.parse(job.geometryJson),
+    searchTerm: job.searchTerm,
+    language: job.language,
+    gridCellKm: job.gridCellKm,
+    extractEmails: job.extractEmails === 1,
+  };
+  const bbox = JSON.parse(job.bboxJson) as ReturnType<typeof bboxFromGeoJSON>;
+  console.log(`[jobRunner] resuming job ${job.id} from cell ${job.cellsDone}/${job.cellCount}`);
+  runJob(job.id, params, bbox, job.cellCount, { startCell: job.cellsDone, businessesFound: job.businessesFound })
+    .catch(err => console.error(`Job ${job.id} unhandled error:`, err));
+  return true;
+}
+
+// User-triggered resume of a job that errored mid-grid (gosom died, cancel, etc.).
+export function resumeErroredJob(jobId: string): 'ok' | 'not_found' | 'not_resumable' {
+  const job = db.select().from(scrapeJobs).where(eq(scrapeJobs.id, jobId)).get();
+  if (!job) return 'not_found';
+  if (job.status !== 'error' || !job.geometryJson || cancellers.has(jobId)) return 'not_resumable';
+  db.update(scrapeJobs).set({ status: 'running', errorMessage: null }).where(eq(scrapeJobs.id, jobId)).run();
+  return resumeJob(job) ? 'ok' : 'not_resumable';
 }
 
 async function runJob(
@@ -112,6 +125,11 @@ async function runJob(
   const ac = new AbortController();
   cancellers.set(jobId, ac);
 
+  // Hoisted so the catch block can include progress in the job:error payload
+  let cellsDone = resume?.startCell ?? 0;
+  let businessesFound = resume?.businessesFound ?? 0;
+  let totalCells = count;
+
   try {
     const categories = params.searchTerm.trim() ? [params.searchTerm.trim()] : B2B_CATEGORIES;
     const polygonRing = params.geometry.coordinates[0];
@@ -122,13 +140,12 @@ async function runJob(
     });
     if (cells.length === 0) throw new Error('Polygon too small for current cell size — try reducing cell size or drawing a larger area.');
     const radiusMeters = (params.gridCellKm * 1000) / 2;
-    const totalCells = cells.length;
+    totalCells = cells.length;
     const totalJobs = cells.length * categories.length;
     const seenIds = new Set<string>();
     const startCell = Math.min(resume?.startCell ?? 0, cells.length);
-    let cellsDone = startCell;
+    cellsDone = startCell;
     let jobsDone = startCell * categories.length;
-    let businessesFound = resume?.businessesFound ?? 0;
 
     db.update(scrapeJobs).set({ status: 'running', cellCount: totalCells }).where(eq(scrapeJobs.id, jobId)).run();
     broadcast('job:started', { jobId, cellCount: totalCells, totalJobs });
@@ -142,20 +159,22 @@ async function runJob(
       for (const category of categories) {
         if (ac.signal.aborted) return;
 
-        const gosomId = await gosom.createJob({
+        const gosomId = await createGosomJobWithRetry({
           jobId,
           keywords: [category],
           lang: params.language,
           latitude: centerLat,
           longitude: centerLng,
           radiusMeters,
-          email: params.extractEmails,
-        });
+          // Email extraction is done Node-side in socialEnricher — gosom's Playwright
+          // email jobs stall the worker pool and trip exit-on-inactivity mid-grid.
+          email: false,
+        }, ac.signal);
 
-        await pollUntilDone(gosomId, ac.signal);
+        const polledResults = await pollUntilDone(gosomId, ac.signal);
         if (ac.signal.aborted) return;
 
-        const rawResults = await gosom.downloadResults(gosomId);
+        const rawResults = polledResults ?? await gosom.downloadResults(gosomId);
         const scrapedAt = new Date().toISOString();
 
         let countNoLatLng = 0, countOutsidePolygon = 0, countDuplicate = 0, countInserted = 0;
@@ -209,7 +228,9 @@ async function runJob(
               tiktok: sql`excluded.tiktok`,
               linkedin: sql`excluded.linkedin`,
               youtube: sql`excluded.youtube`,
-              emailsJson: sql`excluded.emails_json`,
+              // gosom no longer supplies emails (email: false) — keep enrichment-written
+              // emails on re-scrape instead of nulling them
+              emailsJson: sql`COALESCE(excluded.emails_json, emails_json)`,
               socialEnriched: sql`excluded.social_enriched`,
               scrapedAt: sql`excluded.scraped_at`,
             },
@@ -225,7 +246,7 @@ async function runJob(
 
       broadcast('businesses_updated', { jobId, count: businessesFound });
       cellsDone++;
-      db.update(scrapeJobs).set({ cellsDone }).where(eq(scrapeJobs.id, jobId)).run();
+      db.update(scrapeJobs).set({ cellsDone, businessesFound }).where(eq(scrapeJobs.id, jobId)).run();
     }
 
     console.log('[jobRunner] total businesses found:', businessesFound, 'for job', jobId);
@@ -243,7 +264,7 @@ async function runJob(
       const enrichMsg = enrichErr instanceof Error ? enrichErr.message : 'Unknown enrichment error';
       console.error(`[jobRunner] enrichJob failed for ${jobId}:`, enrichErr);
       db.update(scrapeJobs).set({ status: 'error', errorMessage: enrichMsg }).where(eq(scrapeJobs.id, jobId)).run();
-      broadcast('job:error', { jobId, message: enrichMsg });
+      broadcast('job:error', { jobId, message: enrichMsg, cellsDone, cellCount: totalCells, businessesFound });
       return;
     }
     if (ac.signal.aborted) return;
@@ -257,7 +278,7 @@ async function runJob(
     if (ac.signal.aborted) return;
     const message = err instanceof Error ? err.message : 'Unknown error';
     db.update(scrapeJobs).set({ status: 'error', errorMessage: message }).where(eq(scrapeJobs.id, jobId)).run();
-    broadcast('job:error', { jobId, message });
+    broadcast('job:error', { jobId, message, cellsDone, cellCount: totalCells, businessesFound });
   } finally {
     cancellers.delete(jobId);
   }
@@ -273,20 +294,90 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 const POLL_INTERVAL_MS = 5000;
-const MAX_POLL_ITERATIONS = 360; // 360 × 5s = 30 min
+const MAX_POLL_MS = 17 * 60 * 1000; // gosom max_time (15 min) + grace
+const WEDGE_PROBE_AFTER_MS = 3 * 60 * 1000; // normal 1-keyword batches finish in ~90s
+const WEDGE_PROBE_EVERY_MS = 45 * 1000;
+const PENDING_RESTART_AFTER_MS = 2 * 60 * 1000; // healthy runner picks pending jobs in seconds
 
-async function pollUntilDone(gosomId: string, signal: AbortSignal): Promise<void> {
+// gosom's web runner randomly dies after finishing a batch (upstream issue
+// gosom/google-maps-scraper#143): the CSV is fully written ("scrapemate
+// exited") but the job status never flips from "working" and the queue
+// freezes. Two recovery paths:
+//   - status stuck "working": probe the download endpoint — if the row count
+//     stops growing the batch is final; return its rows and restart gosom so
+//     the next cell starts against a healthy runner.
+//   - status stuck "pending": the runner died before picking the job; restart
+//     gosom (re-picks pending jobs on boot) and keep polling.
+// Returns null when the status flipped normally (caller downloads as usual).
+async function pollUntilDone(gosomId: string, signal: AbortSignal): Promise<Record<string, unknown>[] | null> {
   let seenWorking = false;
-  for (let i = 0; i < MAX_POLL_ITERATIONS; i++) {
-    if (signal.aborted) return;
-    const status = await gosom.getJob(gosomId);
-    const s = status.Status?.toLowerCase() ?? '';
-    if (s === 'error' || s === 'failed') throw new Error('Gosom job failed');
-    if (s === 'working' || s === 'running') seenWorking = true;
-    if (seenWorking && (s === 'ok' || s === 'completed' || s === 'done' || s === 'finished' || s === 'success')) return;
+  let lastProbeAt = 0;
+  let lastRowCount = -1;
+  let stableProbes = 0;
+  let pendingSince: number | null = null;
+  let restartsUsed = 0;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < MAX_POLL_MS) {
+    if (signal.aborted) return null;
+    try {
+      const status = await gosom.getJob(gosomId);
+      const s = status.Status?.toLowerCase() ?? '';
+      if (s === 'error' || s === 'failed') throw new Error('Gosom job failed');
+      if (s === 'working' || s === 'running') seenWorking = true;
+      if (seenWorking && (s === 'ok' || s === 'completed' || s === 'done' || s === 'finished' || s === 'success')) return null;
+      if (s === 'pending') {
+        pendingSince ??= Date.now();
+      } else {
+        pendingSince = null;
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message === 'Gosom job failed') throw err;
+      // transient — gosom may be restarting; keep polling
+    }
+
+    const now = Date.now();
+
+    if (pendingSince !== null && now - pendingSince > PENDING_RESTART_AFTER_MS && restartsUsed < 2) {
+      restartsUsed++;
+      pendingSince = null;
+      console.warn(`[jobRunner] gosom job ${gosomId} stuck pending — runner likely wedged, restarting gosom (attempt ${restartsUsed})`);
+      await gosom.restartContainer();
+    }
+
+    if (seenWorking && now - startedAt > WEDGE_PROBE_AFTER_MS && now - lastProbeAt >= WEDGE_PROBE_EVERY_MS) {
+      lastProbeAt = now;
+      try {
+        const rows = await gosom.downloadResults(gosomId);
+        if (rows.length === lastRowCount) {
+          stableProbes++;
+          if (stableProbes >= 2) {
+            console.warn(`[jobRunner] gosom job ${gosomId} status stalled but results are stable (${rows.length} rows) — treating as complete`);
+            await gosom.restartContainer(); // heal the runner before the next cell
+            return rows;
+          }
+        } else {
+          stableProbes = 0;
+          lastRowCount = rows.length;
+        }
+      } catch { /* no results yet */ }
+    }
+
     await abortableDelay(POLL_INTERVAL_MS, signal);
   }
-  throw new Error('Job timed out after 30 minutes');
+  throw new Error('Gosom job stalled — no status update and no stable results within 17 minutes');
+}
+
+async function createGosomJobWithRetry(params: gosom.GosomJobParams, signal: AbortSignal): Promise<string> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await gosom.createJob(params);
+    } catch (err) {
+      if (attempt >= 3 || signal.aborted) throw err;
+      console.warn(`[jobRunner] gosom createJob failed (attempt ${attempt}), retrying in 10s:`, err instanceof Error ? err.message : err);
+      await abortableDelay(10_000, signal);
+    }
+  }
 }
 
 export function cancelJob(jobId: string): boolean {

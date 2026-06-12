@@ -8,6 +8,8 @@ const schema = z.object({
   APP_AUTH_USER: z.string().optional(),
   APP_AUTH_PASS: z.string().optional(),
   GOSOM_URL: z.string().url().default('http://localhost:8080'),
+  GOSOM_CONTAINER: z.string().default('maps-scraper-gosom'),
+  DOCKER_SOCK: z.string().default('/var/run/docker.sock'),
   DATABASE_URL: z.string().default('./data/scraper.db'),
   GOOGLE_SERVICE_ACCOUNT_PATH: z.string().default('./credentials/google-service-account.json'),
   GOOGLE_SHEET_ID: z.string().optional(),

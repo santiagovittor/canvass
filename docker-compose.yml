@@ -1,10 +1,16 @@
 services:
   gosom:
     image: gosom/google-maps-scraper:latest
+    container_name: maps-scraper-gosom
     restart: unless-stopped
     volumes:
       - ./data/gosom:/gmapsdata
-    command: ["-web", "-addr", ":8080", "-data-folder", "/gmapsdata", "-c", "4"]
+    # gosom's web runner randomly wedges after a batch (status stuck "working",
+    # queue frozen). 5m inactivity self-heals: process exits, docker restarts it,
+    # pending jobs resume. Healthy batches complete jobs every few seconds, so
+    # this never fires mid-batch; with email extraction off there are no long
+    # silent gaps. Must stay well under the 17-min poll cap in jobRunner.ts.
+    command: ["-web", "-addr", ":8080", "-data-folder", "/gmapsdata", "-exit-on-inactivity", "5m", "-c", "4"]
     expose: ["8080"]
 
   app:
@@ -15,12 +21,15 @@ services:
     volumes:
       - ./data:/app/data
       - ./credentials:/app/credentials
+      # Lets the server restart a wedged gosom (see gosom.restartContainer)
+      - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - path: .env
         required: false
     environment:
       NODE_ENV: production
       GOSOM_URL: http://gosom:8080
+      GOSOM_CONTAINER: maps-scraper-gosom
       DATABASE_URL: /app/data/scraper.db
       GOOGLE_SERVICE_ACCOUNT_PATH: /app/credentials/google-service-account.json
       APP_AUTH_USER: ${APP_AUTH_USER:-}

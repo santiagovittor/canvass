@@ -1,6 +1,6 @@
 import { lookup } from 'dns/promises';
 import { request } from 'undici';
-import { load } from 'cheerio';
+import { load, type CheerioAPI } from 'cheerio';
 import { eq, and, isNotNull } from 'drizzle-orm';
 import { db } from '../db';
 import { businesses, scrapeJobs } from '../db/schema';
@@ -51,8 +51,7 @@ const SOCIAL_PATTERNS: Record<string, RegExp> = {
 
 const SHARE_PATTERN = /sharer\.php|intent\/tweet|intent\/post|login|signup|oauth|auth\b|share\?/i;
 
-function extractSocialLinks(html: string): Record<string, string> {
-  const $ = load(html);
+function extractSocialLinks($: CheerioAPI): Record<string, string> {
   const links = new Set<string>();
 
   $('a[href]').each((_, el) => {
@@ -76,6 +75,42 @@ function extractSocialLinks(html: string): Record<string, string> {
   return found;
 }
 
+const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
+// Filter conservatively: noreply variants, image-extension false positives
+// ("logo@2x.png" matches EMAIL_RE), and platform/tracking domains. Keep
+// contact-prefix inboxes (info@, contacto@, hola@…) — they're the whole point.
+const NOREPLY_RE = /^(?:no-?reply|do-?not-?reply|donotreply)/i;
+const IMAGE_EXT_RE = /\.(?:png|jpe?g|svg|webp|gif)$/i;
+const JUNK_DOMAINS = ['example.com', 'sentry.io', 'wixpress.com', 'googleapis.com', 'sentry-cdn.com', 'schema.org', 'w3.org'];
+
+function isJunkEmail(email: string): boolean {
+  const domain = email.split('@')[1] ?? '';
+  if (!domain.includes('.')) return true;
+  if (IMAGE_EXT_RE.test(domain)) return true;
+  if (NOREPLY_RE.test(email)) return true;
+  return JUNK_DOMAINS.some(d => domain === d || domain.endsWith(`.${d}`));
+}
+
+function extractEmails(html: string, $: CheerioAPI): string[] {
+  const found = new Set<string>();
+
+  $('a[href]').each((_, el) => {
+    const href = $(el).attr('href');
+    if (!href || !/^mailto:/i.test(href)) return;
+    try {
+      const addr = decodeURIComponent(href.replace(/^mailto:/i, '').split('?')[0]).trim().toLowerCase();
+      if (addr.includes('@')) found.add(addr);
+    } catch { /* malformed percent-encoding — skip */ }
+  });
+
+  for (const m of html.matchAll(EMAIL_RE)) {
+    found.add(m[0].toLowerCase());
+  }
+
+  return [...found].filter(e => !isJunkEmail(e)).slice(0, 5);
+}
+
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const t = setTimeout(resolve, ms);
@@ -84,6 +119,12 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 export async function enrichJob(jobId: string, signal: AbortSignal): Promise<void> {
+  const job = db.select({ extractEmails: scrapeJobs.extractEmails })
+    .from(scrapeJobs)
+    .where(eq(scrapeJobs.id, jobId))
+    .get();
+  const wantEmails = job?.extractEmails === 1;
+
   const bizes = db.select()
     .from(businesses)
     .where(and(eq(businesses.jobId, jobId), isNotNull(businesses.website)))
@@ -116,7 +157,9 @@ export async function enrichJob(jobId: string, signal: AbortSignal): Promise<voi
         if (bytes >= env.SOCIAL_ENRICHMENT_MAX_BYTES) break;
       }
 
-      const links = extractSocialLinks(html);
+      const $ = load(html);
+      const links = extractSocialLinks($);
+      const emails = wantEmails ? extractEmails(html, $) : [];
       db.update(businesses)
         .set({
           instagram: links.instagram ?? null,
@@ -125,6 +168,7 @@ export async function enrichJob(jobId: string, signal: AbortSignal): Promise<voi
           tiktok: links.tiktok ?? null,
           linkedin: links.linkedin ?? null,
           youtube: links.youtube ?? null,
+          ...(emails.length > 0 ? { emailsJson: JSON.stringify(emails) } : {}),
           socialEnriched: 1,
         })
         .where(eq(businesses.id, biz.id))

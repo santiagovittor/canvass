@@ -1,9 +1,18 @@
 services:
   gosom:
     image: gosom/google-maps-scraper:latest
+    container_name: maps-scraper-gosom
     ports: ["8080:8080"]
-    volumes: ["./data/gosom:/gmapsdata"]
-    command: ["-web", "-addr", ":8080", "-data-folder", "/gmapsdata", "-exit-on-inactivity", "10m", "-c", "4"]
+    # Named volume, NOT a Windows bind mount: gosom keeps its job queue in
+    # SQLite under /gmapsdata, and SQLite over Docker Desktop's file share
+    # hangs randomly — wedging gosom's runner with jobs stuck "working".
+    volumes: ["gosom-data:/gmapsdata"]
+    # gosom's web runner randomly wedges after a batch (status stuck "working",
+    # queue frozen). 5m inactivity self-heals: process exits, docker restarts it,
+    # pending jobs resume. Healthy batches complete jobs every few seconds, so
+    # this never fires mid-batch; with email extraction off there are no long
+    # silent gaps. Must stay well under the 17-min poll cap in jobRunner.ts.
+    command: ["-web", "-addr", ":8080", "-data-folder", "/gmapsdata", "-exit-on-inactivity", "5m", "-c", "4"]
     restart: unless-stopped
 
   server:
@@ -15,9 +24,12 @@ services:
       - /app/node_modules
       - /app/server/node_modules
       - /app/client/node_modules
+      # Lets the server restart a wedged gosom (see gosom.restartContainer)
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       NODE_ENV: development
       GOSOM_URL: http://gosom:8080
+      GOSOM_CONTAINER: maps-scraper-gosom
       DATABASE_URL: /app/data/scraper.db
       GOOGLE_SERVICE_ACCOUNT_PATH: /app/credentials/google-service-account.json
     command: sh -c "npm install && npm -w server run dev"
@@ -33,3 +45,6 @@ services:
       - /app/client/node_modules
     command: sh -c "npm install && npm -w client run dev"
     depends_on: [server]
+
+volumes:
+  gosom-data:

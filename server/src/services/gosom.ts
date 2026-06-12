@@ -1,4 +1,4 @@
-import { request } from 'undici';
+import { request, Client } from 'undici';
 import { env } from '../env';
 
 export interface GosomJobParams {
@@ -120,6 +120,34 @@ export async function downloadResults(id: string): Promise<Record<string, unknow
   });
   if (rows.length === 0) throw new Error(`gosom returned no parseable results for job ${id}`);
   return rows;
+}
+
+// gosom's web runner has a known bug (gosom/google-maps-scraper#143): it
+// randomly dies after finishing a batch — the job stays "working" forever and
+// pending jobs are never picked. -exit-on-inactivity doesn't fire in this
+// state, so the only cure is restarting the container. Best-effort: requires
+// the docker socket mounted into this container; failures are logged and
+// swallowed (the poll loop's timeout still bounds the damage).
+export async function restartContainer(): Promise<boolean> {
+  const docker = new Client('http://localhost', { socketPath: env.DOCKER_SOCK });
+  try {
+    const { statusCode, body } = await docker.request({
+      path: `/containers/${env.GOSOM_CONTAINER}/restart?t=5`,
+      method: 'POST',
+    });
+    await body.dump();
+    if (statusCode === 204) {
+      console.warn(`[gosom] restarted container ${env.GOSOM_CONTAINER}`);
+      return true;
+    }
+    console.warn(`[gosom] container restart returned HTTP ${statusCode}`);
+    return false;
+  } catch (err) {
+    console.warn('[gosom] container restart failed (docker socket mounted?):', err instanceof Error ? err.message : err);
+    return false;
+  } finally {
+    await docker.close().catch(() => {});
+  }
 }
 
 export async function cancelJob(id: string): Promise<void> {

@@ -24,7 +24,7 @@ export default function App() {
   const cells: GridCell[] = bbox ? computeGrid(bbox, cellSizeKm) : [];
   const count = bbox ? computeCellCount(bbox, cellSizeKm) : 0;
 
-  const { jobId, status, setStatus, setJobId, error, start, cancel } = useScrape();
+  const { jobId, status, setStatus, setJobId, error, start, cancel, resume } = useScrape();
   const { results, businessCount, cellsDone, enrichedDone, enrichedTotal, addResult, setResults, updateProgress, updateBusinessCount, updateEnrichProgress, reset: resetResults } = useResults();
 
   const log = useCallback((msg: string) => {
@@ -79,6 +79,9 @@ export default function App() {
       const e = data as JobErrorEvent;
       if (jobId && e.jobId !== jobId) return;
       setStatus('error');
+      if (e.cellsDone !== undefined) updateProgress(e.cellsDone);
+      if (e.businessesFound !== undefined) updateBusinessCount(e.businessesFound);
+      if (e.cellCount !== undefined) setHydratedCellCount(e.cellCount);
       log(`Error: ${e.message}`);
     },
     'enrich:progress': (data) => {
@@ -189,6 +192,7 @@ export default function App() {
             eventLog={eventLog}
             onStart={handleStart}
             onCancel={cancel}
+            onResume={resume}
           />
           <MapView
             onPolygonChange={handlePolygonChange}

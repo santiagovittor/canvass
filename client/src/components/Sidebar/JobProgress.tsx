@@ -13,6 +13,7 @@ interface JobProgressProps {
   enrichedTotal: number;
   eventLog: string[];
   onCancel: () => void;
+  onResume: () => void;
 }
 
 export function JobProgress({
@@ -24,12 +25,14 @@ export function JobProgress({
   enrichedTotal,
   eventLog,
   onCancel,
+  onResume,
 }: JobProgressProps) {
   const [logOpen, setLogOpen] = useState(false);
   const scrapeProgress = cellCount > 0 ? (cellsDone / cellCount) * 100 : 0;
   const enrichProgress = enrichedTotal > 0 ? (enrichedDone / enrichedTotal) * 100 : 0;
   const isRunning = status === 'running';
   const isEnriching = status === 'enriching';
+  const isIncomplete = status === 'error' && cellCount > 0 && cellsDone < cellCount;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -55,6 +58,24 @@ export function JobProgress({
           <div className="progress-fill" style={{ transform: `scaleX(${scrapeProgress / 100})` }} />
         </div>
       </div>
+
+      {isIncomplete && (
+        <div style={{
+          display: 'flex', flexDirection: 'column', gap: '10px',
+          background: 'var(--bg-elevated)', border: '1px solid var(--border-strong)',
+          borderRadius: '8px', padding: '12px',
+        }}>
+          <span style={{ fontFamily: 'var(--font-ui)', fontSize: '12px', color: 'var(--warn)' }}>
+            Grid incomplete —{' '}
+            <span style={{ fontFamily: 'var(--font-mono)' }}>{cellsDone}</span> of{' '}
+            <span style={{ fontFamily: 'var(--font-mono)' }}>{cellCount}</span> cells finished.{' '}
+            <span style={{ fontFamily: 'var(--font-mono)' }}>{totalResults}</span> businesses saved.
+          </span>
+          <Button onClick={onResume} style={{ padding: '6px 12px', fontSize: '12px' }}>
+            Resume
+          </Button>
+        </div>
+      )}
 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '28px', fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1 }}>

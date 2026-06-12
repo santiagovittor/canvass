@@ -18,6 +18,7 @@ interface SidebarProps {
   eventLog: string[];
   onStart: (searchTerm: string, language: string, extractEmails: boolean) => void;
   onCancel: () => void;
+  onResume: () => void;
 }
 
 export function Sidebar({
@@ -35,6 +36,7 @@ export function Sidebar({
   eventLog,
   onStart,
   onCancel,
+  onResume,
 }: SidebarProps) {
   if (!visible) {
     return (
@@ -105,6 +107,7 @@ export function Sidebar({
             enrichedTotal={enrichedTotal}
             eventLog={eventLog}
             onCancel={onCancel}
+            onResume={onResume}
           />
         </div>
       )}

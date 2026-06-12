@@ -39,6 +39,10 @@ export function cancelJob(jobId: string) {
   return request<{ ok: boolean }>(`/jobs/${jobId}`, { method: 'DELETE' });
 }
 
+export function resumeJob(jobId: string) {
+  return request<{ ok: boolean }>(`/jobs/${jobId}/resume`, { method: 'POST' });
+}
+
 export function getResults(jobId: string, q?: string, page = 1) {
   const params = new URLSearchParams({ jobId, page: String(page) });
   if (q) params.set('q', q);

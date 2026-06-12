@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { startScrape, cancelJob as apiCancelJob } from '../lib/api';
+import { startScrape, cancelJob as apiCancelJob, resumeJob as apiResumeJob } from '../lib/api';
 import type { JobStatus, Bbox } from '../types';
 
 export function useScrape() {
@@ -34,11 +34,21 @@ export function useScrape() {
     } catch {}
   }, [jobId]);
 
+  const resume = useCallback(async () => {
+    if (!jobId) return;
+    try {
+      await apiResumeJob(jobId);
+      setStatus('running');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to resume job');
+    }
+  }, [jobId]);
+
   const reset = useCallback(() => {
     setJobId(null);
     setStatus(null);
     setError(null);
   }, []);
 
-  return { jobId, status, setStatus, setJobId, error, start, cancel, reset };
+  return { jobId, status, setStatus, setJobId, error, start, cancel, resume, reset };
 }

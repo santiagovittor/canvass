@@ -1,7 +1,7 @@
 import type { Response } from 'express';
 import { db } from './db';
-import { scrapeJobs } from './db/schema';
-import { or, eq, desc } from 'drizzle-orm';
+import { scrapeJobs, businesses } from './db/schema';
+import { or, eq, desc, count } from 'drizzle-orm';
 
 const clients = new Set<Response>();
 
@@ -43,11 +43,16 @@ export function register(res: Response) {
     .get();
 
   if (activeJob) {
+    // businessesFound only persists per completed cell — mid-cell rows are
+    // already in the DB, so count them live for an honest snapshot
+    const liveCount = db.select({ n: count() }).from(businesses)
+      .where(eq(businesses.jobId, activeJob.id))
+      .get()?.n ?? 0;
     safeWrite(res, `event: snapshot\ndata: ${JSON.stringify({
       id: activeJob.id,
       status: activeJob.status,
       progress: activeJob.enrichmentProgress,
-      businessesFound: activeJob.businessesFound,
+      businessesFound: Math.max(activeJob.businessesFound, liveCount),
       cellCount: activeJob.cellCount,
       cellsDone: activeJob.cellsDone,
     })}\n\n`);

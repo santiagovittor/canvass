@@ -79,6 +79,12 @@ export function JobProgress({
         </div>
       </div>
 
+      {isRunning && !sweep && (
+        <span style={{ fontFamily: 'var(--font-ui)', fontSize: '11px', color: 'var(--text-muted)' }}>
+          Sweep in progress — first update lands when the current search finishes (~90s)
+        </span>
+      )}
+
       {isRunning && sweep && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>

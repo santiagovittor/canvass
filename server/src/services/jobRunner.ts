@@ -5,8 +5,7 @@ import { scrapeJobs, businesses } from '../db/schema';
 import { broadcast } from '../sse';
 import { bboxFromGeoJSON, cellCount as computeCellCount, computeGrid } from './grid';
 import * as gosom from './gosom';
-import { enrichJob } from './socialEnricher';
-import { enrichLocationJob } from './locationEnricher';
+import { kickEnrichment } from './enrichmentQueue';
 
 const cancellers = new Map<string, AbortController>();
 
@@ -83,7 +82,11 @@ export function resumeOrphanedJobs(): void {
     .where(or(eq(scrapeJobs.status, 'running'), eq(scrapeJobs.status, 'enriching')))
     .all();
   for (const job of orphans) {
-    if (!resumeJob(job)) {
+    if (job.status === 'enriching') {
+      // Legacy status from before enrichment was decoupled: scraping had
+      // finished, so the job is done; the enrichment queue picks up the rest.
+      db.update(scrapeJobs).set({ status: 'done', completedAt: new Date().toISOString() }).where(eq(scrapeJobs.id, job.id)).run();
+    } else if (!resumeJob(job)) {
       // Legacy row from before geometry was persisted — not resumable
       db.update(scrapeJobs).set({ status: 'error', errorMessage: 'Server restarted' }).where(eq(scrapeJobs.id, job.id)).run();
     }
@@ -247,33 +250,20 @@ async function runJob(
       broadcast('businesses_updated', { jobId, count: businessesFound });
       cellsDone++;
       db.update(scrapeJobs).set({ cellsDone, businessesFound }).where(eq(scrapeJobs.id, jobId)).run();
+      // Enrichment is decoupled from job status: the background queue works
+      // through this cell's businesses while scraping continues.
+      kickEnrichment();
     }
 
     console.log('[jobRunner] total businesses found:', businessesFound, 'for job', jobId);
-    db.update(scrapeJobs).set({ businessesFound }).where(eq(scrapeJobs.id, jobId)).run();
     broadcast('job:scraped', { jobId, count: businessesFound });
 
-    db.update(scrapeJobs).set({ status: 'enriching' }).where(eq(scrapeJobs.id, jobId)).run();
-    try {
-      await enrichJob(jobId, ac.signal);
-      if (!ac.signal.aborted) {
-        await enrichLocationJob(jobId, ac.signal);
-      }
-    } catch (enrichErr) {
-      if (ac.signal.aborted) return;
-      const enrichMsg = enrichErr instanceof Error ? enrichErr.message : 'Unknown enrichment error';
-      console.error(`[jobRunner] enrichJob failed for ${jobId}:`, enrichErr);
-      db.update(scrapeJobs).set({ status: 'error', errorMessage: enrichMsg }).where(eq(scrapeJobs.id, jobId)).run();
-      broadcast('job:error', { jobId, message: enrichMsg, cellsDone, cellCount: totalCells, businessesFound });
-      return;
-    }
-    if (ac.signal.aborted) return;
-
     db.update(scrapeJobs)
-      .set({ status: 'done', completedAt: new Date().toISOString() })
+      .set({ status: 'done', completedAt: new Date().toISOString(), businessesFound })
       .where(eq(scrapeJobs.id, jobId))
       .run();
     broadcast('job:done', { jobId });
+    kickEnrichment();
   } catch (err) {
     if (ac.signal.aborted) return;
     const message = err instanceof Error ? err.message : 'Unknown error';

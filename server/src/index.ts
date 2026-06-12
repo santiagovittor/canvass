@@ -16,28 +16,14 @@ import outreachQueueRouter from './routes/outreachQueue';
 import adminRouter from './routes/admin';
 import analyticsRouter from './routes/analytics';
 import trackRouter from './routes/track';
-import { enrichLocationJob } from './services/locationEnricher';
 import { startReplyChecker } from './services/replyChecker';
 import { resumeOrphanedJobs } from './services/jobRunner';
-import { db } from './db';
-import { businesses } from './db/schema';
-import { and, eq, isNotNull } from 'drizzle-orm';
+import { kickEnrichment } from './services/enrichmentQueue';
 
 runMigrations();
 resumeOrphanedJobs();
-
-// Backfill location enrichment for rows scraped before this feature landed
-(async () => {
-  const pending = db.select().from(businesses)
-    .where(and(eq(businesses.locationEnriched, 0), isNotNull(businesses.latitude), isNotNull(businesses.longitude)))
-    .all();
-  if (pending.length > 0) {
-    console.log(`[locationEnricher] Starting backfill for ${pending.length} rows...`);
-    const ac = new AbortController();
-    await enrichLocationJob(undefined, ac.signal);
-    console.log('[locationEnricher] Backfill complete.');
-  }
-})();
+// Pick up any social/location enrichment left unfinished by a restart
+kickEnrichment();
 
 const app = express();
 

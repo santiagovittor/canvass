@@ -1,10 +1,9 @@
 import { lookup } from 'dns/promises';
 import { request } from 'undici';
 import { load, type CheerioAPI } from 'cheerio';
-import { eq, and, isNotNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '../db';
-import { businesses, scrapeJobs } from '../db/schema';
-import { broadcast } from '../sse';
+import { businesses } from '../db/schema';
 import { env } from '../env';
 
 const PRIVATE_RANGES = [
@@ -111,78 +110,51 @@ function extractEmails(html: string, $: CheerioAPI): string[] {
   return [...found].filter(e => !isJunkEmail(e)).slice(0, 5);
 }
 
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(resolve, ms);
-    signal.addEventListener('abort', () => { clearTimeout(t); reject(new Error('Aborted')); }, { once: true });
-  });
-}
+// Enrich one business from its website: social links + (optionally) emails.
+// Always marks socialEnriched=1 — failures included — so the queue never
+// retries a permanently broken site.
+export async function enrichSocial(biz: typeof businesses.$inferSelect, wantEmails: boolean): Promise<void> {
+  if (!biz.website) {
+    db.update(businesses).set({ socialEnriched: 1 }).where(eq(businesses.id, biz.id)).run();
+    return;
+  }
 
-export async function enrichJob(jobId: string, signal: AbortSignal): Promise<void> {
-  const job = db.select({ extractEmails: scrapeJobs.extractEmails })
-    .from(scrapeJobs)
-    .where(eq(scrapeJobs.id, jobId))
-    .get();
-  const wantEmails = job?.extractEmails === 1;
+  try {
+    await validateURL(biz.website);
 
-  const bizes = db.select()
-    .from(businesses)
-    .where(and(eq(businesses.jobId, jobId), isNotNull(businesses.website)))
-    .all();
+    const { body } = await request(biz.website, {
+      method: 'GET',
+      headers: { 'user-agent': 'MapsScraperBot/1.0 (+contact)' },
+      bodyTimeout: env.SOCIAL_ENRICHMENT_TIMEOUT_MS,
+      headersTimeout: 8000,
+    });
 
-  const total = bizes.length;
-  if (total === 0) return;
-
-  for (let i = 0; i < bizes.length; i++) {
-    if (signal.aborted) break;
-    const biz = bizes[i];
-    if (!biz.website) continue;
-
-    try {
-      await validateURL(biz.website);
-
-      const { body } = await request(biz.website, {
-        method: 'GET',
-        headers: { 'user-agent': 'MapsScraperBot/1.0 (+contact)' },
-        bodyTimeout: env.SOCIAL_ENRICHMENT_TIMEOUT_MS,
-        headersTimeout: 8000,
-      });
-
-      let html = '';
-      let bytes = 0;
-      for await (const chunk of body) {
-        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        bytes += buf.length;
-        html += buf.toString('utf-8');
-        if (bytes >= env.SOCIAL_ENRICHMENT_MAX_BYTES) break;
-      }
-
-      const $ = load(html);
-      const links = extractSocialLinks($);
-      const emails = wantEmails ? extractEmails(html, $) : [];
-      db.update(businesses)
-        .set({
-          instagram: links.instagram ?? null,
-          facebook: links.facebook ?? null,
-          twitter: links.twitter ?? null,
-          tiktok: links.tiktok ?? null,
-          linkedin: links.linkedin ?? null,
-          youtube: links.youtube ?? null,
-          ...(emails.length > 0 ? { emailsJson: JSON.stringify(emails) } : {}),
-          socialEnriched: 1,
-        })
-        .where(eq(businesses.id, biz.id))
-        .run();
-    } catch {
-      db.update(businesses).set({ socialEnriched: 1 }).where(eq(businesses.id, biz.id)).run();
+    let html = '';
+    let bytes = 0;
+    for await (const chunk of body) {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bytes += buf.length;
+      html += buf.toString('utf-8');
+      if (bytes >= env.SOCIAL_ENRICHMENT_MAX_BYTES) break;
     }
 
-    const done = i + 1;
-    db.update(scrapeJobs).set({ enrichmentProgress: done }).where(eq(scrapeJobs.id, jobId)).run();
-    broadcast('enrich:progress', { jobId, done, total });
-
-    if (i < bizes.length - 1 && !signal.aborted) {
-      await sleep(env.SOCIAL_ENRICHMENT_DELAY_MS, signal);
-    }
+    const $ = load(html);
+    const links = extractSocialLinks($);
+    const emails = wantEmails ? extractEmails(html, $) : [];
+    db.update(businesses)
+      .set({
+        instagram: links.instagram ?? null,
+        facebook: links.facebook ?? null,
+        twitter: links.twitter ?? null,
+        tiktok: links.tiktok ?? null,
+        linkedin: links.linkedin ?? null,
+        youtube: links.youtube ?? null,
+        ...(emails.length > 0 ? { emailsJson: JSON.stringify(emails) } : {}),
+        socialEnriched: 1,
+      })
+      .where(eq(businesses.id, biz.id))
+      .run();
+  } catch {
+    db.update(businesses).set({ socialEnriched: 1 }).where(eq(businesses.id, biz.id)).run();
   }
 }

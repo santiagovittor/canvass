@@ -41,7 +41,6 @@ export default function App() {
       setStatus(e.status);
       updateBusinessCount(e.businessesFound);
       setHydratedCellCount(e.cellCount);
-      if (e.status === 'enriching') updateEnrichProgress(e.progress, e.businessesFound);
       if (e.status === 'error') {
         updateProgress(e.cellsDone);
         if (e.businessesFound > 0) getResults(e.id).then(setResults).catch(() => {});
@@ -84,11 +83,12 @@ export default function App() {
       if (e.cellCount !== undefined) setHydratedCellCount(e.cellCount);
       log(`Error: ${e.message}`);
     },
+    // Enrichment runs in a background queue decoupled from job status — the
+    // job stays "done" while the Social Profiles bar fills in below.
     'enrich:progress': (data) => {
       const e = data as EnrichProgressEvent;
       if (jobId && e.jobId !== jobId) return;
       updateEnrichProgress(e.done, e.total);
-      setStatus('enriching');
     },
     'businesses_updated': (data) => {
       const e = data as BusinessesUpdatedEvent;

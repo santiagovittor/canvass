@@ -36,7 +36,6 @@ export function register(res: Response) {
     .from(scrapeJobs)
     .where(or(
       eq(scrapeJobs.status, 'running'),
-      eq(scrapeJobs.status, 'enriching'),
       eq(scrapeJobs.status, 'error'),
     ))
     .orderBy(desc(scrapeJobs.createdAt))

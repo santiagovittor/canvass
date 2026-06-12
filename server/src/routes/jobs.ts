@@ -22,6 +22,7 @@ router.post('/:id/resume', (req, res) => {
 });
 
 router.delete('/:id', (req, res) => {
+  console.log(`[jobs] cancel requested for ${req.params.id} from ${req.ip} (ua: ${req.headers['user-agent'] ?? 'none'})`);
   const cancelled = cancelJob(req.params.id);
   if (!cancelled) { res.status(404).json({ error: 'Job not found or not running' }); return; }
   res.json({ ok: true });

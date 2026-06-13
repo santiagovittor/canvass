@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import type { OutreachLead, DetectedSig } from '../../lib/outreachApi';
+import type { OutreachLead, DetectedSig, PsiMetrics } from '../../lib/outreachApi';
 
 interface Draft {
   subject: string;
@@ -21,7 +21,7 @@ interface EmailComposerProps {
   onAnalyzeAndGenerate: () => void;
   onGenerate: () => void;
   onPremiumAnalyze: () => void;
-  premium: { status: string; renderOutcome: string | null; detectedSigs?: DetectedSig[] } | null;
+  premium: { status: string; renderOutcome: string | null; detectedSigs?: DetectedSig[]; psi?: PsiMetrics | null } | null;
   onSend: () => void;
   onSkip: () => void;
   signatureHtml: string | null;
@@ -33,6 +33,27 @@ interface EmailComposerProps {
 }
 
 const DAILY_CAP = 30;
+
+function PsiChip({ label, value, bad, warn }: { label: string; value: string; bad: boolean; warn: boolean }) {
+  const color = bad ? 'var(--error)' : warn ? 'var(--warn)' : 'var(--success)';
+  const bg = bad ? 'rgba(255,77,109,0.1)' : warn ? 'rgba(245,183,0,0.1)' : 'rgba(74,222,128,0.1)';
+  return (
+    <span style={{
+      fontFamily: 'var(--font-mono)',
+      fontSize: 11,
+      padding: '2px 8px',
+      borderRadius: 100,
+      background: bg,
+      color,
+      display: 'inline-flex',
+      gap: 4,
+      alignItems: 'center',
+    }}>
+      <span style={{ color: 'var(--text-muted)' }}>{label}</span>
+      {value}
+    </span>
+  );
+}
 
 export function EmailComposer({
   mode, lead, draft, isAiDraft, isAnalyzing, isGenerating, isSending,
@@ -662,6 +683,53 @@ export function EmailComposer({
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* PSI metrics — shown when premium scan is done, render ok, and PSI data available */}
+        {hasWebsite && !confirmingSend && premium?.status === 'done' && premium.renderOutcome === 'ok' && premium.psi && premium.psi.mobileScore !== null && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+            <div style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 10,
+              color: 'var(--text-muted)',
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase' as const,
+            }}>
+              PageSpeed (mobile)
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+              <PsiChip
+                label="Score"
+                value={`${premium.psi.mobileScore}/100`}
+                bad={premium.psi.mobileScore < 50}
+                warn={premium.psi.mobileScore < 75}
+              />
+              {premium.psi.lcp !== null && (
+                <PsiChip
+                  label="LCP"
+                  value={`${(premium.psi.lcp / 1000).toFixed(1)}s`}
+                  bad={premium.psi.lcp > 4000}
+                  warn={premium.psi.lcp > 2500}
+                />
+              )}
+              {premium.psi.tbt !== null && (
+                <PsiChip
+                  label="TBT"
+                  value={`${premium.psi.tbt}ms`}
+                  bad={premium.psi.tbt > 600}
+                  warn={premium.psi.tbt > 200}
+                />
+              )}
+              {premium.psi.mobileFriendly !== null && (
+                <PsiChip
+                  label="Mobile"
+                  value={premium.psi.mobileFriendly ? 'OK' : 'issues'}
+                  bad={!premium.psi.mobileFriendly}
+                  warn={false}
+                />
+              )}
+            </div>
           </div>
         )}
 

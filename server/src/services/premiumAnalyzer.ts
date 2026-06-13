@@ -15,6 +15,9 @@ import {
   VISIBLE_EMAIL_RX, BLOG_RX, FAVICON_RX, NEWSLETTER_RX,
   type WebsiteAnalysis,
 } from './websiteAnalyzer';
+import { env } from '../env';
+import { fetchPsi } from './psiClient';
+import { getCachedPsi, upsertPsiCache, type PsiData } from '../db/psiCache';
 
 export type { TriState, DetectorKind, Signal, SignalEvidence, SignalMap } from '../db/premium';
 
@@ -207,6 +210,23 @@ function writeBundle(businessId: string, runId: string, r: RenderResult): {
   return paths;
 }
 
+async function runPsi(finalUrl: string): Promise<PsiData | null> {
+  if (!env.PAGESPEED_API_KEY) return null;
+  const cached = getCachedPsi(finalUrl);
+  if (cached) {
+    console.log(`[psi] cache hit for ${finalUrl} (fetchedAt: ${cached.fetchedAt})`);
+    return cached;
+  }
+  const result = await fetchPsi(finalUrl, env.PAGESPEED_API_KEY);
+  if (result) {
+    upsertPsiCache(finalUrl, result);
+    console.log(`[psi] fetched for ${finalUrl}: score=${result.mobileScore}`);
+  } else {
+    console.warn(`[psi] fetch failed for ${finalUrl}, degrading to null`);
+  }
+  return result;
+}
+
 export async function runPremiumAnalysis(row: PremiumAnalysisRow): Promise<void> {
   const biz = getBusinessWebsite(row.businessId);
 
@@ -256,10 +276,19 @@ export async function runPremiumAnalysis(row: PremiumAnalysisRow): Promise<void>
     if (upgrade && signals[key]?.state === 'UNKNOWN') signals[key] = upgrade;
   }
 
+  // PSI: only on ok renders with a real finalUrl. Non-ok path above already returned.
+  let psiJson: string | null = null;
+  try {
+    const psiData = await runPsi(render.finalUrl!);
+    if (psiData) psiJson = JSON.stringify(psiData);
+  } catch (err) {
+    console.error('[psi] unexpected error, skipping:', err);
+  }
+
   completePremiumAnalysis(row.id, {
     status: 'done', renderOutcome: 'ok', finalUrl: render.finalUrl,
     signals, cookieWall: render.cookieWallDetected, consoleErrors: render.consoleErrors,
-    paths, detectedSigs,
+    paths, detectedSigs, psiJson,
   });
   broadcast('premium:progress', { businessId: row.businessId, analysisId: row.id, status: 'done', renderOutcome: 'ok' });
 }

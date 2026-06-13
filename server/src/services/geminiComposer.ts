@@ -3,6 +3,7 @@ import { env } from '../env';
 import type { WebsiteAnalysis } from './websiteAnalyzer';
 import { getMatchingExample, getCategoryBucket } from '../db';
 import type { DetectedSig } from '../db/premium';
+import type { PsiData } from '../db/psiCache';
 
 export interface BusinessForEmail {
   name: string;
@@ -113,6 +114,28 @@ function buildAnalysisGaps(
 
   raw.sort((x, y) => y.priority - x.priority);
   return { gaps: raw.map(r => r.label), count: raw.length };
+}
+
+function buildPsiContext(psiData: PsiData | null | undefined, isAR: boolean): string {
+  if (!psiData || psiData.mobileScore === null) return '';
+  const score = psiData.mobileScore;
+  if (score >= 75) return '';
+
+  const lcpSec = psiData.lcp !== null ? (psiData.lcp / 1000).toFixed(1) : null;
+
+  if (isAR) {
+    const lcpPart = lcpSec ? ` LCP (carga del contenido principal): ${lcpSec}s.` : '';
+    if (score < 50) {
+      return `\n\nRENDIMIENTO MÓVIL MEDIDO (dato verificable): puntuación ${score}/100 en Google PageSpeed Insights (móvil).${lcpPart} Estos valores son reales y el destinatario puede comprobarlo en segundos. USAR este número como dato concreto en el email — es el tipo de observación más creíble porque es verificable de inmediato. Citar el número exacto: "${score}/100".`;
+    }
+    return `\n\nRENDIMIENTO MÓVIL: puntuación ${score}/100 en PageSpeed Insights.${lcpPart} Mencionar solo si no hay un problema más urgente.`;
+  }
+
+  const lcpPart = lcpSec ? ` LCP: ${lcpSec}s.` : '';
+  if (score < 50) {
+    return `\n\nMEASURED MOBILE PERFORMANCE (verifiable fact): score ${score}/100 on Google PageSpeed Insights.${lcpPart} Recipient can verify this in seconds. USE this number as a concrete observation in the email — cite the exact score: "${score}/100".`;
+  }
+  return `\n\nMOBILE PERFORMANCE: score ${score}/100 on PageSpeed Insights.${lcpPart} Mention only if no more urgent gap.`;
 }
 
 function getGreeting(): string {
@@ -464,16 +487,18 @@ export async function composeEmail(
   analysis?: WebsiteAnalysis,
   approvedExample?: { subject: string; body: string } | null,
   detectedSigs?: DetectedSig[],
+  psiData?: PsiData | null,
 ): Promise<{ subject: string; body: string; topGap: string | null }> {
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
 
   const offerContext = buildOfferContext(business);
   const isArgentina = business.locCountry === 'Argentina';
   const analysisContext = analysis?.loadedSuccessfully ? buildAnalysisContext(business, analysis, isArgentina, detectedSigs) : '';
+  const psiContext = buildPsiContext(psiData, isArgentina);
   const greeting = getGreeting();
   const title = getProfessionalTitle(business.category);
   const systemPrompt = (isArgentina ? SYSTEM_ES : SYSTEM_EN)
-    .replace('{{OFFER_CONTEXT}}', offerContext + analysisContext)
+    .replace('{{OFFER_CONTEXT}}', offerContext + analysisContext + psiContext)
     .replaceAll('{{GREETING}}', greeting)
     .replaceAll('{{PROFESSIONAL_TITLE}}', title);
 
@@ -489,10 +514,19 @@ export async function composeEmail(
   let topGap: string | null = null;
 
   if (isArgentina) {
-    const { gaps, count } =
-      analysis?.loadedSuccessfully
-        ? buildAnalysisGaps(business, analysis, detectedSigs)
-        : { gaps: [], count: 0 };
+    const analysisGaps = analysis?.loadedSuccessfully
+      ? buildAnalysisGaps(business, analysis, detectedSigs)
+      : { gaps: [] as string[], count: 0 };
+
+    // When PSI score is critically low (<50), inject it as the top gap so the ES hook rule
+    // ("el hook ES siteGaps[0]") fires on it — it's more concrete than a hedged raw-fetch gap.
+    if (psiData?.mobileScore !== null && psiData?.mobileScore !== undefined && psiData.mobileScore < 50) {
+      const lcpPart = psiData.lcp !== null ? ` — carga en ${(psiData.lcp / 1000).toFixed(1)}s en móvil` : '';
+      analysisGaps.gaps.unshift(`rendimiento móvil bajo — puntuación ${psiData.mobileScore}/100 en Google PageSpeed${lcpPart}`);
+      analysisGaps.count++;
+    }
+
+    const { gaps, count } = analysisGaps;
     topGap = gaps[0] ?? null;
     const example =
       approvedExample !== undefined

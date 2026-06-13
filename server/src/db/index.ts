@@ -62,6 +62,11 @@ sqlite.exec(`
   );
   CREATE INDEX IF NOT EXISTS email_opens_send_id_idx ON email_opens(send_id);
   CREATE INDEX IF NOT EXISTS email_opens_business_id_idx ON email_opens(business_id);
+  CREATE TABLE IF NOT EXISTS psi_cache (
+    url TEXT PRIMARY KEY,
+    psi_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL
+  );
 `);
 
 // Must run before any prepared statement references top_gap
@@ -82,6 +87,11 @@ sqlite.exec('CREATE INDEX IF NOT EXISTS email_sends_tracking_token_idx ON email_
 const exampleCols = (sqlite.prepare('PRAGMA table_info(email_examples)').all() as { name: string }[]).map(r => r.name);
 if (!exampleCols.includes('kind')) {
   sqlite.exec(`ALTER TABLE email_examples ADD COLUMN kind TEXT NOT NULL DEFAULT 'initial'`);
+}
+
+const premiumCols = (sqlite.prepare('PRAGMA table_info(premium_analyses)').all() as { name: string }[]).map(r => r.name);
+if (!premiumCols.includes('psi_json')) {
+  sqlite.exec('ALTER TABLE premium_analyses ADD COLUMN psi_json TEXT');
 }
 
 export const db = drizzle(sqlite, { schema });

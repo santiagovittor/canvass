@@ -73,6 +73,7 @@ export function completePremiumAnalysis(id: string, r: {
   paths: { desktop?: string; mobile?: string; html?: string; network?: string };
   detectedSigs: DetectedSig[];
   errorMessage?: string;
+  psiJson?: string | null;
 }): void {
   db.update(premiumAnalyses).set({
     status: r.status,
@@ -86,6 +87,7 @@ export function completePremiumAnalysis(id: string, r: {
     htmlPath: r.paths.html ?? null,
     networkLogPath: r.paths.network ?? null,
     detectedSigsJson: JSON.stringify(r.detectedSigs),
+    psiJson: r.psiJson ?? null,
     errorMessage: r.errorMessage ?? null,
     completedAt: new Date().toISOString(),
   }).where(eq(premiumAnalyses.id, id)).run();

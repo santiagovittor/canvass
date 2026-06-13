@@ -41,6 +41,15 @@ export interface PremiumSignal {
   checkedBy: string[];
 }
 
+export interface PsiMetrics {
+  mobileScore: number | null;
+  lcp: number | null;
+  tbt: number | null;
+  tti: number | null;
+  mobileFriendly: boolean | null;
+  fetchedAt: string;
+}
+
 export interface PremiumAnalysis {
   id: string;
   businessId: string;
@@ -55,6 +64,7 @@ export interface PremiumAnalysis {
   htmlPath: string | null;
   networkLogPath: string | null;
   detectedSigs: DetectedSig[];
+  psi: PsiMetrics | null;
   errorMessage: string | null;
   createdAt: string;
   completedAt: string | null;

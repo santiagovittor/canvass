@@ -9,7 +9,7 @@ import { checkReplies } from '../services/replyChecker';
 import { analyzeWebsite } from '../services/websiteAnalyzer';
 import type { WebsiteAnalysis } from '../services/websiteAnalyzer';
 import { requestPremiumAnalysis } from '../services/premiumAnalysisQueue';
-import { getBusinessWebsite, getLatestPremiumAnalysis } from '../db/premium';
+import { getBusinessWebsite, getLatestPremiumAnalysis, type DetectedSig } from '../db/premium';
 import { env } from '../env';
 import { UTC_MINUS_3_OFFSET_MS } from '../util/time';
 
@@ -145,6 +145,7 @@ router.get('/premium/:businessId', (req, res) => {
       mobileScreenshotPath: row.mobileScreenshotPath,
       htmlPath: row.htmlPath,
       networkLogPath: row.networkLogPath,
+      detectedSigs: row.detectedSigsJson ? JSON.parse(row.detectedSigsJson) : [],
       errorMessage: row.errorMessage,
       createdAt: row.createdAt,
       completedAt: row.completedAt,
@@ -161,6 +162,10 @@ router.post('/generate', async (req, res) => {
   const row = db.select().from(businesses).where(eq(businesses.id, businessId)).get();
   if (!row) return res.status(404).json({ error: 'Business not found' });
 
+  const premiumRow = getLatestPremiumAnalysis(businessId);
+  const detectedSigs: DetectedSig[] | undefined =
+    premiumRow?.detectedSigsJson ? JSON.parse(premiumRow.detectedSigsJson) : undefined;
+
   try {
     const result = await composeEmail({
       name: row.name,
@@ -170,7 +175,7 @@ router.post('/generate', async (req, res) => {
       locNeighbourhood: row.locNeighbourhood ?? null,
       rating: row.rating ?? null,
       reviewCount: row.reviewCount ?? null,
-    }, analysis);
+    }, analysis, undefined, detectedSigs);
     res.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

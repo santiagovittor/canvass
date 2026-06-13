@@ -3,6 +3,7 @@ dist/
 build/
 .env
 data/
+!server/src/data/
 credentials/*.json
 *.log
 .DS_Store

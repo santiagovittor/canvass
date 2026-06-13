@@ -6,7 +6,7 @@ import { BusinessContext } from '../components/Outreach/BusinessContext';
 import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis } from '../lib/outreachApi';
 import { patchOutreach, getConfig } from '../lib/api';
 import { useSSE } from '../hooks/useSSE';
-import type { OutreachLead, OutreachStats, WebsiteAnalysis } from '../lib/outreachApi';
+import type { OutreachLead, OutreachStats, WebsiteAnalysis, DetectedSig } from '../lib/outreachApi';
 
 interface Draft {
   subject: string;
@@ -29,7 +29,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [analysis, setAnalysis] = useState<WebsiteAnalysis | null>(null);
-  const [premium, setPremium] = useState<{ status: string; renderOutcome: string | null } | null>(null);
+  const [premium, setPremium] = useState<{ status: string; renderOutcome: string | null; detectedSigs?: DetectedSig[] } | null>(null);
   const [stats, setStats] = useState<OutreachStats | null>(null);
   const [signatureHtml, setSignatureHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -213,7 +213,14 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     },
     'premium:progress': (data) => {
       const d = data as { businessId?: string; status?: string; renderOutcome?: string | null };
-      if (d.businessId && d.businessId === activeLeadRef.current?.id && d.status) {
+      if (!d.businessId || d.businessId !== activeLeadRef.current?.id || !d.status) return;
+      if (d.status === 'done') {
+        getPremiumAnalysis(d.businessId).then(a => {
+          if (a) setPremium({ status: a.status, renderOutcome: a.renderOutcome, detectedSigs: a.detectedSigs });
+        }).catch(() => {
+          setPremium({ status: d.status!, renderOutcome: d.renderOutcome ?? null });
+        });
+      } else {
         setPremium({ status: d.status, renderOutcome: d.renderOutcome ?? null });
       }
     },
@@ -276,7 +283,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     setError(null);
     setSavingState('idle');
     getPremiumAnalysis(lead.id).then(a => {
-      if (a) setPremium({ status: a.status, renderOutcome: a.renderOutcome });
+      if (a) setPremium({ status: a.status, renderOutcome: a.renderOutcome, detectedSigs: a.detectedSigs });
     }).catch(() => {});
     loadDraft(lead.id).then(d => {
       if (!d) return;

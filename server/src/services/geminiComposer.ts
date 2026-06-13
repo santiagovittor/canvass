@@ -2,6 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { env } from '../env';
 import type { WebsiteAnalysis } from './websiteAnalyzer';
 import { getMatchingExample, getCategoryBucket } from '../db';
+import type { DetectedSig } from '../db/premium';
 
 export interface BusinessForEmail {
   name: string;
@@ -21,25 +22,31 @@ function normalizeWebsite(raw: string | null): string {
 const BOOKABLE_CATS = /salón|salon|gym|gimnasio|clínica|clinica|restaurant|spa|peluquería|peluqueria|consultorio|dentist|fitness|studio|pilates|yoga|médico|medico|doctor|tatuaje|tattoo/i;
 const FOOD_CATS = /restaurant|café|cafe|bar|comida|panadería|panaderia|heladería|heladeria|pizzería|pizzeria|delivery|cocina|sushi|burger|parrilla/i;
 
-function buildAnalysisContext(b: BusinessForEmail, a: WebsiteAnalysis, isAR: boolean): string {
+function buildAnalysisContext(b: BusinessForEmail, a: WebsiteAnalysis, isAR: boolean, detectedSigs?: DetectedSig[]): string {
   const cat = b.category ?? '';
   const isBookable = BOOKABLE_CATS.test(cat);
   const isFood = FOOD_CATS.test(cat);
+
+  // Suppression helpers — only fire when scanner produced a PRESENT-grade detection
+  const sigCats = new Set(detectedSigs?.map(s => s.category) ?? []);
+  const hasBookingSig = sigCats.has('booking');
+  const hasWhatsappSig = sigCats.has('whatsapp');
+  const hasFormSig = sigCats.has('forms');
 
   const gaps: { ar: string; en: string; priority: number }[] = [];
 
   // Raw-fetch negatives are hedged ("no muestra … a primera vista"): a raw
   // fetch can't see JS-injected widgets, so absence is never asserted as fact.
   // Positively-observed facts (SSL protocol) stay flat.
-  if (isBookable && !a.hasOnlineBooking)
+  if (isBookable && !a.hasOnlineBooking && !hasBookingSig)
     gaps.push({ ar: 'no muestra un sistema de turnos online a primera vista', en: 'no visible online booking option', priority: 10 });
   if (isFood && !a.hasMenuOrServices)
     gaps.push({ ar: 'no muestra el menú online a primera vista', en: 'no visible online menu', priority: 10 });
   if (!a.hasViewportMeta)
     gaps.push({ ar: 'no parece estar optimizado para móviles', en: 'the site does not appear mobile-optimized', priority: 8 });
-  if (isAR && !a.hasWhatsappLink)
+  if (isAR && !a.hasWhatsappLink && !hasWhatsappSig)
     gaps.push({ ar: 'no muestra un botón de WhatsApp a primera vista', en: '', priority: 7 });
-  if (!a.hasContactForm)
+  if (!a.hasContactForm && !hasFormSig)
     gaps.push({ ar: 'no muestra un formulario de contacto a primera vista', en: 'no visible contact form', priority: 5 });
   if (!a.hasSSL)
     gaps.push({ ar: 'corre en HTTP, sin certificado de seguridad', en: 'no SSL certificate', priority: 3 });
@@ -60,18 +67,26 @@ function buildAnalysisContext(b: BusinessForEmail, a: WebsiteAnalysis, isAR: boo
 
 function buildAnalysisGaps(
   b: BusinessForEmail,
-  a: WebsiteAnalysis
+  a: WebsiteAnalysis,
+  detectedSigs?: DetectedSig[],
 ): { gaps: string[]; count: number } {
   const cat = b.category ?? '';
   const isBookable = BOOKABLE_CATS.test(cat);
   const isFood = FOOD_CATS.test(cat);
+
+  // Suppression helpers — only fire when scanner produced a PRESENT-grade detection
+  const sigCats = new Set(detectedSigs?.map(s => s.category) ?? []);
+  const hasBookingSig = sigCats.has('booking');
+  const hasWhatsappSig = sigCats.has('whatsapp');
+  const hasChatSig = sigCats.has('chat');
+  const hasFormSig = sigCats.has('forms');
 
   const raw: { label: string; priority: number }[] = [];
 
   // Hedged negatives, same reasoning as buildAnalysisContext: raw fetch can't
   // prove absence. Positively-observed facts (copyright, script count, SSL,
   // OpenGraph share behavior) stay flat.
-  if (isBookable && !a.hasOnlineBooking)
+  if (isBookable && !a.hasOnlineBooking && !hasBookingSig)
     raw.push({ label: 'no muestra un sistema de turnos online a primera vista', priority: 10 });
   if (isFood && !a.hasMenuOrServices)
     raw.push({ label: 'no muestra el menú online a primera vista', priority: 10 });
@@ -79,11 +94,11 @@ function buildAnalysisGaps(
     raw.push({ label: `el copyright del sitio dice ${a.copyrightYear} — puede parecer inactivo o desactualizado`, priority: 9 });
   if (!a.hasViewportMeta)
     raw.push({ label: 'no parece estar optimizado para móviles', priority: 8 });
-  if (!a.hasWhatsappLink)
+  if (!a.hasWhatsappLink && !hasWhatsappSig)
     raw.push({ label: 'no muestra un botón de WhatsApp a primera vista', priority: 7 });
   if (a.scriptCount !== undefined && a.scriptCount > 20)
     raw.push({ label: `carga con ${a.scriptCount} scripts externos, lo que lo ralentiza en dispositivos móviles`, priority: 6 });
-  if (!a.hasContactForm)
+  if (!a.hasContactForm && !hasFormSig)
     raw.push({ label: 'no muestra un formulario de contacto a primera vista', priority: 5 });
   if (!a.hasStructuredData && getCategoryBucket(b.category) !== 'food')
     raw.push({ label: 'no parece tener datos estructurados — puede no aparecer con estrellas ni horarios en Google', priority: 5 });
@@ -448,12 +463,13 @@ export async function composeEmail(
   business: BusinessForEmail,
   analysis?: WebsiteAnalysis,
   approvedExample?: { subject: string; body: string } | null,
+  detectedSigs?: DetectedSig[],
 ): Promise<{ subject: string; body: string; topGap: string | null }> {
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
 
   const offerContext = buildOfferContext(business);
   const isArgentina = business.locCountry === 'Argentina';
-  const analysisContext = analysis?.loadedSuccessfully ? buildAnalysisContext(business, analysis, isArgentina) : '';
+  const analysisContext = analysis?.loadedSuccessfully ? buildAnalysisContext(business, analysis, isArgentina, detectedSigs) : '';
   const greeting = getGreeting();
   const title = getProfessionalTitle(business.category);
   const systemPrompt = (isArgentina ? SYSTEM_ES : SYSTEM_EN)
@@ -475,7 +491,7 @@ export async function composeEmail(
   if (isArgentina) {
     const { gaps, count } =
       analysis?.loadedSuccessfully
-        ? buildAnalysisGaps(business, analysis)
+        ? buildAnalysisGaps(business, analysis, detectedSigs)
         : { gaps: [], count: 0 };
     topGap = gaps[0] ?? null;
     const example =
@@ -487,7 +503,7 @@ export async function composeEmail(
       siteGaps: gaps,
       gapCount: count,
       platform: analysis?.platform ?? 'custom',
-      ...(analysis?.hasLiveChatWidget ? {
+      ...((analysis?.hasLiveChatWidget || (detectedSigs?.some(s => s.category === 'chat') ?? false)) ? {
         existingChatNote: 'This site already has a live chat widget. Do not position a chatbot as something new or missing — they already have real-time chat. Only mention it if directly relevant to a different gap.',
       } : {}),
       ...(analysis?.platform && analysis.platform !== 'custom' ? {

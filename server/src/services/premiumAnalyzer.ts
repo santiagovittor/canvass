@@ -3,8 +3,9 @@ import path from 'path';
 import { dataDir } from '../db';
 import {
   completePremiumAnalysis, getBusinessWebsite,
-  type PremiumAnalysisRow, type Signal, type SignalMap,
+  type PremiumAnalysisRow, type Signal, type SignalMap, type DetectedSig,
 } from '../db/premium';
+import { SIGNATURES } from '../data/signatureLibrary';
 import { broadcast } from '../sse';
 import { renderSite, type RenderResult } from './playwrightRenderer';
 import {
@@ -134,6 +135,44 @@ function detectSignals(html: string, networkUrls: string[], finalUrl: string): S
   return signals;
 }
 
+function scanSignatures(
+  html: string,
+  networkUrls: string[],
+): { detectedSigs: DetectedSig[]; signalUpgrades: Partial<SignalMap> } {
+  const detectedSigs: DetectedSig[] = [];
+  const signalUpgrades: Partial<SignalMap> = {};
+
+  for (const sig of SIGNATURES) {
+    let evidence: DetectedSig['evidence'] | null = null;
+
+    // Network match preferred (higher signal, exact URL as evidence)
+    if (sig.network) {
+      const hit = networkUrls.find(u => sig.network!.test(u));
+      if (hit) evidence = { kind: 'network', value: hit };
+    }
+
+    // DOM match as fallback
+    if (!evidence && sig.dom) {
+      const snippet = snippetAround(html, sig.dom);
+      if (snippet) evidence = { kind: 'dom', value: snippet };
+    }
+
+    if (!evidence) continue;
+
+    detectedSigs.push({ id: sig.id, name: sig.name, category: sig.category, evidence });
+
+    if (sig.signalKey) {
+      signalUpgrades[sig.signalKey] = {
+        state: 'PRESENT',
+        evidence: { kind: evidence.kind, value: evidence.value },
+        checkedBy: ['dom', 'network'],
+      };
+    }
+  }
+
+  return { detectedSigs, signalUpgrades };
+}
+
 function allUnknown(): SignalMap {
   const signals: SignalMap = {};
   for (const key of RAW_FETCH_BOOLEAN_KEYS) {
@@ -174,7 +213,7 @@ export async function runPremiumAnalysis(row: PremiumAnalysisRow): Promise<void>
   if (!biz || !biz.website) {
     completePremiumAnalysis(row.id, {
       status: 'done', renderOutcome: 'no_website', finalUrl: null,
-      signals: {}, cookieWall: false, consoleErrors: [], paths: {},
+      signals: {}, cookieWall: false, consoleErrors: [], paths: {}, detectedSigs: [],
     });
     broadcast('premium:progress', { businessId: row.businessId, analysisId: row.id, status: 'done', renderOutcome: 'no_website' });
     return;
@@ -203,7 +242,7 @@ export async function runPremiumAnalysis(row: PremiumAnalysisRow): Promise<void>
     completePremiumAnalysis(row.id, {
       status, renderOutcome: render.outcome, finalUrl: render.finalUrl,
       signals, cookieWall: render.cookieWallDetected, consoleErrors: render.consoleErrors,
-      paths: {}, errorMessage: render.errorMessage,
+      paths: {}, detectedSigs: [], errorMessage: render.errorMessage,
     });
     broadcast('premium:progress', { businessId: row.businessId, analysisId: row.id, status, renderOutcome: render.outcome });
     return;
@@ -211,11 +250,16 @@ export async function runPremiumAnalysis(row: PremiumAnalysisRow): Promise<void>
 
   const paths = writeBundle(row.businessId, row.id, render);
   const signals = detectSignals(render.html!, render.networkUrls, render.finalUrl!);
+  const { detectedSigs, signalUpgrades } = scanSignatures(render.html!, render.networkUrls);
+  // Upgrade UNKNOWN signals where scanner found evidence (PRESENT-grade detections only)
+  for (const [key, upgrade] of Object.entries(signalUpgrades)) {
+    if (upgrade && signals[key]?.state === 'UNKNOWN') signals[key] = upgrade;
+  }
 
   completePremiumAnalysis(row.id, {
     status: 'done', renderOutcome: 'ok', finalUrl: render.finalUrl,
     signals, cookieWall: render.cookieWallDetected, consoleErrors: render.consoleErrors,
-    paths,
+    paths, detectedSigs,
   });
   broadcast('premium:progress', { businessId: row.businessId, analysisId: row.id, status: 'done', renderOutcome: 'ok' });
 }

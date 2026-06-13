@@ -109,4 +109,9 @@ export function runMigrations() {
     );
     CREATE INDEX IF NOT EXISTS premium_analyses_business_id_idx ON premium_analyses(business_id);
   `);
+
+  const premiumCols = (sqlite.prepare('PRAGMA table_info(premium_analyses)').all() as { name: string }[]).map(r => r.name);
+  if (!premiumCols.includes('detected_sigs_json')) {
+    sqlite.exec('ALTER TABLE premium_analyses ADD COLUMN detected_sigs_json TEXT');
+  }
 }

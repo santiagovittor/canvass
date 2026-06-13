@@ -19,6 +19,13 @@ export interface Signal {
 }
 export type SignalMap = Record<string, Signal>;
 
+export interface DetectedSig {
+  id: string;
+  name: string;
+  category: string;
+  evidence: { kind: 'network' | 'dom'; value: string };
+}
+
 export type PremiumAnalysisRow = typeof premiumAnalyses.$inferSelect;
 
 export function enqueuePremiumAnalysis(businessId: string): { id: string; deduped: boolean } {
@@ -64,6 +71,7 @@ export function completePremiumAnalysis(id: string, r: {
   cookieWall: boolean;
   consoleErrors: string[];
   paths: { desktop?: string; mobile?: string; html?: string; network?: string };
+  detectedSigs: DetectedSig[];
   errorMessage?: string;
 }): void {
   db.update(premiumAnalyses).set({
@@ -77,6 +85,7 @@ export function completePremiumAnalysis(id: string, r: {
     mobileScreenshotPath: r.paths.mobile ?? null,
     htmlPath: r.paths.html ?? null,
     networkLogPath: r.paths.network ?? null,
+    detectedSigsJson: JSON.stringify(r.detectedSigs),
     errorMessage: r.errorMessage ?? null,
     completedAt: new Date().toISOString(),
   }).where(eq(premiumAnalyses.id, id)).run();

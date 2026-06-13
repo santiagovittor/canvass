@@ -43,7 +43,7 @@ async function loop(): Promise<void> {
       console.error(`[premiumAnalysisQueue] analysis ${row.id} failed:`, message);
       completePremiumAnalysis(row.id, {
         status: 'failed', renderOutcome: 'browser_error', finalUrl: null,
-        signals: {}, cookieWall: false, consoleErrors: [], paths: {},
+        signals: {}, cookieWall: false, consoleErrors: [], paths: {}, detectedSigs: [],
         errorMessage: message,
       });
       broadcast('premium:progress', { businessId: row.businessId, analysisId: row.id, status: 'failed', renderOutcome: 'browser_error' });

@@ -28,6 +28,13 @@ export interface WebsiteAnalysis {
 
 export type TriState = 'PRESENT' | 'ABSENT_VERIFIED' | 'UNKNOWN';
 
+export interface DetectedSig {
+  id: string;
+  name: string;
+  category: string;
+  evidence: { kind: 'network' | 'dom'; value: string };
+}
+
 export interface PremiumSignal {
   state: TriState;
   evidence?: { kind: 'dom' | 'network' | 'raw_fetch' | 'vision'; value: string };
@@ -47,6 +54,7 @@ export interface PremiumAnalysis {
   mobileScreenshotPath: string | null;
   htmlPath: string | null;
   networkLogPath: string | null;
+  detectedSigs: DetectedSig[];
   errorMessage: string | null;
   createdAt: string;
   completedAt: string | null;

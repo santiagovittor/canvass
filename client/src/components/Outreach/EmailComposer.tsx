@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import type { OutreachLead } from '../../lib/outreachApi';
+import type { OutreachLead, DetectedSig } from '../../lib/outreachApi';
 
 interface Draft {
   subject: string;
@@ -21,7 +21,7 @@ interface EmailComposerProps {
   onAnalyzeAndGenerate: () => void;
   onGenerate: () => void;
   onPremiumAnalyze: () => void;
-  premium: { status: string; renderOutcome: string | null } | null;
+  premium: { status: string; renderOutcome: string | null; detectedSigs?: DetectedSig[] } | null;
   onSend: () => void;
   onSkip: () => void;
   signatureHtml: string | null;
@@ -44,6 +44,7 @@ export function EmailComposer({
   const [isSent, setIsSent] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [confirmingSend, setConfirmingSend] = useState(false);
+  const [expandedSig, setExpandedSig] = useState<string | null>(null);
   const sendTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track whether the current busy cycle started with an analysis step
   const hadAnalyzingRef = useRef(false);
@@ -580,6 +581,87 @@ export function EmailComposer({
                   : 'failed'}
               </span>
             )}
+          </div>
+        )}
+
+        {/* Detected signatures — shown when premium scan is done and found something */}
+        {hasWebsite && !confirmingSend && premium?.status === 'done' && !!premium.detectedSigs?.length && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+            <div style={{
+              fontFamily: 'var(--font-ui)',
+              fontSize: 10,
+              fontWeight: 600,
+              color: 'var(--text-muted)',
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase' as const,
+            }}>
+              Detected
+            </div>
+            {(['whatsapp', 'chat', 'booking', 'forms', 'builder', 'analytics'] as const).map(cat => {
+              const sigs = premium.detectedSigs!.filter(s => s.category === cat);
+              if (!sigs.length) return null;
+              const catLabel: Record<string, string> = {
+                whatsapp: 'WhatsApp', chat: 'Chat', booking: 'Booking',
+                forms: 'Forms', builder: 'Builder', analytics: 'Analytics',
+              };
+              return (
+                <div key={cat} style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 4, alignItems: 'flex-start' }}>
+                  <span style={{
+                    fontFamily: 'var(--font-ui)',
+                    fontSize: 10,
+                    color: 'var(--text-muted)',
+                    minWidth: 54,
+                    paddingTop: 3,
+                  }}>{catLabel[cat]}</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {sigs.map(sig => (
+                      <div key={sig.id}>
+                        <button
+                          onClick={() => setExpandedSig(expandedSig === sig.id ? null : sig.id)}
+                          style={{
+                            fontFamily: 'var(--font-ui)',
+                            fontSize: 11,
+                            padding: '2px 8px',
+                            borderRadius: 100,
+                            border: '1px solid var(--border-strong)',
+                            background: expandedSig === sig.id ? 'var(--accent-dim)' : 'var(--bg-elevated)',
+                            color: expandedSig === sig.id ? 'var(--accent)' : 'var(--text-secondary)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {sig.name}
+                        </button>
+                        {expandedSig === sig.id && (
+                          <div style={{
+                            marginTop: 4,
+                            padding: '5px 8px',
+                            background: 'var(--bg-elevated)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 6,
+                            fontFamily: 'var(--font-mono)',
+                            fontSize: 10,
+                            color: 'var(--text-muted)',
+                            wordBreak: 'break-all' as const,
+                            maxWidth: 260,
+                          }}>
+                            <span style={{
+                              color: 'var(--text-secondary)',
+                              fontSize: 9,
+                              textTransform: 'uppercase' as const,
+                              letterSpacing: '0.06em',
+                              marginRight: 4,
+                            }}>{sig.evidence.kind}</span>
+                            {sig.evidence.value.length > 120
+                              ? sig.evidence.value.slice(0, 120) + '…'
+                              : sig.evidence.value}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 

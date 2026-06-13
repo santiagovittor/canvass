@@ -13,6 +13,8 @@ const dbPath = path.isAbsolute(env.DATABASE_URL)
   : path.resolve(__dirname, '../../..', env.DATABASE_URL);
 const dbDir = path.dirname(dbPath);
 if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
+// Premium analysis evidence bundles live under <dataDir>/premium/
+export const dataDir = dbDir;
 
 const sqlite = new Database(dbPath);
 sqlite.pragma('journal_mode = WAL');

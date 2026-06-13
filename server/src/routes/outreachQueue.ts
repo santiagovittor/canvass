@@ -8,6 +8,9 @@ import { sendEmail, signatureHtml } from '../services/emailSender';
 import { checkReplies } from '../services/replyChecker';
 import { analyzeWebsite } from '../services/websiteAnalyzer';
 import type { WebsiteAnalysis } from '../services/websiteAnalyzer';
+import { requestPremiumAnalysis } from '../services/premiumAnalysisQueue';
+import { getBusinessWebsite, getLatestPremiumAnalysis } from '../db/premium';
+import { env } from '../env';
 import { UTC_MINUS_3_OFFSET_MS } from '../util/time';
 
 const DAILY_CAP = 30;
@@ -108,6 +111,45 @@ router.post('/analyze', async (req, res) => {
 
   const result = await analyzeWebsite(row.website);
   res.json(result);
+});
+
+router.post('/premium-analyze', (req, res) => {
+  const { businessId } = req.body as { businessId?: unknown };
+  if (typeof businessId !== 'string') {
+    return res.status(400).json({ error: 'businessId required' });
+  }
+  if (!env.PLAYWRIGHT_WS_URL) {
+    return res.status(503).json({ error: 'premium_analysis_not_configured' });
+  }
+  if (!getBusinessWebsite(businessId)) {
+    return res.status(404).json({ error: 'Business not found' });
+  }
+  const result = requestPremiumAnalysis(businessId);
+  res.status(202).json(result);
+});
+
+router.get('/premium/:businessId', (req, res) => {
+  const row = getLatestPremiumAnalysis(req.params.businessId);
+  if (!row) return res.json({ analysis: null });
+  res.json({
+    analysis: {
+      id: row.id,
+      businessId: row.businessId,
+      status: row.status,
+      renderOutcome: row.renderOutcome,
+      finalUrl: row.finalUrl,
+      signals: row.signalsJson ? JSON.parse(row.signalsJson) : null,
+      cookieWall: row.cookieWall === 1,
+      consoleErrors: row.consoleErrorsJson ? JSON.parse(row.consoleErrorsJson) : [],
+      desktopScreenshotPath: row.desktopScreenshotPath,
+      mobileScreenshotPath: row.mobileScreenshotPath,
+      htmlPath: row.htmlPath,
+      networkLogPath: row.networkLogPath,
+      errorMessage: row.errorMessage,
+      createdAt: row.createdAt,
+      completedAt: row.completedAt,
+    },
+  });
 });
 
 router.post('/generate', async (req, res) => {

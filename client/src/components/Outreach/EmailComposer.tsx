@@ -20,6 +20,8 @@ interface EmailComposerProps {
   onDraftChange: (draft: Draft) => void;
   onAnalyzeAndGenerate: () => void;
   onGenerate: () => void;
+  onPremiumAnalyze: () => void;
+  premium: { status: string; renderOutcome: string | null } | null;
   onSend: () => void;
   onSkip: () => void;
   signatureHtml: string | null;
@@ -34,7 +36,8 @@ const DAILY_CAP = 30;
 
 export function EmailComposer({
   mode, lead, draft, isAiDraft, isAnalyzing, isGenerating, isSending,
-  remaining, error, savingState, onDraftChange, onAnalyzeAndGenerate, onGenerate, onSend, onSkip,
+  remaining, error, savingState, onDraftChange, onAnalyzeAndGenerate, onGenerate,
+  onPremiumAnalyze, premium, onSend, onSkip,
   signatureHtml, senderName, senderEmail,
   pendingLead, onConfirmSwitch, onCancelSwitch,
 }: EmailComposerProps) {
@@ -545,6 +548,38 @@ export function EmailComposer({
             >
               {isSending ? 'Sending…' : 'Send ✉'}
             </button>
+          </div>
+        )}
+
+        {/* Premium analysis trigger + status chip */}
+        {hasWebsite && !confirmingSend && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <button
+              className="btn-secondary"
+              onClick={onPremiumAnalyze}
+              disabled={busy || premium?.status === 'pending' || premium?.status === 'running'}
+              style={{ flex: '0 0 auto', fontSize: 12 }}
+            >
+              Premium scan
+            </button>
+            {premium && (
+              <span style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                padding: '2px 8px',
+                borderRadius: 100,
+                background: premium.status === 'failed' ? 'rgba(255,77,109,0.1)' : 'var(--accent-dim)',
+                color: premium.status === 'failed' ? 'var(--error)'
+                  : premium.status === 'done' && premium.renderOutcome === 'ok' ? 'var(--success)'
+                  : premium.status === 'done' ? 'var(--warn)'
+                  : 'var(--accent)',
+              }}>
+                {premium.status === 'pending' ? 'queued'
+                  : premium.status === 'running' ? 'rendering…'
+                  : premium.status === 'done' ? (premium.renderOutcome ?? 'done')
+                  : 'failed'}
+              </span>
+            )}
           </div>
         )}
 

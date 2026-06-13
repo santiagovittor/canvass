@@ -87,4 +87,26 @@ export function runMigrations() {
     sqlite.exec('ALTER TABLE businesses ADD COLUMN reply_type TEXT');
   }
 
+  // Premium website analysis: one row per run; evidence bundle lives on disk
+  // under data/premium/<businessId>/<runId>/, paths stored relative to data dir.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS premium_analyses (
+      id TEXT PRIMARY KEY,
+      business_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      render_outcome TEXT,
+      final_url TEXT,
+      signals_json TEXT,
+      cookie_wall INTEGER NOT NULL DEFAULT 0,
+      console_errors_json TEXT,
+      desktop_screenshot_path TEXT,
+      mobile_screenshot_path TEXT,
+      html_path TEXT,
+      network_log_path TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS premium_analyses_business_id_idx ON premium_analyses(business_id);
+  `);
 }

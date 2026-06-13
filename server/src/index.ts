@@ -19,11 +19,16 @@ import trackRouter from './routes/track';
 import { startReplyChecker } from './services/replyChecker';
 import { resumeOrphanedJobs } from './services/jobRunner';
 import { kickEnrichment } from './services/enrichmentQueue';
+import { kickPremiumAnalysis } from './services/premiumAnalysisQueue';
+import { resetOrphanedRunning } from './db/premium';
 
 runMigrations();
 resumeOrphanedJobs();
 // Pick up any social/location enrichment left unfinished by a restart
 kickEnrichment();
+// Premium analyses orphaned mid-run by a restart go back to pending and resume
+resetOrphanedRunning();
+kickPremiumAnalysis();
 
 const app = express();
 

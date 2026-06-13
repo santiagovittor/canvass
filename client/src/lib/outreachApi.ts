@@ -26,6 +26,32 @@ export interface WebsiteAnalysis {
   error?: string;
 }
 
+export type TriState = 'PRESENT' | 'ABSENT_VERIFIED' | 'UNKNOWN';
+
+export interface PremiumSignal {
+  state: TriState;
+  evidence?: { kind: 'dom' | 'network' | 'raw_fetch' | 'vision'; value: string };
+  checkedBy: string[];
+}
+
+export interface PremiumAnalysis {
+  id: string;
+  businessId: string;
+  status: 'pending' | 'running' | 'done' | 'failed';
+  renderOutcome: string | null;
+  finalUrl: string | null;
+  signals: Record<string, PremiumSignal> | null;
+  cookieWall: boolean;
+  consoleErrors: string[];
+  desktopScreenshotPath: string | null;
+  mobileScreenshotPath: string | null;
+  htmlPath: string | null;
+  networkLogPath: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
 export interface OutreachLead {
   id: string;
   name: string;
@@ -127,6 +153,20 @@ export async function analyzeWebsite(businessId: string): Promise<WebsiteAnalysi
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Returns 202 immediately — the render runs in a server-side queue (10–30s),
+// progress arrives over SSE ('premium:progress'). No client timeout.
+export function startPremiumAnalysis(businessId: string): Promise<{ id: string; deduped: boolean }> {
+  return request('/outreach/premium-analyze', {
+    method: 'POST',
+    body: JSON.stringify({ businessId }),
+  });
+}
+
+export function getPremiumAnalysis(businessId: string): Promise<PremiumAnalysis | null> {
+  return request<{ analysis: PremiumAnalysis | null }>(`/outreach/premium/${businessId}`)
+    .then(d => d.analysis);
 }
 
 export async function generateEmail(businessId: string, analysis?: WebsiteAnalysis): Promise<{ subject: string; body: string }> {

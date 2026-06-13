@@ -22,8 +22,8 @@ npm run dev                                           # vite (:5173) + express (
 npm run build                                         # builds client/dist + compiles server
 npm run start                                         # express serves client/dist as static files
 
-# Type check (no ESLint — tsc only)
-npm run lint                                          # or: npx tsc --noEmit from client/ or server/
+# Type check (no ESLint, no `lint` script — tsc only)
+npx tsc --noEmit                                      # run from client/ or server/ (in the dev container for server)
 ```
 
 Port map: `5173` = Vite dev, `3001` = Express API, `3050` = gosom scraper container.

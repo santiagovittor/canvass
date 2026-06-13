@@ -28,20 +28,23 @@ function buildAnalysisContext(b: BusinessForEmail, a: WebsiteAnalysis, isAR: boo
 
   const gaps: { ar: string; en: string; priority: number }[] = [];
 
+  // Raw-fetch negatives are hedged ("no muestra … a primera vista"): a raw
+  // fetch can't see JS-injected widgets, so absence is never asserted as fact.
+  // Positively-observed facts (SSL protocol) stay flat.
   if (isBookable && !a.hasOnlineBooking)
-    gaps.push({ ar: 'no tiene sistema de turnos online', en: 'no online booking system', priority: 10 });
+    gaps.push({ ar: 'no muestra un sistema de turnos online a primera vista', en: 'no visible online booking option', priority: 10 });
   if (isFood && !a.hasMenuOrServices)
-    gaps.push({ ar: 'no tiene menú online', en: 'no online menu', priority: 10 });
+    gaps.push({ ar: 'no muestra el menú online a primera vista', en: 'no visible online menu', priority: 10 });
   if (!a.hasViewportMeta)
-    gaps.push({ ar: 'el sitio no está optimizado para móviles', en: 'the site is not mobile-optimized', priority: 8 });
+    gaps.push({ ar: 'no parece estar optimizado para móviles', en: 'the site does not appear mobile-optimized', priority: 8 });
   if (isAR && !a.hasWhatsappLink)
-    gaps.push({ ar: 'no tiene botón de WhatsApp', en: '', priority: 7 });
+    gaps.push({ ar: 'no muestra un botón de WhatsApp a primera vista', en: '', priority: 7 });
   if (!a.hasContactForm)
-    gaps.push({ ar: 'no tiene formulario de contacto', en: 'no contact form', priority: 5 });
+    gaps.push({ ar: 'no muestra un formulario de contacto a primera vista', en: 'no visible contact form', priority: 5 });
   if (!a.hasSSL)
     gaps.push({ ar: 'corre en HTTP, sin certificado de seguridad', en: 'no SSL certificate', priority: 3 });
   if (!a.pageTitle || a.pageTitle.length < 10)
-    gaps.push({ ar: 'el título de la página es genérico o está vacío', en: 'generic or missing page title', priority: 2 });
+    gaps.push({ ar: 'el título de la página se ve genérico o vacío', en: 'page title looks generic or empty', priority: 2 });
 
   const valid = gaps.filter(g => (isAR ? g.ar : g.en));
   if (valid.length === 0) return '';
@@ -65,30 +68,33 @@ function buildAnalysisGaps(
 
   const raw: { label: string; priority: number }[] = [];
 
+  // Hedged negatives, same reasoning as buildAnalysisContext: raw fetch can't
+  // prove absence. Positively-observed facts (copyright, script count, SSL,
+  // OpenGraph share behavior) stay flat.
   if (isBookable && !a.hasOnlineBooking)
-    raw.push({ label: 'no tiene sistema de turnos online', priority: 10 });
+    raw.push({ label: 'no muestra un sistema de turnos online a primera vista', priority: 10 });
   if (isFood && !a.hasMenuOrServices)
-    raw.push({ label: 'no tiene menú online', priority: 10 });
+    raw.push({ label: 'no muestra el menú online a primera vista', priority: 10 });
   if (a.siteAppearsOutdated && a.copyrightYear)
     raw.push({ label: `el copyright del sitio dice ${a.copyrightYear} — puede parecer inactivo o desactualizado`, priority: 9 });
   if (!a.hasViewportMeta)
-    raw.push({ label: 'el sitio no está optimizado para móviles', priority: 8 });
+    raw.push({ label: 'no parece estar optimizado para móviles', priority: 8 });
   if (!a.hasWhatsappLink)
-    raw.push({ label: 'no tiene botón de WhatsApp', priority: 7 });
+    raw.push({ label: 'no muestra un botón de WhatsApp a primera vista', priority: 7 });
   if (a.scriptCount !== undefined && a.scriptCount > 20)
     raw.push({ label: `carga con ${a.scriptCount} scripts externos, lo que lo ralentiza en dispositivos móviles`, priority: 6 });
   if (!a.hasContactForm)
-    raw.push({ label: 'no tiene formulario de contacto', priority: 5 });
+    raw.push({ label: 'no muestra un formulario de contacto a primera vista', priority: 5 });
   if (!a.hasStructuredData && getCategoryBucket(b.category) !== 'food')
-    raw.push({ label: 'no tiene datos estructurados — no aparece con estrellas ni horarios en Google', priority: 5 });
+    raw.push({ label: 'no parece tener datos estructurados — puede no aparecer con estrellas ni horarios en Google', priority: 5 });
   if (!a.hasOpenGraph)
     raw.push({ label: 'al compartirlo por WhatsApp o redes no muestra imagen ni descripción del negocio', priority: 4 });
   if (!a.hasSSL)
     raw.push({ label: 'corre en HTTP, sin certificado de seguridad', priority: 3 });
   if (!a.hasTestimonials && ['health', 'legal', 'professional'].includes(getCategoryBucket(b.category)))
-    raw.push({ label: 'no tiene sección de testimonios o reseñas de clientes en el sitio', priority: 3 });
+    raw.push({ label: 'no muestra testimonios de clientes a primera vista', priority: 3 });
   if (!a.pageTitle || a.pageTitle.length < 10)
-    raw.push({ label: 'el título de la página es genérico o está vacío', priority: 2 });
+    raw.push({ label: 'el título de la página se ve genérico o vacío', priority: 2 });
 
   raw.sort((x, y) => y.priority - x.priority);
   return { gaps: raw.map(r => r.label), count: raw.length };
@@ -169,13 +175,13 @@ Body completo (desde el saludo hasta "Saludos,"): 70 a 90 palabras.
 Máximo 2 oraciones por párrafo. Máximo 18 palabras por oración.
 Si superás 90 palabras, reescribí hasta entrar en el límite.
 
-EJEMPLO CORRECTO — 76 palabras, referencia de longitud y tono:
+EJEMPLO CORRECTO — 80 palabras, referencia de longitud y tono:
 
 subject: "su estudio en Núñez"
 body:
 Buenas tardes,
 
-El sitio de su estudio en Núñez no tiene WhatsApp ni formulario de contacto — los clientes que llegan de noche o el fin de semana no tienen cómo comunicarse.
+El sitio de su estudio en Núñez no muestra WhatsApp ni un formulario de contacto a primera vista — los clientes que llegan de noche o el fin de semana no tienen cómo comunicarse.
 
 Trabajo con un asistente de chat con IA que responde consultas básicas las 24 horas y deja todo registrado para que usted lo retome cuando pueda.
 
@@ -269,7 +275,7 @@ BANNED STRUCTURES:
   "I saw your business"). The hook is a direct statement about
   their business or the gap — not about how you found it.
   BAD: "I was looking at your studio in Saavedra and noticed..."
-  GOOD: "Your accounting firm in Saavedra has no WhatsApp button."
+  GOOD: "Your accounting firm in Saavedra shows no WhatsApp option at first glance."
 
 Reply ONLY with valid JSON, no extra text, no markdown:
 {"subject":"...","body":"..."}`;

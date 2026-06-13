@@ -52,3 +52,21 @@ export const businesses = sqliteTable('businesses', {
   repliedAt: text('replied_at'),
   replyType: text('reply_type', { enum: ['auto', 'real', 'unknown'] }),
 });
+
+export const premiumAnalyses = sqliteTable('premium_analyses', {
+  id: text('id').primaryKey(),
+  businessId: text('business_id').notNull(),
+  status: text('status', { enum: ['pending', 'running', 'done', 'failed'] }).notNull().default('pending'),
+  renderOutcome: text('render_outcome'),
+  finalUrl: text('final_url'),
+  signalsJson: text('signals_json'),
+  cookieWall: integer('cookie_wall').notNull().default(0),
+  consoleErrorsJson: text('console_errors_json'),
+  desktopScreenshotPath: text('desktop_screenshot_path'),
+  mobileScreenshotPath: text('mobile_screenshot_path'),
+  htmlPath: text('html_path'),
+  networkLogPath: text('network_log_path'),
+  errorMessage: text('error_message'),
+  createdAt: text('created_at').notNull(),
+  completedAt: text('completed_at'),
+});

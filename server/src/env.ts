@@ -22,6 +22,9 @@ const schema = z.object({
   GMAIL_SENDER_NAME: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   PUBLIC_URL: z.string().url().optional(),
+  // Unset → premium analysis routes 503 and the queue no-ops (prod-safe before compose update)
+  PLAYWRIGHT_WS_URL: z.string().optional(),
+  PREMIUM_RENDER_TIMEOUT_MS: z.coerce.number().default(20000),
 }).refine(
   d => (d.APP_AUTH_USER == null) === (d.APP_AUTH_PASS == null),
   { message: 'AUTH_USER and AUTH_PASS must both be set or both be unset' },

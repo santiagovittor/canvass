@@ -3,7 +3,7 @@ import { LeadQueue } from '../components/Outreach/LeadQueue';
 import type { QueueMode } from '../components/Outreach/LeadQueue';
 import { EmailComposer } from '../components/Outreach/EmailComposer';
 import { BusinessContext } from '../components/Outreach/BusinessContext';
-import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft } from '../lib/outreachApi';
+import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis } from '../lib/outreachApi';
 import { patchOutreach, getConfig } from '../lib/api';
 import { useSSE } from '../hooks/useSSE';
 import type { OutreachLead, OutreachStats, WebsiteAnalysis } from '../lib/outreachApi';
@@ -29,6 +29,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [analysis, setAnalysis] = useState<WebsiteAnalysis | null>(null);
+  const [premium, setPremium] = useState<{ status: string; renderOutcome: string | null } | null>(null);
   const [stats, setStats] = useState<OutreachStats | null>(null);
   const [signatureHtml, setSignatureHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -126,6 +127,18 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     }
   }, []);
 
+  const handlePremiumAnalyze = useCallback(async () => {
+    const lead = activeLeadRef.current;
+    if (!lead) return;
+    setError(null);
+    try {
+      await startPremiumAnalysis(lead.id);
+      setPremium({ status: 'pending', renderOutcome: null });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Premium analysis failed to start');
+    }
+  }, []);
+
   const handleSend = useCallback(async () => {
     const lead = activeLeadRef.current;
     if (!lead || isGeneratingRef.current || isSendingRef.current) return;
@@ -189,7 +202,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     } catch (err) { console.error('[Outreach]', err); }
   }, [fetchStats]);
 
-  // Live updates from open tracking + reply detection
+  // Live updates from open tracking + reply detection + premium analysis progress
   useSSE({
     'email:opened': () => {
       if (modeRef.current === 'followup') setLeadRefreshTrigger(n => n + 1);
@@ -197,6 +210,12 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     'email:replied': () => {
       setLeadRefreshTrigger(n => n + 1);
       fetchStats();
+    },
+    'premium:progress': (data) => {
+      const d = data as { businessId?: string; status?: string; renderOutcome?: string | null };
+      if (d.businessId && d.businessId === activeLeadRef.current?.id && d.status) {
+        setPremium({ status: d.status, renderOutcome: d.renderOutcome ?? null });
+      }
     },
   });
 
@@ -207,6 +226,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     setDraft({ subject: '', body: '' });
     setIsAiDraft(false);
     setAnalysis(null);
+    setPremium(null);
     setError(null);
     setSavingState('idle');
   }, []);
@@ -252,8 +272,12 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     setDraft({ subject: '', body: '' });
     setIsAiDraft(false);
     setAnalysis(null);
+    setPremium(null);
     setError(null);
     setSavingState('idle');
+    getPremiumAnalysis(lead.id).then(a => {
+      if (a) setPremium({ status: a.status, renderOutcome: a.renderOutcome });
+    }).catch(() => {});
     loadDraft(lead.id).then(d => {
       if (!d) return;
       setDraft({ subject: d.subject, body: d.body });
@@ -312,6 +336,8 @@ export function Outreach({ onEmailSent }: OutreachProps) {
         onDraftChange={handleDraftChange}
         onAnalyzeAndGenerate={handleAnalyzeAndGenerate}
         onGenerate={handleGenerate}
+        onPremiumAnalyze={handlePremiumAnalyze}
+        premium={premium}
         onSend={handleSend}
         onSkip={handleSkip}
         signatureHtml={signatureHtml}

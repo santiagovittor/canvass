@@ -13,6 +13,15 @@ services:
     command: ["-web", "-addr", ":8080", "-data-folder", "/gmapsdata", "-exit-on-inactivity", "5m", "-c", "4"]
     expose: ["8080"]
 
+  # Browser for the premium analysis pass; version must exactly match
+  # playwright-core in server/package.json (see docker-compose.dev.yml)
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.52.0-noble
+    command: npx -y playwright@1.52.0 run-server --port 3000 --host 0.0.0.0
+    init: true
+    restart: unless-stopped
+    expose: ["3000"]
+
   app:
     build: .
     restart: unless-stopped
@@ -34,4 +43,5 @@ services:
       GOOGLE_SERVICE_ACCOUNT_PATH: /app/credentials/google-service-account.json
       APP_AUTH_USER: ${APP_AUTH_USER:-}
       APP_AUTH_PASS: ${APP_AUTH_PASS:-}
-    depends_on: [gosom]
+      PLAYWRIGHT_WS_URL: ws://playwright:3000/
+    depends_on: [gosom, playwright]

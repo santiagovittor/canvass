@@ -15,6 +15,18 @@ services:
     command: ["-web", "-addr", ":8080", "-data-folder", "/gmapsdata", "-exit-on-inactivity", "5m", "-c", "4"]
     restart: unless-stopped
 
+  # Long-lived browser for the premium analysis pass. Separate container so the
+  # browser survives server restarts and the app images stay browser-free
+  # (server uses playwright-core, which downloads no browser on npm install).
+  # The playwright version here MUST exactly match playwright-core in
+  # server/package.json — connect() requires it.
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.52.0-noble
+    command: npx -y playwright@1.52.0 run-server --port 3000 --host 0.0.0.0
+    init: true
+    restart: unless-stopped
+    expose: ["3000"]
+
   server:
     image: node:20-bookworm
     working_dir: /app
@@ -32,8 +44,9 @@ services:
       GOSOM_CONTAINER: maps-scraper-gosom
       DATABASE_URL: /app/data/scraper.db
       GOOGLE_SERVICE_ACCOUNT_PATH: /app/credentials/google-service-account.json
+      PLAYWRIGHT_WS_URL: ws://playwright:3000/
     command: sh -c "npm install && npm -w server run dev"
-    depends_on: [gosom]
+    depends_on: [gosom, playwright]
 
   client:
     image: node:20-bookworm

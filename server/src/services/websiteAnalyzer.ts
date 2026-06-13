@@ -60,15 +60,49 @@ function failed(error: string): WebsiteAnalysis {
   };
 }
 
-function normalizeUrl(raw: string): string {
+export function normalizeUrl(raw: string): string {
   if (/^https?:\/\//i.test(raw)) return raw;
   return `https://${raw}`;
 }
 
-function stripScriptsAndStyles(html: string): string {
+export function stripScriptsAndStyles(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '');
+}
+
+// Signal signatures, shared with the premium analysis pass (premiumAnalyzer.ts)
+// which runs them over rendered DOM + network request URLs.
+export const VIEWPORT_RX = /name=["']viewport["']/i;
+export const BOOKING_RX = /\b(reserva|turno|booking|book\s+now|cita|appointment|agendar|schedule)\b|calendly\.com|acuityscheduling|reservo\.com|booksy|setmore|simplybook/i;
+export const WHATSAPP_RX = /wa\.me\/|wa\.link\/|whatsapp\.com\/send|api\.whatsapp\.com|whatsapp:\/\/|["']whatsapp["']/i;
+export const MENU_RX = /\b(men[uú]|servicios|services|productos|products|carta|offerings)\b|agregar.al.carrito|add.to.cart/i;
+export const CHAT_RX = /jivosite\.com|jivochat|tidio\.com|tidiochat|crisp\.chat|client\.crisp|intercomcdn\.com|widget\.intercom|tawk\.to|zopim\.com|zendesk.*widget|freshchat|livechatinc\.com/i;
+export const ANALYTICS_RX = /gtag\(|google-analytics\.com|analytics\.js|G-[A-Z0-9]{6,}|fbq\(|connect\.facebook\.net.*fbevents|hotjar\.com|mixpanel/i;
+export const TEL_RX = /href=["']tel:/i;
+export const STRUCTURED_DATA_RX = /application\/ld\+json/i;
+export const OPEN_GRAPH_RX = /<meta[^>]+property=["']og:/i;
+export const TESTIMONIALS_RX = /testimoni|reseñas\s+de\s+(clientes|pacientes|usuarios)|lo\s+que\s+dicen\s+nuestros|opiniones\s+de\s+(clientes|pacientes)/i;
+export const VISIBLE_EMAIL_RX = /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/i;
+export const BLOG_RX = /href=["'][^"']*\/blog|href=["'][^"']*\/noticias|href=["'][^"']*\/novedades|href=["'][^"']*\/articulos/i;
+export const FAVICON_RX = /<link[^>]+rel=["'][^"']*(?:shortcut\s+)?icon/i;
+export const NEWSLETTER_RX = /mailchimp|klaviyo|newsletter|suscri(?:b[ií]|p[ií])|subscribe/i;
+
+// Returns the first <form> that looks like a contact form (email/phone inputs), or null.
+export function findContactForm(html: string): string | null {
+  const formRe = /<form[\s\S]*?<\/form>/gi;
+  let m;
+  while ((m = formRe.exec(html)) !== null) {
+    const f = m[0].toLowerCase();
+    if (
+      /type=["']email["']/.test(f) ||
+      /name=["']email["']/.test(f) ||
+      /type=["']tel["']/.test(f) ||
+      /name=["'](?:phone|telefono|tel)["']/.test(f) ||
+      /placeholder=["'][^"']*(?:email|correo|tel[eé]fono|phone)/i.test(f)
+    ) return m[0];
+  }
+  return null;
 }
 
 export async function analyzeWebsite(url: string): Promise<WebsiteAnalysis> {
@@ -112,26 +146,12 @@ export async function analyzeWebsite(url: string): Promise<WebsiteAnalysis> {
     const lower = stripped.toLowerCase();     // visible text only
     const rawLower = html.toLowerCase();      // includes script/attr content
 
-    const hasViewportMeta = /name=["']viewport["']/i.test(html);
+    const hasViewportMeta = VIEWPORT_RX.test(html);
 
-    let hasContactForm = (() => {
-      const formRe = /<form[\s\S]*?<\/form>/gi;
-      let m;
-      while ((m = formRe.exec(html)) !== null) {
-        const f = m[0].toLowerCase();
-        if (
-          /type=["']email["']/.test(f) ||
-          /name=["']email["']/.test(f) ||
-          /type=["']tel["']/.test(f) ||
-          /name=["'](?:phone|telefono|tel)["']/.test(f) ||
-          /placeholder=["'][^"']*(?:email|correo|tel[eé]fono|phone)/i.test(f)
-        ) return true;
-      }
-      return false;
-    })();
+    let hasContactForm = findContactForm(html) !== null;
 
-    const hasOnlineBooking = /\b(reserva|turno|booking|book\s+now|cita|appointment|agendar|schedule)\b|calendly\.com|acuityscheduling|reservo\.com|booksy|setmore|simplybook/i.test(rawLower);
-    let hasWhatsappLink = /wa\.me\/|wa\.link\/|whatsapp\.com\/send|api\.whatsapp\.com|whatsapp:\/\/|["']whatsapp["']/i.test(rawLower);
+    const hasOnlineBooking = BOOKING_RX.test(rawLower);
+    let hasWhatsappLink = WHATSAPP_RX.test(rawLower);
 
     const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
     const pageTitle = titleMatch ? titleMatch[1].trim().replace(/\s+/g, ' ') || null : null;
@@ -141,7 +161,7 @@ export async function analyzeWebsite(url: string): Promise<WebsiteAnalysis> {
       html.match(/<meta[^>]+content=["']([^"']*)[^>]+name=["']description["']/i);
     const metaDescription = metaMatch ? metaMatch[1].trim() || null : null;
 
-    const hasMenuOrServices = /\b(men[uú]|servicios|services|productos|products|carta|offerings)\b|agregar.al.carrito|add.to.cart/i.test(rawLower);
+    const hasMenuOrServices = MENU_RX.test(rawLower);
 
     const platform = (() => {
       if (/tiendanube\.com|nuvemshop\.com|mitiendanube\.com/i.test(html)) return 'tiendanube';
@@ -154,16 +174,16 @@ export async function analyzeWebsite(url: string): Promise<WebsiteAnalysis> {
       return 'custom';
     })() as WebsiteAnalysis['platform'];
 
-    const hasLiveChatWidget = /jivosite\.com|jivochat|tidio\.com|tidiochat|crisp\.chat|client\.crisp|intercomcdn\.com|widget\.intercom|tawk\.to|zopim\.com|zendesk.*widget|freshchat|livechatinc\.com/i.test(rawLower);
-    const hasAnalytics = /gtag\(|google-analytics\.com|analytics\.js|G-[A-Z0-9]{6,}|fbq\(|connect\.facebook\.net.*fbevents|hotjar\.com|mixpanel/i.test(rawLower);
-    const hasTelLink = /href=["']tel:/i.test(rawLower);
-    const hasStructuredData = /application\/ld\+json/i.test(html);
-    const hasOpenGraph = /<meta[^>]+property=["']og:/i.test(html);
-    const hasTestimonials = /testimoni|reseñas\s+de\s+(clientes|pacientes|usuarios)|lo\s+que\s+dicen\s+nuestros|opiniones\s+de\s+(clientes|pacientes)/i.test(lower);
-    const hasVisibleEmail = /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/i.test(lower);
-    const hasBlog = /href=["'][^"']*\/blog|href=["'][^"']*\/noticias|href=["'][^"']*\/novedades|href=["'][^"']*\/articulos/i.test(lower);
-    const hasFavicon = /<link[^>]+rel=["'][^"']*(?:shortcut\s+)?icon/i.test(html);
-    const hasNewsletterForm = /mailchimp|klaviyo|newsletter|suscri(?:b[ií]|p[ií])|subscribe/i.test(rawLower);
+    const hasLiveChatWidget = CHAT_RX.test(rawLower);
+    const hasAnalytics = ANALYTICS_RX.test(rawLower);
+    const hasTelLink = TEL_RX.test(rawLower);
+    const hasStructuredData = STRUCTURED_DATA_RX.test(html);
+    const hasOpenGraph = OPEN_GRAPH_RX.test(html);
+    const hasTestimonials = TESTIMONIALS_RX.test(lower);
+    const hasVisibleEmail = VISIBLE_EMAIL_RX.test(lower);
+    const hasBlog = BLOG_RX.test(lower);
+    const hasFavicon = FAVICON_RX.test(html);
+    const hasNewsletterForm = NEWSLETTER_RX.test(rawLower);
 
     const copyrightMatches = [...lower.matchAll(/©\s*(\d{4})|copyright\s*(\d{4})/gi)];
     const copyrightYear = copyrightMatches.length > 0
@@ -192,22 +212,8 @@ export async function analyzeWebsite(url: string): Promise<WebsiteAnalysis> {
           if (statusCode === 200) {
             const secHtml = await secBody.text();
             const secRawLower = secHtml.toLowerCase();
-            const secondaryHasWhatsapp = /wa\.me\/|wa\.link\/|whatsapp\.com\/send|api\.whatsapp\.com|whatsapp:\/\/|["']whatsapp["']/i.test(secRawLower);
-            const secondaryHasForm = (() => {
-              const formRe = /<form[\s\S]*?<\/form>/gi;
-              let m;
-              while ((m = formRe.exec(secHtml)) !== null) {
-                const f = m[0].toLowerCase();
-                if (
-                  /type=["']email["']/.test(f) ||
-                  /name=["']email["']/.test(f) ||
-                  /type=["']tel["']/.test(f) ||
-                  /name=["'](?:phone|telefono|tel)["']/.test(f) ||
-                  /placeholder=["'][^"']*(?:email|correo|tel[eé]fono|phone)/i.test(f)
-                ) return true;
-              }
-              return false;
-            })();
+            const secondaryHasWhatsapp = WHATSAPP_RX.test(secRawLower);
+            const secondaryHasForm = findContactForm(secHtml) !== null;
             hasWhatsappLink = hasWhatsappLink || secondaryHasWhatsapp;
             hasContactForm = hasContactForm || secondaryHasForm;
             break;

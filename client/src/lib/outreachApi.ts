@@ -50,6 +50,23 @@ export interface PsiMetrics {
   fetchedAt: string;
 }
 
+export interface VisionObservation {
+  text: string;
+  confidence: number;
+}
+
+export interface VisionResult {
+  strengths: VisionObservation[];
+  opportunities: VisionObservation[];
+  designEra: string;
+  widgetVisibility: {
+    whatsapp: 'yes' | 'no' | 'unsure';
+    chat:     'yes' | 'no' | 'unsure';
+    booking:  'yes' | 'no' | 'unsure';
+  };
+  mobileResponsive: 'yes' | 'no' | 'unsure';
+}
+
 export interface PremiumAnalysis {
   id: string;
   businessId: string;
@@ -65,6 +82,7 @@ export interface PremiumAnalysis {
   networkLogPath: string | null;
   detectedSigs: DetectedSig[];
   psi: PsiMetrics | null;
+  vision: VisionResult | null;
   errorMessage: string | null;
   createdAt: string;
   completedAt: string | null;

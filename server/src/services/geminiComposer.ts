@@ -4,6 +4,7 @@ import type { WebsiteAnalysis } from './websiteAnalyzer';
 import { getMatchingExample, getCategoryBucket } from '../db';
 import type { DetectedSig } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
+import type { VisionResult } from './visionClient';
 
 export interface BusinessForEmail {
   name: string;
@@ -427,6 +428,32 @@ just checking in, just following up, just bumping this
 Reply ONLY with valid JSON, no extra text, no markdown:
 {"subject":"...","body":"..."}`;
 
+function buildVisionContext(vision: VisionResult | null | undefined, isAR: boolean): string {
+  if (!vision) return '';
+
+  const highStrengths = vision.strengths.filter(s => s.confidence >= 0.8);
+  const highOpps = vision.opportunities.filter(s => s.confidence >= 0.75);
+  if (!highStrengths.length && !highOpps.length) return '';
+
+  const parts: string[] = [];
+
+  if (highStrengths.length) {
+    const label = isAR
+      ? 'FORTALEZAS VISIBLES CONFIRMADAS (visibles en el screenshot — pueden citarse como hechos):'
+      : 'CONFIRMED VISIBLE STRENGTHS (seen in screenshot — can assert as fact):';
+    parts.push(`\n\n${label}\n${highStrengths.map(s => `- ${s.text}`).join('\n')}`);
+  }
+
+  if (highOpps.length) {
+    const label = isAR
+      ? 'OPORTUNIDADES IDENTIFICADAS VISUALMENTE (contexto adicional):'
+      : 'VISUALLY IDENTIFIED OPPORTUNITIES (additional context):';
+    parts.push(`\n\n${label}\n${highOpps.map(s => `- ${s.text}`).join('\n')}`);
+  }
+
+  return parts.join('');
+}
+
 async function callGemini(systemPrompt: string, userPayload: Record<string, unknown>): Promise<{ subject: string; body: string }> {
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
 
@@ -488,6 +515,7 @@ export async function composeEmail(
   approvedExample?: { subject: string; body: string } | null,
   detectedSigs?: DetectedSig[],
   psiData?: PsiData | null,
+  visionResult?: VisionResult | null,
 ): Promise<{ subject: string; body: string; topGap: string | null }> {
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
 
@@ -495,10 +523,11 @@ export async function composeEmail(
   const isArgentina = business.locCountry === 'Argentina';
   const analysisContext = analysis?.loadedSuccessfully ? buildAnalysisContext(business, analysis, isArgentina, detectedSigs) : '';
   const psiContext = buildPsiContext(psiData, isArgentina);
+  const visionContext = buildVisionContext(visionResult, isArgentina);
   const greeting = getGreeting();
   const title = getProfessionalTitle(business.category);
   const systemPrompt = (isArgentina ? SYSTEM_ES : SYSTEM_EN)
-    .replace('{{OFFER_CONTEXT}}', offerContext + analysisContext + psiContext)
+    .replace('{{OFFER_CONTEXT}}', offerContext + analysisContext + psiContext + visionContext)
     .replaceAll('{{GREETING}}', greeting)
     .replaceAll('{{PROFESSIONAL_TITLE}}', title);
 

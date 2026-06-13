@@ -6,7 +6,7 @@ import { BusinessContext } from '../components/Outreach/BusinessContext';
 import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis } from '../lib/outreachApi';
 import { patchOutreach, getConfig } from '../lib/api';
 import { useSSE } from '../hooks/useSSE';
-import type { OutreachLead, OutreachStats, WebsiteAnalysis, DetectedSig, PsiMetrics } from '../lib/outreachApi';
+import type { OutreachLead, OutreachStats, WebsiteAnalysis, DetectedSig, PsiMetrics, VisionResult } from '../lib/outreachApi';
 
 interface Draft {
   subject: string;
@@ -29,7 +29,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [analysis, setAnalysis] = useState<WebsiteAnalysis | null>(null);
-  const [premium, setPremium] = useState<{ status: string; renderOutcome: string | null; detectedSigs?: DetectedSig[]; psi?: PsiMetrics | null } | null>(null);
+  const [premium, setPremium] = useState<{ status: string; renderOutcome: string | null; detectedSigs?: DetectedSig[]; psi?: PsiMetrics | null; vision?: VisionResult | null } | null>(null);
   const [stats, setStats] = useState<OutreachStats | null>(null);
   const [signatureHtml, setSignatureHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -216,7 +216,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
       if (!d.businessId || d.businessId !== activeLeadRef.current?.id || !d.status) return;
       if (d.status === 'done') {
         getPremiumAnalysis(d.businessId).then(a => {
-          if (a) setPremium({ status: a.status, renderOutcome: a.renderOutcome, detectedSigs: a.detectedSigs, psi: a.psi });
+          if (a) setPremium({ status: a.status, renderOutcome: a.renderOutcome, detectedSigs: a.detectedSigs, psi: a.psi, vision: a.vision });
         }).catch(() => {
           setPremium({ status: d.status!, renderOutcome: d.renderOutcome ?? null });
         });

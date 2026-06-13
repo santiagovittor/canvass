@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import type { OutreachLead, DetectedSig, PsiMetrics } from '../../lib/outreachApi';
+import type { OutreachLead, DetectedSig, PsiMetrics, VisionResult } from '../../lib/outreachApi';
 
 interface Draft {
   subject: string;
@@ -21,7 +21,7 @@ interface EmailComposerProps {
   onAnalyzeAndGenerate: () => void;
   onGenerate: () => void;
   onPremiumAnalyze: () => void;
-  premium: { status: string; renderOutcome: string | null; detectedSigs?: DetectedSig[]; psi?: PsiMetrics | null } | null;
+  premium: { status: string; renderOutcome: string | null; detectedSigs?: DetectedSig[]; psi?: PsiMetrics | null; vision?: VisionResult | null } | null;
   onSend: () => void;
   onSkip: () => void;
   signatureHtml: string | null;
@@ -731,6 +731,86 @@ export function EmailComposer({
               )}
             </div>
           </div>
+        )}
+
+        {/* Vision observations */}
+        {hasWebsite && !confirmingSend && premium?.status === 'done' && premium.renderOutcome === 'ok' && premium.vision && (
+          (() => {
+            const highStr = premium.vision.strengths.filter(s => s.confidence >= 0.8);
+            const highOpp = premium.vision.opportunities.filter(s => s.confidence >= 0.75);
+            if (!highStr.length && !highOpp.length) return null;
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 10,
+                    color: 'var(--text-muted)',
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase' as const,
+                  }}>
+                    Vision
+                  </div>
+                  <span style={{
+                    fontFamily: 'var(--font-ui)',
+                    fontSize: 10,
+                    color: 'var(--text-muted)',
+                    fontStyle: 'italic',
+                  }}>
+                    {premium.vision.designEra}
+                  </span>
+                </div>
+                {highStr.map((s, i) => (
+                  <div key={i} style={{
+                    fontFamily: 'var(--font-ui)',
+                    fontSize: 11,
+                    color: 'var(--success)',
+                    padding: '3px 8px',
+                    background: 'rgba(74,222,128,0.07)',
+                    border: '1px solid rgba(74,222,128,0.15)',
+                    borderRadius: 6,
+                    lineHeight: 1.4,
+                  }}>
+                    ↑ {s.text}
+                  </div>
+                ))}
+                {highOpp.map((s, i) => (
+                  <div key={i} style={{
+                    fontFamily: 'var(--font-ui)',
+                    fontSize: 11,
+                    color: 'var(--warn)',
+                    padding: '3px 8px',
+                    background: 'rgba(245,183,0,0.07)',
+                    border: '1px solid rgba(245,183,0,0.15)',
+                    borderRadius: 6,
+                    lineHeight: 1.4,
+                  }}>
+                    ↓ {s.text}
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {(['whatsapp', 'chat', 'booking'] as const).map(k => {
+                    const v = premium.vision!.widgetVisibility[k];
+                    const color = v === 'yes' ? 'var(--success)' : 'var(--text-muted)';
+                    const label: Record<string, string> = { whatsapp: 'WA', chat: 'Chat', booking: 'Book' };
+                    return (
+                      <span key={k} style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 10,
+                        color,
+                        padding: '1px 6px',
+                        borderRadius: 4,
+                        background: 'var(--bg-elevated)',
+                        border: '1px solid var(--border)',
+                      }}>
+                        {label[k]} {v}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()
         )}
 
         {/* Skip analysis option */}

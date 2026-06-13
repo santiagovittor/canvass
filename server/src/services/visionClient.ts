@@ -1,0 +1,116 @@
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import type { Part } from '@google/generative-ai';
+import { env } from '../env';
+
+export interface VisionObservation {
+  text: string;
+  confidence: number; // 0.0–1.0
+}
+
+export interface VisionResult {
+  strengths: VisionObservation[];      // 2–3, specific and visible
+  opportunities: VisionObservation[];  // 2–3, goal-framed
+  designEra: string;                   // e.g. "modern", "2015-era WordPress"
+  widgetVisibility: {
+    whatsapp: 'yes' | 'no' | 'unsure';
+    chat:     'yes' | 'no' | 'unsure';
+    booking:  'yes' | 'no' | 'unsure';
+  };
+  mobileResponsive: 'yes' | 'no' | 'unsure';
+}
+
+const SYSTEM_PROMPT = `You are a professional web design analyst. Analyze the provided business website screenshots and return observations based ONLY on what is clearly visible.
+
+RULES:
+- Strengths: cite specific visible elements — not generic praise. BAD: "tiene buenas fotos". GOOD: "las fotos de platos tienen fondo neutro y buena iluminación".
+- Opportunities: goal-framed — how fixing it helps the business. BAD: "add a contact form". GOOD: "agregar un formulario de contacto reduciría la fricción para clientes que navegan fuera de horario".
+- Confidence: 1.0 = unmistakably clear; 0.7 = fairly certain; below 0.7 omit the item entirely.
+- widgetVisibility: only 'yes' if the widget is UNMISTAKABLY visible in the screenshot. Prefer 'unsure' over 'no' when in doubt.
+- mobileResponsive: 'yes' if layout adapts cleanly on the mobile screenshot; 'no' if layout breaks, text overflows, or elements overlap on the mobile screenshot; 'unsure' if unclear.
+- LANGUAGE: write all observation text in the primary language of the site content (Spanish or English — match the site).
+
+Return ONLY valid JSON matching this exact schema. No markdown fences, no commentary, no extra keys:
+{
+  "strengths": [{"text": "...", "confidence": 0.0}],
+  "opportunities": [{"text": "...", "confidence": 0.0}],
+  "designEra": "...",
+  "widgetVisibility": {"whatsapp": "yes|no|unsure", "chat": "yes|no|unsure", "booking": "yes|no|unsure"},
+  "mobileResponsive": "yes|no|unsure"
+}`;
+
+function stripFences(text: string): string {
+  return text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+}
+
+const VALID_TRISTATE = new Set(['yes', 'no', 'unsure']);
+type Tristate = 'yes' | 'no' | 'unsure';
+function toTristate(v: unknown): Tristate {
+  return VALID_TRISTATE.has(v as string) ? (v as Tristate) : 'unsure';
+}
+
+// desktopScreenshot is always non-null at the call site (guarded in premiumAnalyzer)
+export async function runVision(
+  desktopScreenshot: Buffer,
+  mobileScreenshot: Buffer | null,
+  category: string | null,
+  rubric: string,
+): Promise<VisionResult | null> {
+  if (!env.GEMINI_API_KEY) return null;
+
+  const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    systemInstruction: SYSTEM_PROMPT,
+  });
+
+  const parts: Part[] = [
+    { text: `Business category: ${category ?? 'unknown'}\n\nRubric — ${rubric}\n\nDesktop screenshot:` },
+    { inlineData: { mimeType: 'image/png', data: desktopScreenshot.toString('base64') } },
+  ];
+  if (mobileScreenshot) {
+    parts.push({ text: '\nMobile screenshot:' });
+    parts.push({ inlineData: { mimeType: 'image/png', data: mobileScreenshot.toString('base64') } });
+  }
+
+  try {
+    const result = await model.generateContent({ contents: [{ role: 'user', parts }] });
+    const raw = result.response.text().trim();
+    const cleaned = stripFences(raw);
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      console.warn('[vision] JSON parse failed, degrading to null. Raw:', cleaned.slice(0, 200));
+      return null;
+    }
+
+    const v = parsed as Record<string, unknown>;
+    if (!Array.isArray(v.strengths) || !Array.isArray(v.opportunities)) {
+      console.warn('[vision] malformed shape, degrading to null');
+      return null;
+    }
+
+    function toObs(arr: unknown[]): VisionObservation[] {
+      return arr
+        .filter(s => s && typeof (s as VisionObservation).text === 'string' && typeof (s as VisionObservation).confidence === 'number')
+        .map(s => ({ text: (s as VisionObservation).text, confidence: (s as VisionObservation).confidence }));
+    }
+
+    const wv = (v.widgetVisibility ?? {}) as Record<string, unknown>;
+    return {
+      strengths: toObs(v.strengths as unknown[]),
+      opportunities: toObs(v.opportunities as unknown[]),
+      designEra: typeof v.designEra === 'string' ? v.designEra : 'unknown',
+      widgetVisibility: {
+        whatsapp: toTristate(wv.whatsapp),
+        chat:     toTristate(wv.chat),
+        booking:  toTristate(wv.booking),
+      },
+      mobileResponsive: toTristate(v.mobileResponsive),
+    };
+  } catch (err) {
+    console.error('[vision] API error, degrading to null:', err);
+    return null;
+  }
+}

@@ -68,6 +68,7 @@ export const premiumAnalyses = sqliteTable('premium_analyses', {
   networkLogPath: text('network_log_path'),
   detectedSigsJson: text('detected_sigs_json'),
   psiJson: text('psi_json'),
+  visionJson: text('vision_json'),
   errorMessage: text('error_message'),
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),

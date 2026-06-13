@@ -12,6 +12,7 @@ import { requestPremiumAnalysis } from '../services/premiumAnalysisQueue';
 import { getBusinessWebsite, getLatestPremiumAnalysis, type DetectedSig } from '../db/premium';
 import { env } from '../env';
 import type { PsiData } from '../db/psiCache';
+import type { VisionResult } from '../services/visionClient';
 import { UTC_MINUS_3_OFFSET_MS } from '../util/time';
 
 const DAILY_CAP = 30;
@@ -148,6 +149,7 @@ router.get('/premium/:businessId', (req, res) => {
       networkLogPath: row.networkLogPath,
       detectedSigs: row.detectedSigsJson ? JSON.parse(row.detectedSigsJson) : [],
       psi: row.psiJson ? (JSON.parse(row.psiJson) as PsiData) : null,
+      vision: row.visionJson ? (JSON.parse(row.visionJson) as VisionResult) : null,
       errorMessage: row.errorMessage,
       createdAt: row.createdAt,
       completedAt: row.completedAt,
@@ -169,6 +171,8 @@ router.post('/generate', async (req, res) => {
     premiumRow?.detectedSigsJson ? JSON.parse(premiumRow.detectedSigsJson) : undefined;
   const psiData: PsiData | null =
     premiumRow?.psiJson ? (JSON.parse(premiumRow.psiJson) as PsiData) : null;
+  const visionResult: VisionResult | null =
+    premiumRow?.visionJson ? (JSON.parse(premiumRow.visionJson) as VisionResult) : null;
 
   try {
     const result = await composeEmail({
@@ -179,7 +183,7 @@ router.post('/generate', async (req, res) => {
       locNeighbourhood: row.locNeighbourhood ?? null,
       rating: row.rating ?? null,
       reviewCount: row.reviewCount ?? null,
-    }, analysis, undefined, detectedSigs, psiData);
+    }, analysis, undefined, detectedSigs, psiData, visionResult);
     res.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

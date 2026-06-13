@@ -18,6 +18,8 @@ import {
 import { env } from '../env';
 import { fetchPsi } from './psiClient';
 import { getCachedPsi, upsertPsiCache, type PsiData } from '../db/psiCache';
+import { runVision, type VisionResult } from './visionClient';
+import { getRubric } from '../data/visionRubrics';
 
 export type { TriState, DetectorKind, Signal, SignalEvidence, SignalMap } from '../db/premium';
 
@@ -33,6 +35,67 @@ function verifyAbsent(c: {
   visionAbsent: boolean | null;
 }): boolean {
   return c.renderOk && c.domAbsent && c.networkAbsent && c.visionAbsent === true;
+}
+
+// Applies vision pass results to signals. ABSENT_VERIFIED requires all four
+// detectors to have actually run and found nothing — derived from the signal's
+// real state + checkedBy, not hardcoded. PSI mobileFriendly cross-checks
+// hasViewportMeta: if PSI reports the page as mobile-friendly, the viewport meta
+// IS present and we must not claim ABSENT_VERIFIED.
+function applyVisionUpgrades(
+  signals: SignalMap,
+  vision: VisionResult,
+  renderOk: boolean,
+  psiData: PsiData | null,
+): void {
+  // hasViewportMeta — the one ABSENT_VERIFIED-eligible signal.
+  // state === UNKNOWN means dom + network both checked and found nothing.
+  // PSI mobileFriendly === true contradicts absence; stay UNKNOWN if they disagree.
+  const vp = signals.hasViewportMeta;
+  if (
+    vp &&
+    vp.state === 'UNKNOWN' &&
+    vision.mobileResponsive === 'no' &&
+    psiData?.mobileFriendly !== true
+  ) {
+    // Derive actual absent flags from what the signal recorded
+    const domAbsent = vp.checkedBy.includes('dom');     // dom ran; UNKNOWN ⟹ not found
+    const networkAbsent = vp.checkedBy.includes('network'); // network ran; UNKNOWN ⟹ not found
+    if (verifyAbsent({ renderOk, domAbsent, networkAbsent, visionAbsent: true })) {
+      signals.hasViewportMeta = {
+        state: 'ABSENT_VERIFIED',
+        evidence: {
+          kind: 'vision',
+          value: 'vision: site not mobile-responsive on screenshot; no viewport meta in DOM or network; PSI did not report mobileFriendly',
+        },
+        checkedBy: [...vp.checkedBy, 'vision'],
+      };
+    }
+  }
+
+  // Widget signals: UNKNOWN → PRESENT when vision spots something DOM/network missed.
+  // These can NEVER become ABSENT_VERIFIED (lazy-load-prone; bias is always UNKNOWN).
+  if (signals.hasWhatsappLink?.state === 'UNKNOWN' && vision.widgetVisibility.whatsapp === 'yes') {
+    signals.hasWhatsappLink = {
+      state: 'PRESENT',
+      evidence: { kind: 'vision', value: 'WhatsApp button visible in screenshot' },
+      checkedBy: [...(signals.hasWhatsappLink.checkedBy), 'vision'],
+    };
+  }
+  if (signals.hasLiveChatWidget?.state === 'UNKNOWN' && vision.widgetVisibility.chat === 'yes') {
+    signals.hasLiveChatWidget = {
+      state: 'PRESENT',
+      evidence: { kind: 'vision', value: 'chat widget visible in screenshot' },
+      checkedBy: [...(signals.hasLiveChatWidget.checkedBy), 'vision'],
+    };
+  }
+  if (signals.hasOnlineBooking?.state === 'UNKNOWN' && vision.widgetVisibility.booking === 'yes') {
+    signals.hasOnlineBooking = {
+      state: 'PRESENT',
+      evidence: { kind: 'vision', value: 'booking widget or button visible in screenshot' },
+      checkedBy: [...(signals.hasOnlineBooking.checkedBy), 'vision'],
+    };
+  }
 }
 
 // Boolean signals shared with the raw-fetch analyzer; keys match WebsiteAnalysis.
@@ -285,10 +348,32 @@ export async function runPremiumAnalysis(row: PremiumAnalysisRow): Promise<void>
     console.error('[psi] unexpected error, skipping:', err);
   }
 
+  // Vision pass — ok render only, screenshot guard, degrade cleanly on any failure
+  let visionJson: string | null = null;
+  if (render.desktopScreenshot) {
+    try {
+      const rubric = getRubric(biz.category ?? null);
+      const visionResult: VisionResult | null = await runVision(
+        render.desktopScreenshot,
+        render.mobileScreenshot,
+        biz.category ?? null,
+        rubric,
+      );
+      if (visionResult) {
+        const psiForCrossCheck: PsiData | null = psiJson ? JSON.parse(psiJson) : null;
+        applyVisionUpgrades(signals, visionResult, true, psiForCrossCheck);
+        visionJson = JSON.stringify(visionResult);
+        console.log(`[vision] ok for ${biz.website ?? row.businessId}`);
+      }
+    } catch (err) {
+      console.error('[vision] unexpected error, skipping:', err);
+    }
+  }
+
   completePremiumAnalysis(row.id, {
     status: 'done', renderOutcome: 'ok', finalUrl: render.finalUrl,
     signals, cookieWall: render.cookieWallDetected, consoleErrors: render.consoleErrors,
-    paths, detectedSigs, psiJson,
+    paths, detectedSigs, psiJson, visionJson,
   });
   broadcast('premium:progress', { businessId: row.businessId, analysisId: row.id, status: 'done', renderOutcome: 'ok' });
 }

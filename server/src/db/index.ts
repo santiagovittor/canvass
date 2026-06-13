@@ -93,6 +93,9 @@ const premiumCols = (sqlite.prepare('PRAGMA table_info(premium_analyses)').all()
 if (!premiumCols.includes('psi_json')) {
   sqlite.exec('ALTER TABLE premium_analyses ADD COLUMN psi_json TEXT');
 }
+if (!premiumCols.includes('vision_json')) {
+  sqlite.exec('ALTER TABLE premium_analyses ADD COLUMN vision_json TEXT');
+}
 
 export const db = drizzle(sqlite, { schema });
 export { sqlite };

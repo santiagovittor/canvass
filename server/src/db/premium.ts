@@ -74,6 +74,7 @@ export function completePremiumAnalysis(id: string, r: {
   detectedSigs: DetectedSig[];
   errorMessage?: string;
   psiJson?: string | null;
+  visionJson?: string | null;
 }): void {
   db.update(premiumAnalyses).set({
     status: r.status,
@@ -88,13 +89,14 @@ export function completePremiumAnalysis(id: string, r: {
     networkLogPath: r.paths.network ?? null,
     detectedSigsJson: JSON.stringify(r.detectedSigs),
     psiJson: r.psiJson ?? null,
+    visionJson: r.visionJson ?? null,
     errorMessage: r.errorMessage ?? null,
     completedAt: new Date().toISOString(),
   }).where(eq(premiumAnalyses.id, id)).run();
 }
 
-export function getBusinessWebsite(businessId: string): { id: string; website: string | null } | null {
-  return db.select({ id: businesses.id, website: businesses.website })
+export function getBusinessWebsite(businessId: string): { id: string; website: string | null; category: string | null } | null {
+  return db.select({ id: businesses.id, website: businesses.website, category: businesses.category })
     .from(businesses)
     .where(eq(businesses.id, businessId))
     .get() ?? null;

@@ -1,10 +1,54 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import type { ResponseSchema } from '@google/generative-ai';
+import { z } from 'zod';
 import { env } from '../env';
 import type { WebsiteAnalysis } from './websiteAnalyzer';
 import { getMatchingExample, getCategoryBucket } from '../db';
-import type { DetectedSig } from '../db/premium';
+import type { DetectedSig, SignalMap } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from './visionClient';
+import type { AnchorCandidate } from './anchorRanker';
+
+// Structured composer output. The composer declares the anchor it built the
+// opening on, plus every website claim it made (each tied to an evidenceRef) so
+// the verifier can grade a declared claim list instead of re-extracting from prose.
+const ComposedClaimSchema = z.object({
+  text: z.string(),
+  evidenceRef: z.string(),
+  kind: z.string(),
+});
+const ComposedEmailSchema = z.object({
+  subject: z.string(),
+  openingSentence: z.string(),
+  body: z.string(),
+  anchorId: z.string(),
+  claims: z.array(ComposedClaimSchema),
+});
+export type ComposedClaim = z.infer<typeof ComposedClaimSchema>;
+export type ComposedEmail = z.infer<typeof ComposedEmailSchema>;
+
+const COMPOSED_RESPONSE_SCHEMA: ResponseSchema = {
+  type: SchemaType.OBJECT,
+  properties: {
+    subject: { type: SchemaType.STRING },
+    openingSentence: { type: SchemaType.STRING },
+    body: { type: SchemaType.STRING },
+    anchorId: { type: SchemaType.STRING },
+    claims: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          text: { type: SchemaType.STRING },
+          evidenceRef: { type: SchemaType.STRING },
+          kind: { type: SchemaType.STRING },
+        },
+        required: ['text', 'evidenceRef', 'kind'],
+      },
+    },
+  },
+  required: ['subject', 'openingSentence', 'body', 'anchorId', 'claims'],
+};
 
 export interface BusinessForEmail {
   name: string;
@@ -24,7 +68,7 @@ function normalizeWebsite(raw: string | null): string {
 const BOOKABLE_CATS = /salón|salon|gym|gimnasio|clínica|clinica|restaurant|spa|peluquería|peluqueria|consultorio|dentist|fitness|studio|pilates|yoga|médico|medico|doctor|tatuaje|tattoo/i;
 const FOOD_CATS = /restaurant|café|cafe|bar|comida|panadería|panaderia|heladería|heladeria|pizzería|pizzeria|delivery|cocina|sushi|burger|parrilla/i;
 
-function buildAnalysisContext(b: BusinessForEmail, a: WebsiteAnalysis, isAR: boolean, detectedSigs?: DetectedSig[]): string {
+function buildAnalysisContext(b: BusinessForEmail, a: WebsiteAnalysis, isAR: boolean, detectedSigs?: DetectedSig[], absentVerifiedKeys?: Set<string>): string {
   const cat = b.category ?? '';
   const isBookable = BOOKABLE_CATS.test(cat);
   const isFood = FOOD_CATS.test(cat);
@@ -44,7 +88,8 @@ function buildAnalysisContext(b: BusinessForEmail, a: WebsiteAnalysis, isAR: boo
     gaps.push({ ar: 'no muestra un sistema de turnos online a primera vista', en: 'no visible online booking option', priority: 10 });
   if (isFood && !a.hasMenuOrServices)
     gaps.push({ ar: 'no muestra el menú online a primera vista', en: 'no visible online menu', priority: 10 });
-  if (!a.hasViewportMeta)
+  // Suppress mobile gap if ABSENT_VERIFIED — buildSignalContext covers it with a hedged block instead
+  if (!a.hasViewportMeta && !absentVerifiedKeys?.has('hasViewportMeta'))
     gaps.push({ ar: 'no parece estar optimizado para móviles', en: 'the site does not appear mobile-optimized', priority: 8 });
   if (isAR && !a.hasWhatsappLink && !hasWhatsappSig)
     gaps.push({ ar: 'no muestra un botón de WhatsApp a primera vista', en: '', priority: 7 });
@@ -71,6 +116,7 @@ function buildAnalysisGaps(
   b: BusinessForEmail,
   a: WebsiteAnalysis,
   detectedSigs?: DetectedSig[],
+  absentVerifiedKeys?: Set<string>,
 ): { gaps: string[]; count: number } {
   const cat = b.category ?? '';
   const isBookable = BOOKABLE_CATS.test(cat);
@@ -94,7 +140,8 @@ function buildAnalysisGaps(
     raw.push({ label: 'no muestra el menú online a primera vista', priority: 10 });
   if (a.siteAppearsOutdated && a.copyrightYear)
     raw.push({ label: `el copyright del sitio dice ${a.copyrightYear} — puede parecer inactivo o desactualizado`, priority: 9 });
-  if (!a.hasViewportMeta)
+  // Suppress mobile gap if ABSENT_VERIFIED — buildSignalContext covers it instead
+  if (!a.hasViewportMeta && !absentVerifiedKeys?.has('hasViewportMeta'))
     raw.push({ label: 'no parece estar optimizado para móviles', priority: 8 });
   if (!a.hasWhatsappLink && !hasWhatsappSig)
     raw.push({ label: 'no muestra un botón de WhatsApp a primera vista', priority: 7 });
@@ -454,6 +501,38 @@ function buildVisionContext(vision: VisionResult | null | undefined, isAR: boole
   return parts.join('');
 }
 
+// Maps signal keys to human-readable action labels used in hedged observations.
+// Only ABSENT_VERIFIED-eligible keys are listed here (widget signals excluded by design).
+const SIGNAL_HEDGE_LABELS: Record<string, { ar: { feature: string; action: string }; en: { feature: string; action: string } }> = {
+  hasViewportMeta: {
+    ar: { feature: 'optimización para móviles (viewport meta)', action: 'navegar cómodamente desde el celular' },
+    en: { feature: 'mobile optimization (viewport meta)', action: 'view the site comfortably on mobile' },
+  },
+};
+
+function buildSignalContext(signalMap: SignalMap | undefined, isAR: boolean): string {
+  if (!signalMap) return '';
+
+  const absentHedges: string[] = [];
+  for (const [key, signal] of Object.entries(signalMap)) {
+    if (signal.state !== 'ABSENT_VERIFIED') continue; // PRESENT already covered; UNKNOWN intentionally omitted
+    const labels = SIGNAL_HEDGE_LABELS[key];
+    if (!labels) continue; // unknown signal key — skip
+    const l = isAR ? labels.ar : labels.en;
+    absentHedges.push(isAR
+      ? `- ${l.feature}: "No encontré una forma sencilla de ${l.action} — si está disponible, no era visible a primera vista, lo que en sí mismo puede generar fricción."`
+      : `- ${l.feature}: "I couldn't find an easy way to ${l.action} — if it's there it wasn't obvious, which is itself worth fixing."`
+    );
+  }
+
+  if (!absentHedges.length) return '';
+
+  if (isAR) {
+    return `\n\nAUSENCIAS VERIFICADAS POR MÚLTIPLES DETECTORES (render + DOM + red + visión confirmaron ausencia): usar lenguaje observacional — NUNCA afirmar ausencia como hecho absoluto. Redactar exactamente como observación personal:\n${absentHedges.join('\n')}`;
+  }
+  return `\n\nVERIFIED ABSENCES (render + DOM + network + vision all found nothing): use observational phrasing — NEVER assert absence as absolute fact. Phrase as personal observation:\n${absentHedges.join('\n')}`;
+}
+
 async function callGemini(systemPrompt: string, userPayload: Record<string, unknown>): Promise<{ subject: string; body: string }> {
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
 
@@ -509,27 +588,82 @@ export async function composeFollowUp(
   });
 }
 
+// Structured composer call: enforces the JSON shape via responseSchema, validates
+// with zod, bounded retry on parse failure. Composer keeps its own Gemini client.
+async function callGeminiStructured(systemPrompt: string, userPayload: Record<string, unknown>): Promise<ComposedEmail> {
+  if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
+
+  const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-3.5-flash',
+    systemInstruction: systemPrompt,
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: COMPOSED_RESPONSE_SCHEMA,
+    },
+  });
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const result = await model.generateContent(JSON.stringify(userPayload));
+      const text = result.response.text().trim();
+      const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+      return ComposedEmailSchema.parse(JSON.parse(cleaned));
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  throw new Error(`Composer structured output failed after retries: ${msg}`);
+}
+
+// Directive appended to the system prompt instructing the model to build the
+// opening on the required anchor and to declare every website claim it makes.
+function buildAnchorDirective(anchor: AnchorCandidate, isAR: boolean): string {
+  if (isAR) {
+    return `\n\nANCLA OBLIGATORIA (requiredAnchor en el payload):
+- El hook DEBE construirse sobre requiredAnchor.fact: "${anchor.fact}". Es el dato concreto y específico de ESTE negocio. No lo contradigas ni lo generalices.
+- Devolvé "openingSentence": la primera oración del hook, anclada en ese dato.
+- Devolvé "anchorId": exactamente "${anchor.id}".
+- Devolvé "claims": un array con TODA afirmación factual sobre el SITIO WEB que hagas en el body. Cada claim: { "text": cita textual breve del body, "evidenceRef": el evidenceRef de la evidencia que la respalda (usá "${anchor.evidenceRef}" para el ancla), "kind": "${anchor.kind}" u otro tipo ). Si no hacés ninguna afirmación sobre el sitio más allá del ancla, incluí sólo el claim del ancla. NUNCA afirmes algo del sitio que no esté en claims.`;
+  }
+  return `\n\nREQUIRED ANCHOR (requiredAnchor in the payload):
+- The hook MUST be built on requiredAnchor.fact: "${anchor.fact}". This is the concrete, specific fact about THIS business. Do not contradict or generalize it.
+- Return "openingSentence": the first sentence of the hook, anchored on that fact.
+- Return "anchorId": exactly "${anchor.id}".
+- Return "claims": an array with EVERY factual claim about the WEBSITE you make in the body. Each claim: { "text": short verbatim quote from the body, "evidenceRef": the evidenceRef of the backing evidence (use "${anchor.evidenceRef}" for the anchor), "kind": "${anchor.kind}" or another type }. If you make no website claim beyond the anchor, include only the anchor claim. NEVER assert anything about the site that is not in claims.`;
+}
+
 export async function composeEmail(
   business: BusinessForEmail,
+  requiredAnchor: AnchorCandidate,
   analysis?: WebsiteAnalysis,
   approvedExample?: { subject: string; body: string } | null,
   detectedSigs?: DetectedSig[],
   psiData?: PsiData | null,
   visionResult?: VisionResult | null,
-): Promise<{ subject: string; body: string; topGap: string | null }> {
+  signalMap?: SignalMap,
+  regenerationFeedback?: string,
+): Promise<{ subject: string; body: string; anchorId: string; openingSentence: string; claims: ComposedClaim[]; topGap: string | null }> {
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
 
   const offerContext = buildOfferContext(business);
   const isArgentina = business.locCountry === 'Argentina';
-  const analysisContext = analysis?.loadedSuccessfully ? buildAnalysisContext(business, analysis, isArgentina, detectedSigs) : '';
+  const absentVerifiedKeys = signalMap
+    ? new Set(Object.entries(signalMap).filter(([, s]) => s.state === 'ABSENT_VERIFIED').map(([k]) => k))
+    : undefined;
+  const analysisContext = analysis?.loadedSuccessfully ? buildAnalysisContext(business, analysis, isArgentina, detectedSigs, absentVerifiedKeys) : '';
   const psiContext = buildPsiContext(psiData, isArgentina);
   const visionContext = buildVisionContext(visionResult, isArgentina);
+  const signalContext = buildSignalContext(signalMap, isArgentina);
   const greeting = getGreeting();
   const title = getProfessionalTitle(business.category);
   const systemPrompt = (isArgentina ? SYSTEM_ES : SYSTEM_EN)
-    .replace('{{OFFER_CONTEXT}}', offerContext + analysisContext + psiContext + visionContext)
+    .replace('{{OFFER_CONTEXT}}', offerContext + analysisContext + psiContext + visionContext + signalContext)
     .replaceAll('{{GREETING}}', greeting)
-    .replaceAll('{{PROFESSIONAL_TITLE}}', title);
+    .replaceAll('{{PROFESSIONAL_TITLE}}', title)
+    + buildAnchorDirective(requiredAnchor, isArgentina);
 
   let userPayload: Record<string, unknown> = {
     name: business.name,
@@ -538,25 +672,25 @@ export async function composeEmail(
     rating: business.rating,
     reviewCount: business.reviewCount,
     website: normalizeWebsite(business.website) || null,
+    requiredAnchor: { id: requiredAnchor.id, fact: requiredAnchor.fact, evidenceRef: requiredAnchor.evidenceRef, kind: requiredAnchor.kind },
+    ...(regenerationFeedback ? { verifierFeedback: regenerationFeedback } : {}),
   };
 
-  let topGap: string | null = null;
+  // The anchor is the authoritative hook for every lead.
+  let topGap: string | null = requiredAnchor.fact;
 
   if (isArgentina) {
     const analysisGaps = analysis?.loadedSuccessfully
-      ? buildAnalysisGaps(business, analysis, detectedSigs)
+      ? buildAnalysisGaps(business, analysis, detectedSigs, absentVerifiedKeys)
       : { gaps: [] as string[], count: 0 };
 
-    // When PSI score is critically low (<50), inject it as the top gap so the ES hook rule
-    // ("el hook ES siteGaps[0]") fires on it — it's more concrete than a hedged raw-fetch gap.
-    if (psiData?.mobileScore !== null && psiData?.mobileScore !== undefined && psiData.mobileScore < 50) {
-      const lcpPart = psiData.lcp !== null ? ` — carga en ${(psiData.lcp / 1000).toFixed(1)}s en móvil` : '';
-      analysisGaps.gaps.unshift(`rendimiento móvil bajo — puntuación ${psiData.mobileScore}/100 en Google PageSpeed${lcpPart}`);
+    // Anchor leads siteGaps so the ES hook rule ("el hook ES siteGaps[0]") fires on it.
+    if (analysisGaps.gaps[0] !== requiredAnchor.fact) {
+      analysisGaps.gaps.unshift(requiredAnchor.fact);
       analysisGaps.count++;
     }
 
     const { gaps, count } = analysisGaps;
-    topGap = gaps[0] ?? null;
     const example =
       approvedExample !== undefined
         ? approvedExample
@@ -582,6 +716,13 @@ export async function composeEmail(
     };
   }
 
-  const { subject, body } = await callGemini(systemPrompt, userPayload);
-  return { subject, body, topGap };
+  const composed = await callGeminiStructured(systemPrompt, userPayload);
+  return {
+    subject: composed.subject,
+    body: composed.body,
+    anchorId: composed.anchorId,
+    openingSentence: composed.openingSentence,
+    claims: composed.claims,
+    topGap,
+  };
 }

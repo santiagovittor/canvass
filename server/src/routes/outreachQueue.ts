@@ -2,14 +2,16 @@ import { Router } from 'express';
 import { db } from '../db';
 import { businesses } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
-import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveEmailExample, getFollowUpLeads, getRepliedLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens } from '../db';
-import { composeEmail, composeFollowUp } from '../services/geminiComposer';
+import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens } from '../db';
+import { composeFollowUp } from '../services/geminiComposer';
+import { SEND_ALLOWED_STATUSES, type VerificationResult } from '../services/geminiVerifier';
+import { composeVerifiedEmail } from '../services/outreachComposePipeline';
 import { sendEmail, signatureHtml } from '../services/emailSender';
 import { checkReplies } from '../services/replyChecker';
 import { analyzeWebsite } from '../services/websiteAnalyzer';
 import type { WebsiteAnalysis } from '../services/websiteAnalyzer';
 import { requestPremiumAnalysis } from '../services/premiumAnalysisQueue';
-import { getBusinessWebsite, getLatestPremiumAnalysis, type DetectedSig } from '../db/premium';
+import { getBusinessWebsite, getLatestPremiumAnalysis, type DetectedSig, type SignalMap } from '../db/premium';
 import { env } from '../env';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from '../services/visionClient';
@@ -173,18 +175,37 @@ router.post('/generate', async (req, res) => {
     premiumRow?.psiJson ? (JSON.parse(premiumRow.psiJson) as PsiData) : null;
   const visionResult: VisionResult | null =
     premiumRow?.visionJson ? (JSON.parse(premiumRow.visionJson) as VisionResult) : null;
+  const signalMap: SignalMap | undefined =
+    premiumRow?.signalsJson ? (JSON.parse(premiumRow.signalsJson) as SignalMap) : undefined;
+
+  const business = {
+    name: row.name,
+    category: row.category ?? null,
+    website: row.website ?? null,
+    locCountry: row.locCountry ?? null,
+    locNeighbourhood: row.locNeighbourhood ?? null,
+    rating: row.rating ?? null,
+    reviewCount: row.reviewCount ?? null,
+  };
 
   try {
-    const result = await composeEmail({
-      name: row.name,
-      category: row.category ?? null,
-      website: row.website ?? null,
-      locCountry: row.locCountry ?? null,
-      locNeighbourhood: row.locNeighbourhood ?? null,
-      rating: row.rating ?? null,
-      reviewCount: row.reviewCount ?? null,
-    }, analysis, undefined, detectedSigs, psiData, visionResult);
-    res.json(result);
+    const { subject, body, topGap, verdict } = await composeVerifiedEmail(
+      business, analysis, detectedSigs, psiData, visionResult, signalMap,
+    );
+
+    upsertDraft(businessId, subject, body, true);
+    saveDraftTopGap(businessId, topGap);
+    saveDraftVerification(businessId, JSON.stringify(verdict));
+
+    res.json({
+      subject,
+      body,
+      topGap,
+      verification: {
+        status: verdict.status,
+        violations: verdict.claims.filter(c => !c.supported),
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     res.status(502).json({ error: message });
@@ -193,6 +214,7 @@ router.post('/generate', async (req, res) => {
 
 router.post('/send', async (req, res) => {
   const { businessId, subject, body } = req.body as { businessId?: unknown; subject?: unknown; body?: unknown };
+  const isOverride = req.query.override === 'true';
 
   if (typeof businessId !== 'string' || typeof subject !== 'string' || typeof body !== 'string') {
     return res.status(400).json({ error: 'businessId, subject, and body are required strings' });
@@ -201,13 +223,43 @@ router.post('/send', async (req, res) => {
   const row = db.select().from(businesses).where(eq(businesses.id, businessId)).get();
   if (!row) return res.status(404).json({ error: 'Business not found' });
 
+  // Verification gate — allowlist only. isAiDraft=false drafts (user-edited) are human-reviewed, bypass.
+  const draft = getDraft(businessId);
+  if (draft?.isAiDraft) {
+    if (!draft.verificationJson) {
+      if (!isOverride) {
+        return res.status(409).json({ error: 'verification_held', reason: 'Draft not verified — regenerate to verify.' });
+      }
+    } else {
+      const verdict = JSON.parse(draft.verificationJson) as VerificationResult;
+      if (!SEND_ALLOWED_STATUSES.includes(verdict.status) && !isOverride) {
+        return res.status(409).json({
+          error: 'verification_held',
+          reason: verdict.error ?? 'Verifier held this draft.',
+          violations: verdict.claims?.filter(c => !c.supported) ?? [],
+        });
+      }
+      if (isOverride && !SEND_ALLOWED_STATUSES.includes(verdict.status)) {
+        // Record the server-side bypass before the draft is deleted
+        const overrideRecord: VerificationResult = {
+          ...verdict,
+          status: 'override_sent',
+          overrideAt: new Date().toISOString(),
+          overriddenStatus: verdict.status,
+        };
+        saveDraftVerification(businessId, JSON.stringify(overrideRecord));
+        console.warn(`[verification] override used by user for businessId=${businessId}, original status=${verdict.status}`);
+      }
+    }
+  }
+
   const emails = parseEmails(row.emailsJson ?? null);
   const to = emails[0];
   if (!to || !validateEmail(to)) {
     return res.status(422).json({ error: 'no_valid_email', field: 'emailsJson' });
   }
 
-  const result = await sendEmail(to, subject, body, businessId, row.locCountry ?? null);
+  const result = await sendEmail(to, subject, body, businessId, row.locCountry ?? null, isOverride);
   if (!result.success) {
     return res.status(result.error === 'Daily limit reached' ? 429 : 502).json(result);
   }

@@ -5,11 +5,12 @@ import { verifyDraft, type VerificationBundle, type VerificationResult, type Ver
 import type { DetectedSig, SignalMap } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from './visionClient';
+import { getNumber } from './appSettings';
 
 // Bounded anchor attempts. Assertable candidates rarely exceed ~3 strong ones
 // (PSI + one vision + one absent_verified); each attempt costs 1 compose + up to
 // 3 verify calls, so 3 bounds worst-case ~12 Gemini calls and keeps latency sane.
-export const MAX_ANCHOR_ATTEMPTS = 3;
+// Live-tunable via the Settings tab; default 3.
 
 // Fuzzy claim matching: the verifier may re-quote a declared claim with minor
 // punctuation/whitespace differences. Normalize and check containment both ways.
@@ -61,7 +62,7 @@ export async function composeVerifiedEmail(
   }
 
   const attempts: VerificationAttempt[] = [];
-  const maxAttempts = Math.min(candidates.length, MAX_ANCHOR_ATTEMPTS);
+  const maxAttempts = Math.min(candidates.length, getNumber('MAX_ANCHOR_ATTEMPTS'));
 
   for (let i = 0; i < maxAttempts; i++) {
     const anchor = candidates[i];

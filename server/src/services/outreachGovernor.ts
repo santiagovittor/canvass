@@ -1,7 +1,7 @@
 import { rollingSentCount24h, lastSentAtAny } from '../db';
 import {
-  DAILY_CAP_ROLLING, GMAIL_HARD_CEILING, PACING_MIN_MS, PACING_MAX_MS, TZ_OFFSET_MS,
-  GENERIC_BUSINESS_HOURS, BUSINESS_TYPE_WINDOWS, type BusinessType,
+  getDailyCapRolling, GMAIL_HARD_CEILING, getPacingMinMs, getPacingMaxMs, TZ_OFFSET_MS,
+  getGenericWindow, BUSINESS_TYPE_WINDOWS, type BusinessType,
 } from './outreachSchedulingConfig';
 
 // All "when" values here are TRUE-UTC milliseconds (Date.now() basis). BA wall-clock
@@ -12,7 +12,8 @@ interface Windows { days: number[]; slots: [string, string][] }
 
 function windowsFor(type: BusinessType): Windows {
   if (type === 'lawyer') return BUSINESS_TYPE_WINDOWS.lawyer;
-  return { days: GENERIC_BUSINESS_HOURS.days, slots: [[GENERIC_BUSINESS_HOURS.start, GENERIC_BUSINESS_HOURS.end]] };
+  const g = getGenericWindow();
+  return { days: g.days, slots: [[g.start, g.end]] };
 }
 
 function hhmmToMin(s: string): number {
@@ -54,7 +55,7 @@ export function nextOptimalWindowUtc(afterUtcMs: number, type: BusinessType): nu
 }
 
 export function capRemaining(): number {
-  return Math.min(DAILY_CAP_ROLLING, GMAIL_HARD_CEILING) - rollingSentCount24h();
+  return Math.min(getDailyCapRolling(), GMAIL_HARD_CEILING) - rollingSentCount24h();
 }
 
 // Real-UTC ms of the most recent send/dryrun, or null. sent_at is UTC-3 shifted,
@@ -66,7 +67,9 @@ function lastSentRealMs(): number | null {
 }
 
 function pacingGapMs(): number {
-  return PACING_MIN_MS + Math.floor(Math.random() * (PACING_MAX_MS - PACING_MIN_MS));
+  const min = getPacingMinMs();
+  const max = getPacingMaxMs();
+  return min + Math.floor(Math.random() * (max - min));
 }
 
 export type GovernDecision =

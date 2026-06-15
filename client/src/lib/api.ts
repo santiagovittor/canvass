@@ -110,6 +110,58 @@ export function getConfig() {
   return request<{ senderName: string; senderEmail: string }>('/config');
 }
 
+// ── Settings (live config surface) ────────────────────────────────────────────
+export type SettingType =
+  | 'number' | 'string' | 'enum' | 'boolean' | 'time' | 'weekdays' | 'signature' | 'secret';
+export type SettingValue = number | string | boolean | number[];
+export type SettingSource = 'default' | 'env' | 'db' | 'file';
+
+export interface SettingFieldView {
+  key: string;
+  label: string;
+  type: SettingType;
+  group: string;
+  unit?: string;
+  min?: number;
+  max?: number;
+  enum?: string[];
+  isSecret?: boolean;
+  fileBacked?: boolean;
+  help?: string;
+  value?: SettingValue;
+  source?: SettingSource;
+  secret?: { isSet: boolean; last4: string | null };
+}
+export interface SettingsView {
+  groups: { name: string; fields: SettingFieldView[] }[];
+}
+
+export function getSettings() {
+  return request<SettingsView>('/settings');
+}
+
+// Bulk write (one group's Save). Returns the applied effective values, or throws an
+// Error whose message carries the 400 body `{ field, error }` for inline display.
+export function updateSettings(patch: Record<string, SettingValue>) {
+  return request<{ applied: Record<string, SettingValue> }>('/settings', {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+}
+
+export function updateSetting(key: string, value: SettingValue) {
+  return request<{ key: string; value: SettingValue }>(`/settings/${key}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  });
+}
+
+export function resetSetting(key: string) {
+  return request<{ key: string; value: SettingValue }>(`/settings/${key}/reset`, {
+    method: 'POST',
+  });
+}
+
 export function exportToSheetsWithColumns(
   filters: BusinessQueryFilters,
   columns: string[],

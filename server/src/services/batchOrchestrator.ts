@@ -1,4 +1,3 @@
-import { env } from '../env';
 import { broadcast } from '../sse';
 import {
   getBusinessForEmail, upsertDraft, saveDraftTopGap, saveDraftVerification,
@@ -19,6 +18,7 @@ import { composeVerifiedEmail } from './outreachComposePipeline';
 import { resolveBusinessType, describeWindow } from './outreachSchedulingConfig';
 import { nextOptimalWindowUtc } from './outreachGovernor';
 import { GeminiRpdExhausted } from './geminiRateLimiter';
+import { getNumber } from './appSettings';
 
 // ── In-house bounded-concurrency semaphore ────────────────────────────────────
 // Concurrency is a throttle, not a speed dial: it caps how many leads prepare at
@@ -91,7 +91,7 @@ async function processItem(runId: string, item: BatchItemRow, dryRun: boolean): 
   let premium = getLatestPremiumAnalysis(businessId);
   if (!premium || premium.status !== 'done') {
     const fresh = createPremiumAnalysisRunning(businessId);
-    await withTimeout(runPremiumAnalysis(fresh), env.BATCH_ANALYZE_TIMEOUT_MS, 'analyze_timeout');
+    await withTimeout(runPremiumAnalysis(fresh), getNumber('BATCH_ANALYZE_TIMEOUT_MS'), 'analyze_timeout');
     premium = getLatestPremiumAnalysis(businessId);
   }
   if (!premium || premium.status !== 'done') {
@@ -155,7 +155,7 @@ async function driveRun(runId: string): Promise<void> {
     const run = getBatchRun(runId);
     if (!run || run.status !== 'running') return;
     const dryRun = run.dryRun === 1;
-    const sem = createSemaphore(env.BATCH_PREPARE_CONCURRENCY);
+    const sem = createSemaphore(getNumber('BATCH_PREPARE_CONCURRENCY'));
 
     const items = listResumableItems(runId);
     await Promise.all(items.map(item => (async () => {

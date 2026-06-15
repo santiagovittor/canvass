@@ -6,6 +6,7 @@ import type { SignalMap } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from './visionClient';
 import type { ComposedClaim } from './geminiComposer';
+import { getString } from './appSettings';
 
 export interface VerificationBundle {
   signals?: SignalMap;
@@ -109,7 +110,7 @@ async function callGeminiVerifier(
 
   const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
-    model: 'gemini-3.5-flash',
+    model: getString('GEMINI_MODEL'),
     systemInstruction: SYSTEM_VERIFIER,
     generationConfig: {
       responseMimeType: 'application/json',

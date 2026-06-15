@@ -1,0 +1,174 @@
+import { z } from 'zod';
+import { env } from '../env';
+import { GMAIL_HARD_CEILING } from './outreachConstants';
+
+// Single source of truth for the live-tunable config surface. One array of field
+// defs drives BOTH server validation AND the auto-rendered client form, so the two
+// can never drift. The accessor (appSettings.ts) resolves a value as
+// code-default < env (if envVar set) < db override, then clamps numerics to [min,max].
+//
+// This module imports only `env`, raw literals, and the dependency-free constants
+// leaf — never outreachSchedulingConfig — so it stays free of the config↔accessor
+// import cycle. The cap's max is the single-sourced GMAIL_HARD_CEILING backstop.
+
+export type SettingType =
+  | 'number' | 'string' | 'enum' | 'boolean'
+  | 'time'      // 'HH:MM' BA wall-clock
+  | 'weekdays'  // number[] of 0=Sun..6=Sat
+  | 'signature' // file-backed HTML blob
+  | 'secret';   // read-only masked status; never persisted, never returned plaintext
+
+export type SettingValue = number | string | boolean | number[];
+
+export interface SettingField {
+  key: string;
+  group: string;
+  label: string;
+  type: SettingType;
+  unit?: string;
+  min?: number;
+  max?: number;
+  enum?: string[];
+  default: SettingValue;   // code literal baseline (byte-identical to today)
+  envVar?: keyof typeof env;
+  isSecret?: boolean;
+  fileBacked?: boolean;
+  help?: string;
+}
+
+// Single-sourced from the constants leaf (not a literal) so the write-reject gate
+// tracks the same ceiling the governor clamps to. The accessor also clamps to it.
+const HARD_CEILING = GMAIL_HARD_CEILING;
+
+export const GROUPS = [
+  'Sending & Deliverability',
+  'Analysis & Claim-Gating',
+  'Gemini & Rate Limits',
+  'Batch & Automation',
+  'Offer & Copy',
+  'Secrets',
+] as const;
+
+export const FIELDS: SettingField[] = [
+  // ── Sending & Deliverability ──
+  {
+    key: 'OUTREACH_DAILY_CAP', group: 'Sending & Deliverability', label: 'Daily send cap (rolling 24h)',
+    type: 'number', unit: 'emails', min: 1, max: HARD_CEILING, default: 15, envVar: 'OUTREACH_DAILY_CAP',
+    help: `Hard-ceiling backstop is ${HARD_CEILING}; values above it are clamped.`,
+  },
+  {
+    key: 'PACING_MIN_MS', group: 'Sending & Deliverability', label: 'Min inter-send gap',
+    type: 'number', unit: 'ms', min: 0, max: 86_400_000, default: 5 * 60_000,
+  },
+  {
+    key: 'PACING_MAX_MS', group: 'Sending & Deliverability', label: 'Max inter-send gap',
+    type: 'number', unit: 'ms', min: 0, max: 86_400_000, default: 15 * 60_000,
+  },
+  {
+    key: 'GENERIC_WINDOW_START', group: 'Sending & Deliverability', label: 'Generic window start (BA)',
+    type: 'time', default: '09:00',
+  },
+  {
+    key: 'GENERIC_WINDOW_END', group: 'Sending & Deliverability', label: 'Generic window end (BA)',
+    type: 'time', default: '18:00',
+  },
+  {
+    key: 'GENERIC_WINDOW_DAYS', group: 'Sending & Deliverability', label: 'Generic window weekdays',
+    type: 'weekdays', default: [1, 2, 3, 4, 5],
+  },
+
+  // ── Analysis & Claim-Gating ──
+  {
+    key: 'PSI_CRITICAL', group: 'Analysis & Claim-Gating', label: 'PSI critical threshold',
+    type: 'number', unit: '/100', min: 0, max: 100, default: 50,
+    help: 'Mobile PageSpeed below this is an assertable slow-site anchor.',
+  },
+  {
+    key: 'VISION_OPP_MIN', group: 'Analysis & Claim-Gating', label: 'Vision opportunity min confidence',
+    type: 'number', min: 0, max: 1, default: 0.75,
+  },
+  {
+    key: 'VISION_STRENGTH_MIN', group: 'Analysis & Claim-Gating', label: 'Vision strength min confidence',
+    type: 'number', min: 0, max: 1, default: 0.8,
+  },
+  {
+    key: 'MAX_ANCHOR_ATTEMPTS', group: 'Analysis & Claim-Gating', label: 'Max anchor attempts',
+    type: 'number', min: 1, max: 10, default: 3,
+  },
+
+  // ── Gemini & Rate Limits ──
+  {
+    key: 'GEMINI_MODEL', group: 'Gemini & Rate Limits', label: 'Gemini model (compose + verify)',
+    type: 'string', default: 'gemini-3.5-flash',
+  },
+  {
+    key: 'GEMINI_RPM', group: 'Gemini & Rate Limits', label: 'Gemini requests/min',
+    type: 'number', unit: 'rpm', min: 1, max: 10_000, default: 10, envVar: 'GEMINI_RPM',
+  },
+  {
+    key: 'GEMINI_RPD', group: 'Gemini & Rate Limits', label: 'Gemini requests/day',
+    type: 'number', unit: 'rpd', min: 1, max: 10_000_000, default: 1000, envVar: 'GEMINI_RPD',
+  },
+
+  // ── Batch & Automation ──
+  {
+    key: 'BATCH_PREPARE_CONCURRENCY', group: 'Batch & Automation', label: 'Batch prepare concurrency',
+    type: 'number', min: 1, max: 32, default: 3, envVar: 'BATCH_PREPARE_CONCURRENCY',
+  },
+  {
+    key: 'BATCH_ANALYZE_TIMEOUT_MS', group: 'Batch & Automation', label: 'Per-item analyze timeout',
+    type: 'number', unit: 'ms', min: 1000, max: 600_000, default: 120_000, envVar: 'BATCH_ANALYZE_TIMEOUT_MS',
+  },
+
+  // ── Offer & Copy ──
+  {
+    key: 'EMAIL_SIGNATURE_HTML', group: 'Offer & Copy', label: 'Email signature (HTML)',
+    type: 'signature', default: '', fileBacked: true,
+    help: 'Appended at send time, after compose + verify. Saved to the signature file and reloaded live.',
+  },
+
+  // ── Secrets (read-only masked status) ──
+  {
+    key: 'GMAIL_APP_PASSWORD', group: 'Secrets', label: 'Gmail app password',
+    type: 'secret', default: '', envVar: 'GMAIL_APP_PASSWORD', isSecret: true,
+  },
+  {
+    key: 'GEMINI_API_KEY', group: 'Secrets', label: 'Gemini API key',
+    type: 'secret', default: '', envVar: 'GEMINI_API_KEY', isSecret: true,
+  },
+  {
+    key: 'PAGESPEED_API_KEY', group: 'Secrets', label: 'PageSpeed API key',
+    type: 'secret', default: '', envVar: 'PAGESPEED_API_KEY', isSecret: true,
+  },
+];
+
+const FIELD_BY_KEY = new Map(FIELDS.map(f => [f.key, f]));
+export function getField(key: string): SettingField | undefined {
+  return FIELD_BY_KEY.get(key);
+}
+
+// Per-key zod validator built from type + min/max/enum. Used on every write path.
+export function validatorFor(field: SettingField): z.ZodTypeAny {
+  switch (field.type) {
+    case 'number': {
+      let s = z.number();
+      if (field.min !== undefined) s = s.min(field.min);
+      if (field.max !== undefined) s = s.max(field.max);
+      return s;
+    }
+    case 'string':
+    case 'signature':
+      return z.string();
+    case 'enum':
+      return z.enum((field.enum ?? ['']) as [string, ...string[]]);
+    case 'boolean':
+      return z.boolean();
+    case 'time':
+      return z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'expected HH:MM (24h)');
+    case 'weekdays':
+      return z.array(z.number().int().min(0).max(6)).min(1).max(7);
+    case 'secret':
+      // Secrets are never written through the settings path.
+      return z.never();
+  }
+}

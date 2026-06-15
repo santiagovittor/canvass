@@ -97,6 +97,15 @@ export const geminiRpd = sqliteTable('gemini_rpd', {
   count: integer('count').notNull().default(0),
 });
 
+// Live config overrides for the Settings tab. Additive, key/value-json only — the
+// registry (settingsRegistry.ts) is the schema; this table just persists overrides.
+// Precedence at read time is code-default < env < this row. Secrets never land here.
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  valueJson: text('value_json').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
 export const premiumAnalyses = sqliteTable('premium_analyses', {
   id: text('id').primaryKey(),
   businessId: text('business_id').notNull(),

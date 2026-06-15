@@ -126,6 +126,12 @@ sqlite.exec(`
     pacific_date TEXT PRIMARY KEY,
     count INTEGER NOT NULL DEFAULT 0
   );
+  -- Live config overrides for the Settings tab. Additive; one row per overridden key.
+  CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
 `);
 
 // Per-batch dry-run flag threaded into the durable queue. DEFAULT 0 keeps existing
@@ -873,6 +879,31 @@ const stmtSetRpd = sqlite.prepare<[string, number], void>(`
 `);
 export function setGeminiRpd(pacificDate: string, count: number): void {
   stmtSetRpd.run(pacificDate, count);
+}
+
+// ── App settings (live config overrides) ─────────────────────────────────────
+// value_json is the raw JSON-encoded override; the accessor (appSettings.ts) owns
+// typing/precedence/clamping. updated_at is UTC-3 shifted (house display convention).
+const stmtGetAllAppSettings = sqlite.prepare<[], { key: string; value_json: string }>(
+  `SELECT key, value_json FROM app_settings`
+);
+export function getAllAppSettings(): { key: string; valueJson: string }[] {
+  return stmtGetAllAppSettings.all().map(r => ({ key: r.key, valueJson: r.value_json }));
+}
+
+const stmtUpsertAppSetting = sqlite.prepare<[string, string, string], void>(`
+  INSERT INTO app_settings (key, value_json, updated_at) VALUES (?, ?, ?)
+  ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
+`);
+export function upsertAppSetting(key: string, valueJson: string): void {
+  stmtUpsertAppSetting.run(key, valueJson, nowUtcMinus3());
+}
+
+const stmtDeleteAppSetting = sqlite.prepare<[string], void>(
+  `DELETE FROM app_settings WHERE key = ?`
+);
+export function deleteAppSetting(key: string): void {
+  stmtDeleteAppSetting.run(key);
 }
 
 // ── Few-shot example pool ─────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ import type { DetectedSig, SignalMap } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from './visionClient';
 import type { AnchorCandidate } from './anchorRanker';
+import { getString } from './appSettings';
 
 // Structured composer output. The composer declares the anchor it built the
 // opening on, plus every website claim it made (each tied to an evidenceRef) so
@@ -539,7 +540,7 @@ async function callGemini(systemPrompt: string, userPayload: Record<string, unkn
 
   const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
-    model: 'gemini-3.5-flash',
+    model: getString('GEMINI_MODEL'),
     systemInstruction: systemPrompt,
   });
 
@@ -596,7 +597,7 @@ async function callGeminiStructured(systemPrompt: string, userPayload: Record<st
 
   const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
-    model: 'gemini-3.5-flash',
+    model: getString('GEMINI_MODEL'),
     systemInstruction: systemPrompt,
     generationConfig: {
       responseMimeType: 'application/json',

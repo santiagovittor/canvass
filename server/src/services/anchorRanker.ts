@@ -1,6 +1,7 @@
 import type { DetectedSig, SignalMap } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from './visionClient';
+import { getNumber } from './appSettings';
 
 // Deterministic anchor selection. Ranks a lead's *assertable* evidence into an
 // ordered candidate list. "Assertable" reuses the existing claim-gating thresholds
@@ -28,10 +29,8 @@ interface BusinessLite {
   locCountry: string | null;
 }
 
-// Reused thresholds — identical to geminiComposer's claim-gating.
-const PSI_CRITICAL = 50;              // geminiComposer.ts:594
-const VISION_OPP_MIN = 0.75;          // geminiComposer.ts:438
-const VISION_STRENGTH_MIN = 0.8;      // geminiComposer.ts:437
+// Reused thresholds — identical to geminiComposer's claim-gating; now live-tunable
+// via the Settings tab (defaults: PSI 50, vision opp 0.75, vision strength 0.8).
 
 // Human phrasing for known ABSENT_VERIFIED signal keys. Only hasViewportMeta is
 // ABSENT_VERIFIED-eligible today (premiumAnalyzer); fallback covers future keys.
@@ -51,6 +50,11 @@ export function rankAnchors(
 ): AnchorCandidate[] {
   const isAR = business.locCountry === 'Argentina';
   const candidates: AnchorCandidate[] = [];
+
+  // Live claim-gating thresholds (Settings tab; same defaults as before).
+  const PSI_CRITICAL = getNumber('PSI_CRITICAL');
+  const VISION_OPP_MIN = getNumber('VISION_OPP_MIN');
+  const VISION_STRENGTH_MIN = getNumber('VISION_STRENGTH_MIN');
 
   // 1. PSI — real measured metric, most concrete and verifiable.
   if (psiData?.mobileScore !== null && psiData?.mobileScore !== undefined && psiData.mobileScore < PSI_CRITICAL) {

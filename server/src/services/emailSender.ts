@@ -22,6 +22,16 @@ if (sigPath) {
   console.error('[emailSender] signature not found. Tried:', candidates);
 }
 
+// Live signature edit (Settings tab): persist to the signature file AND reassign the
+// in-memory handle so the very next send picks it up — no restart. Writes to the
+// loaded-from path, or the configured/default path when none existed yet.
+const sigWritePath = sigPath ?? env.EMAIL_SIGNATURE_PATH ?? path.resolve(process.cwd(), 'credentials/email-signature.html');
+export function reloadSignature(html: string): void {
+  fs.writeFileSync(sigWritePath, html, 'utf-8');
+  signatureHtml = html;
+  console.log('[emailSender] signature reloaded (live) →', sigWritePath);
+}
+
 const DAILY_CAP = 30;
 
 function getTransport() {

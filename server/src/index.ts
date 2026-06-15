@@ -17,6 +17,7 @@ import adminRouter from './routes/admin';
 import analyticsRouter from './routes/analytics';
 import trackRouter from './routes/track';
 import batchRouter from './routes/batch';
+import settingsRouter from './routes/settings';
 import { startReplyChecker } from './services/replyChecker';
 import { startScheduledSendWorker } from './services/scheduledSendWorker';
 import { resumeOrphanedJobs } from './services/jobRunner';
@@ -59,6 +60,7 @@ app.use('/api/outreach', outreachQueueRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/batch', batchRouter);
+app.use('/api/settings', settingsRouter);
 app.use('/events', eventsRouter);
 
 if (env.NODE_ENV === 'production') {

@@ -10,7 +10,7 @@
  */
 import { sqlite, createScheduledSend, getScheduledSendById, listUpcomingScheduledSends, upsertDraft, saveDraftVerification, addSuppression, type ScheduledSendRow } from '../db';
 import { processJob, tick } from '../services/scheduledSendWorker';
-import { DAILY_CAP_ROLLING } from '../services/outreachSchedulingConfig';
+import { getDailyCapRolling } from '../services/outreachSchedulingConfig';
 import { env } from '../env';
 import { UTC_MINUS_3_OFFSET_MS } from '../util/time';
 
@@ -127,7 +127,7 @@ async function main(): Promise<void> {
 
   // Phase 3 — CAP (saturate rolling 24h → defer, even with window open)
   console.log('Phase 3 — cap');
-  for (let i = 0; i < DAILY_CAP_ROLLING; i++) seedRecentSend(TUE_OPEN, 60 + i); // fill the cap
+  for (let i = 0; i < getDailyCapRolling(); i++) seedRecentSend(TUE_OPEN, 60 + i); // fill the cap
   seedBusiness('D', 'Café D', 'Cafetería', 'd@example.test');
   seedDraft('D', sentSpecific);
   const D = schedule('D', 'generic');

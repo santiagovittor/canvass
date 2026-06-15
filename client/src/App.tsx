@@ -5,6 +5,7 @@ import { ResultsPanel } from './components/Results/ResultsPanel';
 import { BusinessExplorer } from './components/Explorer/BusinessExplorer';
 import { Outreach } from './pages/Outreach';
 import { Analytics } from './pages/Analytics';
+import { Settings } from './pages/Settings';
 import { useSSE } from './hooks/useSSE';
 import { useScrape } from './hooks/useScrape';
 import { useResults } from './hooks/useResults';
@@ -124,7 +125,7 @@ export default function App() {
   const sidebarVisible = geometry !== null || jobActive;
   const displayCellCount = count || hydratedCellCount;
 
-  const [view, setView] = useState<'scraper' | 'explorer' | 'outreach' | 'analytics'>('scraper');
+  const [view, setView] = useState<'scraper' | 'explorer' | 'outreach' | 'analytics' | 'settings'>('scraper');
   const [outreachSentAt, setOutreachSentAt] = useState(0);
 
   return (
@@ -177,6 +178,12 @@ export default function App() {
         >
           Analytics
         </button>
+        <button
+          className={`tab-btn${view === 'settings' ? ' tab-btn--active' : ''}`}
+          onClick={() => setView('settings')}
+        >
+          Settings
+        </button>
       </div>
 
       {view === 'scraper' ? (
@@ -214,9 +221,13 @@ export default function App() {
         <div className="view-fill">
           <Outreach onEmailSent={() => setOutreachSentAt(Date.now())} />
         </div>
-      ) : (
+      ) : view === 'analytics' ? (
         <div className="view-fill">
           <Analytics />
+        </div>
+      ) : (
+        <div className="view-fill">
+          <Settings />
         </div>
       )}
     </div>

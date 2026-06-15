@@ -2,6 +2,9 @@ import Bottleneck from 'bottleneck';
 import pRetry, { AbortError } from 'p-retry';
 import { env } from '../env';
 import { reserveGeminiRpd } from '../db';
+// Namespace import: appSettings depends on this module too (RPM apply side-effect),
+// so the cyclic edge must be a lazy property read, never a load-time binding.
+import * as appSettings from './appSettings';
 
 // Thrown when the persisted Pacific-date daily budget is hit. The batch orchestrator
 // catches this, pauses the run, and resumes after the midnight-Pacific RPD reset.
@@ -26,6 +29,17 @@ const limiter = new Bottleneck({
   minTime: Math.ceil(60_000 / RPM),
   maxConcurrent: 1,
 });
+
+// Live RPM retune from the Settings tab. Updates the reservoir + spacing in place so
+// a new rate takes effect on the next refresh window — no restart, no re-import.
+export function applyRpm(rpm: number): void {
+  if (!Number.isFinite(rpm) || rpm < 1) return;
+  void limiter.updateSettings({
+    reservoir: rpm,
+    reservoirRefreshAmount: rpm,
+    minTime: Math.ceil(60_000 / rpm),
+  });
+}
 
 // Google resets RPD at midnight Pacific. en-CA yields YYYY-MM-DD.
 export function pacificDate(d: Date = new Date()): string {
@@ -59,13 +73,14 @@ export async function withGeminiRate<T>(fn: () => Promise<T>, label = 'gemini'):
   if (!env.GEMINI_API_KEY) return fn(); // unconfigured callers degrade exactly as before
 
   const date = pacificDate();
-  const reserved = reserveGeminiRpd(date, env.GEMINI_RPD);
-  if (!reserved.ok) throw new GeminiRpdExhausted(reserved.count, env.GEMINI_RPD, date);
+  const rpd = appSettings.getNumber('GEMINI_RPD');
+  const reserved = reserveGeminiRpd(date, rpd);
+  if (!reserved.ok) throw new GeminiRpdExhausted(reserved.count, rpd, date);
 
   return pRetry(
     () => limiter.schedule(async () => {
       calls++;
-      console.log(`[gemini] ${label} call #${calls} @ ${new Date().toISOString()} (rpd ${reserved.count}/${env.GEMINI_RPD})`);
+      console.log(`[gemini] ${label} call #${calls} @ ${new Date().toISOString()} (rpd ${reserved.count}/${rpd})`);
       try {
         return await fn();
       } catch (err) {

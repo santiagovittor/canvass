@@ -154,6 +154,9 @@ html, body, #root {
 .input-field::placeholder { color: var(--text-muted); }
 .input-field:focus { border-color: var(--border-strong); }
 
+/* Numeric / time inputs render in JetBrains Mono (every number is mono, per DESIGN). */
+.input-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
 /* Sidebar flat sections */
 .sidebar-section {
   padding: 16px 20px;

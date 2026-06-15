@@ -93,7 +93,48 @@ sqlite.exec(`
     reason TEXT,
     created_at TEXT NOT NULL
   );
+  -- Batch automation: bulk-prepare state machine. See schema.ts for column intent.
+  CREATE TABLE IF NOT EXISTS batch_runs (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'running',
+    size INTEGER NOT NULL,
+    dry_run INTEGER NOT NULL DEFAULT 0,
+    pause_reason TEXT,
+    total INTEGER NOT NULL DEFAULT 0,
+    processed INTEGER NOT NULL DEFAULT 0,
+    skipped_no_evidence INTEGER NOT NULL DEFAULT 0,
+    held_generic INTEGER NOT NULL DEFAULT 0,
+    queued_for_send INTEGER NOT NULL DEFAULT 0,
+    failed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS batch_items (
+    id TEXT PRIMARY KEY,
+    batch_id TEXT NOT NULL,
+    business_id TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'pending',
+    disposition TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS batch_items_batch_id_idx ON batch_items(batch_id);
+  CREATE INDEX IF NOT EXISTS batch_items_state_idx ON batch_items(state);
+  -- Persisted Gemini daily-request budget, keyed to Pacific calendar date.
+  CREATE TABLE IF NOT EXISTS gemini_rpd (
+    pacific_date TEXT PRIMARY KEY,
+    count INTEGER NOT NULL DEFAULT 0
+  );
 `);
+
+// Per-batch dry-run flag threaded into the durable queue. DEFAULT 0 keeps existing
+// and manually-scheduled rows REAL; only a dry-run batch sets it. The worker ORs it
+// with env.OUTREACH_DRY_RUN (a row may add dry-safety, never remove it).
+const scheduledCols = (sqlite.prepare('PRAGMA table_info(scheduled_sends)').all() as { name: string }[]).map(r => r.name);
+if (!scheduledCols.includes('dry_run')) {
+  sqlite.exec('ALTER TABLE scheduled_sends ADD COLUMN dry_run INTEGER NOT NULL DEFAULT 0');
+}
 
 // Must run before any prepared statement references top_gap or verification_json
 const draftCols = (sqlite.prepare('PRAGMA table_info(outreach_drafts)').all() as { name: string }[]).map(r => r.name);
@@ -584,6 +625,35 @@ export function getOutreachSendRow(businessId: string): OutreachSendRow | null {
   };
 }
 
+// Full business shape the composer needs (mirrors the /generate route's hand-built
+// object). Kept here so services call a repo fn instead of reaching into drizzle.
+export interface BusinessForEmailRow {
+  name: string;
+  category: string | null;
+  website: string | null;
+  locCountry: string | null;
+  locNeighbourhood: string | null;
+  rating: number | null;
+  reviewCount: number | null;
+}
+const stmtBusinessForEmail = sqlite.prepare<[string], {
+  name: string; category: string | null; website: string | null;
+  loc_country: string | null; loc_neighbourhood: string | null;
+  rating: number | null; review_count: number | null;
+}>(`
+  SELECT name, category, website, loc_country, loc_neighbourhood, rating, review_count
+  FROM businesses WHERE id = ?
+`);
+export function getBusinessForEmail(businessId: string): BusinessForEmailRow | null {
+  const r = stmtBusinessForEmail.get(businessId);
+  if (!r) return null;
+  return {
+    name: r.name, category: r.category, website: r.website,
+    locCountry: r.loc_country, locNeighbourhood: r.loc_neighbourhood,
+    rating: r.rating, reviewCount: r.review_count,
+  };
+}
+
 export interface ScheduledSendRow {
   id: string;
   business_id: string;
@@ -595,13 +665,14 @@ export interface ScheduledSendRow {
   business_type: string | null;
   window_label: string | null;
   disposition: string | null;
+  dry_run: number;            // 0|1 — per-batch dry-run; ORed with env.OUTREACH_DRY_RUN by the worker
   created_at: string;
   updated_at: string;
 }
 
-const stmtCreateScheduled = sqlite.prepare<[string, string, string, string | null, string | null, string, string], void>(`
-  INSERT INTO scheduled_sends (id, business_id, scheduled_at, business_type, window_label, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?)
+const stmtCreateScheduled = sqlite.prepare<[string, string, string, string | null, string | null, number, string, string], void>(`
+  INSERT INTO scheduled_sends (id, business_id, scheduled_at, business_type, window_label, dry_run, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 export function createScheduledSend(input: {
@@ -609,10 +680,11 @@ export function createScheduledSend(input: {
   scheduledAtUtc: string;
   businessType: string | null;
   windowLabel: string | null;
+  dryRun?: boolean;
 }): ScheduledSendRow {
   const id = crypto.randomUUID();
   const now = nowUtcMinus3();
-  stmtCreateScheduled.run(id, input.businessId, input.scheduledAtUtc, input.businessType, input.windowLabel, now, now);
+  stmtCreateScheduled.run(id, input.businessId, input.scheduledAtUtc, input.businessType, input.windowLabel, input.dryRun ? 1 : 0, now, now);
   return getScheduledSendById(id)!;
 }
 
@@ -718,20 +790,31 @@ export function rescheduleScheduledSend(id: string, newScheduledAtUtc: string): 
   return stmtRescheduleScheduled.run(newScheduledAtUtc, nowUtcMinus3(), id).changes === 1;
 }
 
-// Governor counters. 'dryrun' rows count alongside 'sent' so a dry-run test
-// exercises cap/pacing exactly as a real run would; in production no 'dryrun'
-// rows exist so this is identical to counting 'sent'. sent_at is UTC-3 shifted.
-const stmtRolling24h = sqlite.prepare<[string], { n: number }>(`
+// Governor counters. A 'dryrun' row counts toward cap/pacing ONLY when the process
+// is globally dry (env.OUTREACH_DRY_RUN) — then the last slice's gate exercises
+// cap/pacing exactly as a real run would. On a LIVE process (env=false), a per-batch
+// dry-run preview produces 'dryrun' rows that must NOT consume real send capacity or
+// pace away real sends, so they are excluded. Real 'sent' rows always count.
+// Two prepared statements selected by the static env flag (no per-call branching cost).
+const stmtRolling24hAll = sqlite.prepare<[string], { n: number }>(`
   SELECT COUNT(*) AS n FROM email_sends WHERE status IN ('sent', 'dryrun') AND sent_at >= ?
 `);
+const stmtRolling24hSentOnly = sqlite.prepare<[string], { n: number }>(`
+  SELECT COUNT(*) AS n FROM email_sends WHERE status = 'sent' AND sent_at >= ?
+`);
+const stmtRolling24h = env.OUTREACH_DRY_RUN ? stmtRolling24hAll : stmtRolling24hSentOnly;
 export function rollingSentCount24h(): number {
   const cutoff = new Date(Date.now() - UTC_MINUS_3_OFFSET_MS - 24 * 60 * 60 * 1000).toISOString();
   return stmtRolling24h.get(cutoff)?.n ?? 0;
 }
 
-const stmtLastSentAny = sqlite.prepare<[], { sent_at: string }>(`
+const stmtLastSentAll = sqlite.prepare<[], { sent_at: string }>(`
   SELECT sent_at FROM email_sends WHERE status IN ('sent', 'dryrun') ORDER BY sent_at DESC LIMIT 1
 `);
+const stmtLastSentSentOnly = sqlite.prepare<[], { sent_at: string }>(`
+  SELECT sent_at FROM email_sends WHERE status = 'sent' ORDER BY sent_at DESC LIMIT 1
+`);
+const stmtLastSentAny = env.OUTREACH_DRY_RUN ? stmtLastSentAll : stmtLastSentSentOnly;
 export function lastSentAtAny(): string | null {
   return stmtLastSentAny.get()?.sent_at ?? null;
 }
@@ -758,6 +841,38 @@ const stmtSentForScheduled = sqlite.prepare<[string], { id: string }>(`
 `);
 export function sentRowExistsForScheduledSend(scheduledSendId: string): boolean {
   return !!stmtSentForScheduled.get(scheduledSendId);
+}
+
+// ── Gemini daily-request budget (persisted, Pacific-date keyed) ───────────────
+// Survives restarts and matches Google's midnight-Pacific RPD reset. reserve is an
+// atomic check-and-increment in one transaction so concurrent prepare workers can
+// never exceed the ceiling (SQLite serializes the transaction).
+const stmtGetRpd = sqlite.prepare<[string], { count: number }>(
+  `SELECT count FROM gemini_rpd WHERE pacific_date = ?`
+);
+const stmtUpsertRpdInc = sqlite.prepare<[string], void>(`
+  INSERT INTO gemini_rpd (pacific_date, count) VALUES (?, 1)
+  ON CONFLICT(pacific_date) DO UPDATE SET count = count + 1
+`);
+export function getGeminiRpd(pacificDate: string): number {
+  return stmtGetRpd.get(pacificDate)?.count ?? 0;
+}
+const reserveRpdTxn = sqlite.transaction((pacificDate: string, ceiling: number): { ok: boolean; count: number } => {
+  const current = stmtGetRpd.get(pacificDate)?.count ?? 0;
+  if (current >= ceiling) return { ok: false, count: current };
+  stmtUpsertRpdInc.run(pacificDate);
+  return { ok: true, count: current + 1 };
+});
+export function reserveGeminiRpd(pacificDate: string, ceiling: number): { ok: boolean; count: number } {
+  return reserveRpdTxn(pacificDate, ceiling);
+}
+// Test/ops seam: seed the counter near the ceiling to exercise the exhaustion path.
+const stmtSetRpd = sqlite.prepare<[string, number], void>(`
+  INSERT INTO gemini_rpd (pacific_date, count) VALUES (?, ?)
+  ON CONFLICT(pacific_date) DO UPDATE SET count = excluded.count
+`);
+export function setGeminiRpd(pacificDate: string, count: number): void {
+  stmtSetRpd.run(pacificDate, count);
 }
 
 // ── Few-shot example pool ─────────────────────────────────────────────────────

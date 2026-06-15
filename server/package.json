@@ -11,6 +11,7 @@
   "dependencies": {
     "basic-auth": "^2.0.1",
     "better-sqlite3": "^11.0.0",
+    "bottleneck": "^2.19.5",
     "cheerio": "^1.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -18,6 +19,7 @@
     "express": "^4.19.2",
     "googleapis": "^140.0.0",
     "imapflow": "^1.4.0",
+    "p-retry": "^4.6.2",
     "playwright-core": "1.52.0",
     "undici": "^6.19.2",
     "zod": "^3.23.8"

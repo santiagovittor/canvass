@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { withGeminiRate, GeminiRpdExhausted } from './geminiRateLimiter';
 import type { ResponseSchema } from '@google/generative-ai';
 import { env } from '../env';
 import type { SignalMap } from '../db/premium';
@@ -126,7 +127,7 @@ async function callGeminiVerifier(
     },
   };
 
-  const result = await model.generateContent(JSON.stringify(userPayload));
+  const result = await withGeminiRate(() => model.generateContent(JSON.stringify(userPayload)), 'verify');
   const text = result.response.text().trim();
 
   // Strip markdown code fences if model wraps response
@@ -172,6 +173,9 @@ export async function verifyDraft(
       claims,
     };
   } catch (err) {
+    // RPD exhaustion is a run-pause control signal, not a verify failure — let it
+    // propagate so the batch pauses resumably instead of dead-lettering the item.
+    if (err instanceof GeminiRpdExhausted) throw err;
     const message = err instanceof Error ? err.message : String(err);
     console.error('[geminiVerifier] verifyDraft failed:', message);
     return { status: 'verifier_failed', error: message, claims: [] };

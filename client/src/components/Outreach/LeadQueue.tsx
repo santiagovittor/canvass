@@ -12,6 +12,7 @@ interface LeadQueueProps {
   mode: QueueMode;
   onModeChange: (mode: QueueMode) => void;
   onMarkReplied: (lead: OutreachLead) => void;
+  style?: React.CSSProperties;
 }
 
 const PAGE_SIZE = 25;
@@ -44,7 +45,7 @@ const PILL_ACTIVE: React.CSSProperties = {
   fontWeight: 500,
 };
 
-export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger, mode, onModeChange, onMarkReplied }: LeadQueueProps) {
+export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger, mode, onModeChange, onMarkReplied, style }: LeadQueueProps) {
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [country, setCountry] = useState('');
@@ -168,6 +169,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
       background: 'var(--bg-panel)',
       borderRight: '1px solid var(--border)',
       overflow: 'hidden',
+      ...style,
     }}>
       {/* Header */}
       <div style={{

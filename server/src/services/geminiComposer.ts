@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { withGeminiRate, GeminiRpdExhausted } from './geminiRateLimiter';
 import type { ResponseSchema } from '@google/generative-ai';
 import { z } from 'zod';
 import { env } from '../env';
@@ -542,7 +543,7 @@ async function callGemini(systemPrompt: string, userPayload: Record<string, unkn
     systemInstruction: systemPrompt,
   });
 
-  const result = await model.generateContent(JSON.stringify(userPayload));
+  const result = await withGeminiRate(() => model.generateContent(JSON.stringify(userPayload)), 'compose-followup');
   const text = result.response.text().trim();
 
   let parsed: unknown;
@@ -606,11 +607,14 @@ async function callGeminiStructured(systemPrompt: string, userPayload: Record<st
   let lastErr: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const result = await model.generateContent(JSON.stringify(userPayload));
+      const result = await withGeminiRate(() => model.generateContent(JSON.stringify(userPayload)), 'compose');
       const text = result.response.text().trim();
       const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
       return ComposedEmailSchema.parse(JSON.parse(cleaned));
     } catch (err) {
+      // RPD exhaustion is a run-pause control signal, not a parse failure — don't
+      // burn the retry budget on it; propagate so the batch pauses resumably.
+      if (err instanceof GeminiRpdExhausted) throw err;
       lastErr = err;
     }
   }

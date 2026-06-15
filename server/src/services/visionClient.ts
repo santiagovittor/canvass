@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { Part } from '@google/generative-ai';
 import { env } from '../env';
+import { withGeminiRate } from './geminiRateLimiter';
 
 export interface VisionObservation {
   headline: string;   // ≈3–7 words, scannable
@@ -76,7 +77,7 @@ export async function runVision(
   }
 
   try {
-    const result = await model.generateContent({ contents: [{ role: 'user', parts }] });
+    const result = await withGeminiRate(() => model.generateContent({ contents: [{ role: 'user', parts }] }), 'vision');
     const raw = result.response.text().trim();
     const cleaned = stripFences(raw);
 

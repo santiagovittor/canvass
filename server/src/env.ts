@@ -32,6 +32,16 @@ const schema = z.object({
   OUTREACH_DRY_RUN: z.enum(['true', 'false']).default('false').transform(v => v === 'true'),
   // Rolling-24h send cap. Default 15 = fresh sending identity; ramp to 30 warmed.
   OUTREACH_DAILY_CAP: z.coerce.number().int().positive().default(15),
+  // Batch automation — single config surface for the bulk-prepare layer.
+  // Concurrency is a throttle, not a speed dial: how many leads prepare at once.
+  BATCH_PREPARE_CONCURRENCY: z.coerce.number().int().positive().default(3),
+  // Per-item analyze timeout (Playwright render + PSI + vision can hang).
+  BATCH_ANALYZE_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+  // Gemini throttle. RPM enforced in-memory by Bottleneck; keep below the tier limit.
+  GEMINI_RPM: z.coerce.number().int().positive().default(10),
+  // Gemini daily request budget — persisted, Pacific-date keyed. Conservative default;
+  // tune to the account tier. Retries are absorbed by the margin below the real ceiling.
+  GEMINI_RPD: z.coerce.number().int().positive().default(1000),
 }).refine(
   d => (d.APP_AUTH_USER == null) === (d.APP_AUTH_PASS == null),
   { message: 'AUTH_USER and AUTH_PASS must both be set or both be unset' },

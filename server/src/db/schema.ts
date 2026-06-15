@@ -53,6 +53,50 @@ export const businesses = sqliteTable('businesses', {
   replyType: text('reply_type', { enum: ['auto', 'real', 'unknown'] }),
 });
 
+// Batch automation: one batch_run drives N batch_items through the prepare state
+// machine. Counters are denormalized totals updated on every item transition so the
+// SSE progress readout is a single cheap row read. Resumable across restart.
+export const batchRuns = sqliteTable('batch_runs', {
+  id: text('id').primaryKey(),
+  status: text('status', { enum: ['running', 'paused', 'done', 'canceled'] }).notNull().default('running'),
+  size: integer('size').notNull(),
+  dryRun: integer('dry_run').notNull().default(0),
+  pauseReason: text('pause_reason'),
+  total: integer('total').notNull().default(0),
+  processed: integer('processed').notNull().default(0),
+  skippedNoEvidence: integer('skipped_no_evidence').notNull().default(0),
+  heldGeneric: integer('held_generic').notNull().default(0),
+  queuedForSend: integer('queued_for_send').notNull().default(0),
+  failed: integer('failed').notNull().default(0),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+// state machine per item. Terminal: skipped_no_evidence | held_generic | failed |
+// queued_for_send. Every transition is persisted so a restart resumes in-flight items.
+export const batchItems = sqliteTable('batch_items', {
+  id: text('id').primaryKey(),
+  batchId: text('batch_id').notNull(),
+  businessId: text('business_id').notNull(),
+  state: text('state', {
+    enum: [
+      'pending', 'analyzing', 'analyzed', 'composing', 'composed', 'verifying', 'verified',
+      'queued_for_send', 'skipped_no_evidence', 'held_generic', 'failed',
+    ],
+  }).notNull().default('pending'),
+  disposition: text('disposition'),
+  lastError: text('last_error'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+// Persisted daily Gemini request budget, keyed to the Pacific calendar date so it
+// matches Google's midnight-Pacific RPD reset and survives process restarts.
+export const geminiRpd = sqliteTable('gemini_rpd', {
+  pacificDate: text('pacific_date').primaryKey(),
+  count: integer('count').notNull().default(0),
+});
+
 export const premiumAnalyses = sqliteTable('premium_analyses', {
   id: text('id').primaryKey(),
   businessId: text('business_id').notNull(),

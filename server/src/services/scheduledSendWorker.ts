@@ -66,7 +66,9 @@ export async function processJob(job: ScheduledSendRow, nowMs: number = Date.now
   // already owns this row → bail; only the owner sends. This is the exactly-once point.
   if (!claimScheduledSend(job.id, new Date().toISOString())) return;
 
-  const dryRun = env.OUTREACH_DRY_RUN;
+  // Per-batch dry-run is ORed with the global flag — OR only, so a row may ADD
+  // dry-safety but a real row (dry_run=0) can never override a globally-dry process.
+  const dryRun = env.OUTREACH_DRY_RUN || job.dry_run === 1;
   try {
     const result = await sendEmail(
       to, draft.subject, draft.body, businessId, row.locCountry, false,

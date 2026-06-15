@@ -16,12 +16,14 @@ import outreachQueueRouter from './routes/outreachQueue';
 import adminRouter from './routes/admin';
 import analyticsRouter from './routes/analytics';
 import trackRouter from './routes/track';
+import batchRouter from './routes/batch';
 import { startReplyChecker } from './services/replyChecker';
 import { startScheduledSendWorker } from './services/scheduledSendWorker';
 import { resumeOrphanedJobs } from './services/jobRunner';
 import { kickEnrichment } from './services/enrichmentQueue';
 import { kickPremiumAnalysis } from './services/premiumAnalysisQueue';
 import { resetOrphanedRunning } from './db/premium';
+import { resumeInterruptedBatches } from './services/batchOrchestrator';
 
 runMigrations();
 resumeOrphanedJobs();
@@ -29,6 +31,9 @@ resumeOrphanedJobs();
 kickEnrichment();
 // Premium analyses orphaned mid-run by a restart go back to pending and resume
 resetOrphanedRunning();
+// Resume interrupted batches BEFORE kicking the premium worker, so the batch driver
+// re-claims its own (reset-to-pending) analysis rows before the background worker can.
+resumeInterruptedBatches();
 kickPremiumAnalysis();
 
 const app = express();
@@ -53,6 +58,7 @@ app.use('/api/businesses', outreachRouter);
 app.use('/api/outreach', outreachQueueRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/analytics', analyticsRouter);
+app.use('/api/batch', batchRouter);
 app.use('/events', eventsRouter);
 
 if (env.NODE_ENV === 'production') {

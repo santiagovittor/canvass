@@ -47,6 +47,38 @@ export function enqueuePremiumAnalysis(businessId: string): { id: string; dedupe
   return { id, deduped: false };
 }
 
+// Batch path: get a 'running' row the batch drives itself. If an open (pending/
+// running) row already exists — e.g. resetOrphanedRunning flipped a crashed batch's
+// row back to 'pending' at boot — REUSE and claim it (pending→running) instead of
+// inserting a duplicate. Claiming flips it out of 'pending' so the background
+// claimNextPending worker can never also run it (no double Gemini spend on restart).
+export function createPremiumAnalysisRunning(businessId: string): PremiumAnalysisRow {
+  const existing = db.select().from(premiumAnalyses)
+    .where(and(
+      eq(premiumAnalyses.businessId, businessId),
+      inArray(premiumAnalyses.status, ['pending', 'running']),
+    ))
+    .orderBy(desc(premiumAnalyses.createdAt))
+    .limit(1)
+    .get();
+  if (existing) {
+    if (existing.status === 'pending') {
+      db.update(premiumAnalyses).set({ status: 'running' })
+        .where(and(eq(premiumAnalyses.id, existing.id), eq(premiumAnalyses.status, 'pending')))
+        .run();
+    }
+    return db.select().from(premiumAnalyses).where(eq(premiumAnalyses.id, existing.id)).get()!;
+  }
+  const id = randomUUID();
+  db.insert(premiumAnalyses).values({
+    id,
+    businessId,
+    status: 'running',
+    createdAt: new Date().toISOString(),
+  }).run();
+  return db.select().from(premiumAnalyses).where(eq(premiumAnalyses.id, id)).get()!;
+}
+
 export function claimNextPending(): PremiumAnalysisRow | null {
   const row = db.select().from(premiumAnalyses)
     .where(eq(premiumAnalyses.status, 'pending'))

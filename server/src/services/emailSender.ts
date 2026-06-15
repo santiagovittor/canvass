@@ -40,10 +40,23 @@ export async function sendEmail(
   body: string,
   businessId: string,
   country: string | null = null,
+  verificationOverride = false,
+  opts: { dryRun?: boolean; scheduledSendId?: string | null } = {},
 ): Promise<{ success: boolean; error?: string; remaining: number }> {
   if (!validateEmail(to)) {
     console.error('[emailSender] invalid email address:', to);
     return { success: false, error: 'Invalid email address', remaining: DAILY_CAP - getDailySendCount() };
+  }
+
+  const scheduledSendId = opts.scheduledSendId ?? null;
+
+  // Dry-run: exercise cap/pacing/idempotency end-to-end but never transmit and
+  // never mutate real state. Record a 'dryrun' row (excluded from real history /
+  // analytics, which filter status='sent') and do NOT flip contacted-state.
+  if (opts.dryRun) {
+    console.log(`[scheduledSend] DRY-RUN transmit suppressed for ${businessId}`);
+    recordEmailSend(businessId, 'dryrun', undefined, null, verificationOverride, scheduledSendId);
+    return { success: true, remaining: DAILY_CAP - getDailySendCount() };
   }
 
   // Open-tracking pixel only when PUBLIC_URL is set (must be internet-reachable)
@@ -69,12 +82,12 @@ export async function sendEmail(
         html: bodyHtml + (sig !== null ? `<br><br>${sig}` : '') + pixel,
       } : {}),
     });
-    recordEmailSend(businessId, 'sent', undefined, trackingToken);
+    recordEmailSend(businessId, 'sent', undefined, trackingToken, verificationOverride, scheduledSendId);
     markContacted(businessId);
     return { success: true, remaining: DAILY_CAP - getDailySendCount() };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    recordEmailSend(businessId, 'failed', message);
+    recordEmailSend(businessId, 'failed', message, null, verificationOverride, scheduledSendId);
     return { success: false, error: message, remaining: DAILY_CAP - getDailySendCount() };
   }
 }

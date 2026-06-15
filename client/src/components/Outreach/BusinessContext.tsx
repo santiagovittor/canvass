@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { MapContainer, TileLayer } from 'react-leaflet';
-import type { OutreachLead, WebsiteAnalysis } from '../../lib/outreachApi';
-import { countryFlag } from '../../lib/outreachApi';
+import type { OutreachLead, WebsiteAnalysis, ScheduledSend } from '../../lib/outreachApi';
+import { countryFlag, formatScheduledAt, baLocalToUtcIso, defaultScheduleLocal } from '../../lib/outreachApi';
 
 const BOOKABLE_CATS = /salón|salon|gym|gimnasio|clínica|clinica|restaurant|spa|peluquería|peluqueria|consultorio|dentist|fitness|studio|pilates|yoga|médico|medico/i;
 const FOOD_CATS = /restaurant|café|cafe|bar|comida|panadería|panaderia|heladería|heladeria|pizzería|pizzeria|delivery|cocina|sushi|burger|parrilla/i;
@@ -9,6 +10,113 @@ interface BusinessContextProps {
   lead: OutreachLead | null;
   analysis?: WebsiteAnalysis | null;
   onMarkReplied?: () => void;
+  scheduled?: ScheduledSend[];
+  onCancelScheduled?: (id: string) => void;
+  onRescheduleScheduled?: (id: string, sendAt: string) => void;
+}
+
+// Global (not lead-scoped) list of upcoming scheduled sends. Distinct elevated
+// block on the warm ramp; flat children, no shadow (background-step depth only).
+function ScheduledSection({ items, onCancel, onReschedule }: {
+  items: ScheduledSend[];
+  onCancel?: (id: string) => void;
+  onReschedule?: (id: string, sendAt: string) => void;
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [local, setLocal] = useState('');
+  return (
+    <div style={{
+      background: 'var(--bg-elevated)',
+      border: '1px solid var(--border)',
+      borderRadius: 12,
+      padding: '12px 14px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 10,
+      flexShrink: 0,
+    }}>
+      <div style={{
+        fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600,
+        color: 'var(--text-muted)', letterSpacing: '0.11em', textTransform: 'uppercase',
+        display: 'flex', alignItems: 'center', gap: 6,
+      }}>
+        <span>⏰ Scheduled</span>
+        <span style={{ color: 'var(--accent)' }}>{items.length}</span>
+      </div>
+      {items.length === 0 ? (
+        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>
+          Nothing scheduled.
+        </span>
+      ) : items.map(s => (
+        <div key={s.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-primary)' }}>
+                {formatScheduledAt(s.scheduled_at)}
+              </span>
+              <span style={{
+                fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-secondary)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {s.business_name}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              {onReschedule && (
+                <button
+                  onClick={() => { setEditing(editing === s.id ? null : s.id); setLocal(defaultScheduleLocal()); }}
+                  style={{
+                    fontFamily: 'var(--font-ui)', fontSize: 10, padding: '2px 8px', borderRadius: 100,
+                    border: '1px solid var(--border)', background: 'transparent',
+                    color: 'var(--text-secondary)', cursor: 'pointer',
+                  }}
+                >
+                  Reschedule
+                </button>
+              )}
+              {onCancel && (
+                <button
+                  onClick={() => onCancel(s.id)}
+                  style={{
+                    fontFamily: 'var(--font-ui)', fontSize: 10, padding: '2px 8px', borderRadius: 100,
+                    border: '1px solid var(--border)', background: 'transparent',
+                    color: 'var(--text-muted)', cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+          {editing === s.id && onReschedule && (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                type="datetime-local"
+                value={local}
+                onChange={e => setLocal(e.target.value)}
+                style={{
+                  fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)',
+                  background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 6,
+                  padding: '5px 8px', outline: 'none', colorScheme: 'dark', flex: 1, minWidth: 0,
+                }}
+              />
+              <button
+                onClick={() => { if (local) { onReschedule(s.id, baLocalToUtcIso(local)); setEditing(null); } }}
+                disabled={!local}
+                style={{
+                  fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 600, padding: '4px 10px', borderRadius: 6,
+                  border: '1px solid var(--border-strong)', background: 'var(--bg-hover)',
+                  color: 'var(--text-primary)', cursor: local ? 'pointer' : 'not-allowed', opacity: local ? 1 : 0.4,
+                }}
+              >
+                Save
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function normalizeWebsite(raw: string | null): string {
@@ -78,20 +186,32 @@ function SocialIcons({ lead }: { lead: OutreachLead }) {
   );
 }
 
-export function BusinessContext({ lead, analysis, onMarkReplied }: BusinessContextProps) {
+export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCancelScheduled, onRescheduleScheduled }: BusinessContextProps) {
   if (!lead) {
     return (
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
         background: 'var(--bg-panel)',
         borderLeft: '1px solid var(--border)',
-        color: 'var(--text-muted)',
-        fontFamily: 'var(--font-ui)',
-        fontSize: 14,
+        padding: '16px',
+        overflowY: 'auto' as const,
+        display: 'flex',
+        flexDirection: 'column' as const,
+        gap: 12,
       }}>
-        No lead selected
+        {scheduled && (
+          <ScheduledSection items={scheduled} onCancel={onCancelScheduled} onReschedule={onRescheduleScheduled} />
+        )}
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--text-muted)',
+          fontFamily: 'var(--font-ui)',
+          fontSize: 14,
+        }}>
+          No lead selected
+        </div>
       </div>
     );
   }
@@ -109,6 +229,11 @@ export function BusinessContext({ lead, analysis, onMarkReplied }: BusinessConte
       flexDirection: 'column' as const,
       gap: 12,
     }}>
+      {/* Global scheduled-sends list (not lead-scoped) */}
+      {scheduled && (
+        <ScheduledSection items={scheduled} onCancel={onCancelScheduled} onReschedule={onRescheduleScheduled} />
+      )}
+
       {/* Name + flag */}
       <div>
         <div style={{

@@ -67,12 +67,41 @@ sqlite.exec(`
     psi_json TEXT NOT NULL,
     fetched_at TEXT NOT NULL
   );
+  -- Durable scheduled-send queue. Source of truth for the worker; survives restarts.
+  -- subject/body are NOT stored — the worker re-reads the LIVE draft at fire time
+  -- and re-gates it (single source of truth). scheduled_at/claimed_at are TRUE UTC
+  -- (Date.toISOString()); created_at/updated_at are UTC-3 shifted (house display
+  -- convention). The two bases are never compared to each other.
+  CREATE TABLE IF NOT EXISTS scheduled_sends (
+    id TEXT PRIMARY KEY,
+    business_id TEXT NOT NULL,
+    scheduled_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'scheduled',
+    claimed_at TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    business_type TEXT,
+    window_label TEXT,
+    disposition TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS scheduled_sends_status_idx ON scheduled_sends(status);
+  CREATE INDEX IF NOT EXISTS scheduled_sends_business_id_idx ON scheduled_sends(business_id);
+  CREATE TABLE IF NOT EXISTS suppression_list (
+    email TEXT PRIMARY KEY,
+    reason TEXT,
+    created_at TEXT NOT NULL
+  );
 `);
 
-// Must run before any prepared statement references top_gap
+// Must run before any prepared statement references top_gap or verification_json
 const draftCols = (sqlite.prepare('PRAGMA table_info(outreach_drafts)').all() as { name: string }[]).map(r => r.name);
 if (!draftCols.includes('top_gap')) {
   sqlite.exec('ALTER TABLE outreach_drafts ADD COLUMN top_gap TEXT');
+}
+if (!draftCols.includes('verification_json')) {
+  sqlite.exec('ALTER TABLE outreach_drafts ADD COLUMN verification_json TEXT');
 }
 
 // Must run before stmtInsertSend is prepared
@@ -80,7 +109,17 @@ const sendCols = (sqlite.prepare('PRAGMA table_info(email_sends)').all() as { na
 if (!sendCols.includes('tracking_token')) {
   sqlite.exec('ALTER TABLE email_sends ADD COLUMN tracking_token TEXT');
 }
+if (!sendCols.includes('verification_override')) {
+  sqlite.exec('ALTER TABLE email_sends ADD COLUMN verification_override INTEGER NOT NULL DEFAULT 0');
+}
+// Correlates a send back to the scheduled_sends row that produced it, so the
+// worker's idempotency guard is keyed to THIS scheduled job (not the business) —
+// legitimate scheduled follow-ups to an already-contacted business are not skipped.
+if (!sendCols.includes('scheduled_send_id')) {
+  sqlite.exec('ALTER TABLE email_sends ADD COLUMN scheduled_send_id TEXT');
+}
 sqlite.exec('CREATE INDEX IF NOT EXISTS email_sends_tracking_token_idx ON email_sends(tracking_token)');
+sqlite.exec('CREATE INDEX IF NOT EXISTS email_sends_scheduled_send_id_idx ON email_sends(scheduled_send_id)');
 
 // Must run before stmtInsertExample is prepared. Follow-ups are excluded from
 // the few-shot pool that seeds initial-email generation.
@@ -429,13 +468,16 @@ export function getDailySendCount(): number {
   return stmtSendCount.get(todayUtcMinus3())?.n ?? 0;
 }
 
-const stmtInsertSend = sqlite.prepare<[string, string, string, string, string | null, string | null], void>(`
-  INSERT INTO email_sends (id, business_id, sent_at, status, error_text, tracking_token) VALUES (?, ?, ?, ?, ?, ?)
+const stmtInsertSend = sqlite.prepare<[string, string, string, string, string | null, string | null, number, string | null], void>(`
+  INSERT INTO email_sends (id, business_id, sent_at, status, error_text, tracking_token, verification_override, scheduled_send_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
-export function recordEmailSend(businessId: string, status: 'sent' | 'failed', errorText?: string, trackingToken?: string | null): void {
+// 'dryrun' = a dry-run transmit: counts toward the governor's cap/pacing during a
+// test, but is filterable and excluded from real history/analytics (which filter
+// status='sent') and never flips contacted-state. Real send history is untouched.
+export function recordEmailSend(businessId: string, status: 'sent' | 'failed' | 'dryrun', errorText?: string, trackingToken?: string | null, verificationOverride?: boolean, scheduledSendId?: string | null): void {
   // sent_at stored as UTC-3 shifted ISO string — matches todayUtcMinus3() slice prefix
-  stmtInsertSend.run(crypto.randomUUID(), businessId, nowUtcMinus3(), status, errorText ?? null, trackingToken ?? null);
+  stmtInsertSend.run(crypto.randomUUID(), businessId, nowUtcMinus3(), status, errorText ?? null, trackingToken ?? null, verificationOverride ? 1 : 0, scheduledSendId ?? null);
 }
 
 const stmtFindSendByToken = sqlite.prepare<[string], { id: string; business_id: string }>(`
@@ -474,8 +516,8 @@ const stmtUpsertDraft = sqlite.prepare<[string, string, string, string, number, 
     updated_at = excluded.updated_at
 `);
 
-const stmtGetDraft = sqlite.prepare<[string], { subject: string; body: string; is_ai_draft: number; top_gap: string | null }>(`
-  SELECT subject, body, is_ai_draft, top_gap FROM outreach_drafts WHERE business_id = ?
+const stmtGetDraft = sqlite.prepare<[string], { subject: string; body: string; is_ai_draft: number; top_gap: string | null; verification_json: string | null }>(`
+  SELECT subject, body, is_ai_draft, top_gap, verification_json FROM outreach_drafts WHERE business_id = ?
 `);
 
 const stmtDeleteDraft = sqlite.prepare<[string], void>(`
@@ -487,10 +529,10 @@ export function upsertDraft(businessId: string, subject: string, body: string, i
   stmtUpsertDraft.run(crypto.randomUUID(), businessId, subject, body, isAiDraft ? 1 : 0, now, now);
 }
 
-export function getDraft(businessId: string): { subject: string; body: string; isAiDraft: boolean; topGap: string | null } | null {
+export function getDraft(businessId: string): { subject: string; body: string; isAiDraft: boolean; topGap: string | null; verificationJson: string | null } | null {
   const row = stmtGetDraft.get(businessId);
   if (!row) return null;
-  return { subject: row.subject, body: row.body, isAiDraft: row.is_ai_draft === 1, topGap: row.top_gap ?? null };
+  return { subject: row.subject, body: row.body, isAiDraft: row.is_ai_draft === 1, topGap: row.top_gap ?? null, verificationJson: row.verification_json ?? null };
 }
 
 export function deleteDraft(businessId: string): void {
@@ -503,6 +545,219 @@ const stmtSaveTopGap = sqlite.prepare<[string | null, string], void>(
 
 export function saveDraftTopGap(businessId: string, topGap: string | null): void {
   stmtSaveTopGap.run(topGap, businessId);
+}
+
+const stmtSaveVerification = sqlite.prepare<[string | null, string], void>(
+  `UPDATE outreach_drafts SET verification_json = ? WHERE business_id = ?`
+);
+
+export function saveDraftVerification(businessId: string, json: string | null): void {
+  stmtSaveVerification.run(json, businessId);
+}
+
+// ── Scheduled sends (durable queue) ───────────────────────────────────────────
+
+// Minimal business row the scheduled-send worker needs (keeps the worker out of
+// drizzle — services call repo fns only).
+export interface OutreachSendRow {
+  id: string;
+  name: string;
+  category: string | null;
+  emailsJson: string | null;
+  locCountry: string | null;
+  locNeighbourhood: string | null;
+  outreachStatus: string | null;
+}
+const stmtOutreachSendRow = sqlite.prepare<[string], {
+  id: string; name: string; category: string | null; emails_json: string | null;
+  loc_country: string | null; loc_neighbourhood: string | null; outreach_status: string | null;
+}>(`
+  SELECT id, name, category, emails_json, loc_country, loc_neighbourhood, outreach_status
+  FROM businesses WHERE id = ?
+`);
+export function getOutreachSendRow(businessId: string): OutreachSendRow | null {
+  const r = stmtOutreachSendRow.get(businessId);
+  if (!r) return null;
+  return {
+    id: r.id, name: r.name, category: r.category, emailsJson: r.emails_json,
+    locCountry: r.loc_country, locNeighbourhood: r.loc_neighbourhood, outreachStatus: r.outreach_status,
+  };
+}
+
+export interface ScheduledSendRow {
+  id: string;
+  business_id: string;
+  scheduled_at: string;       // true UTC ISO
+  status: string;             // scheduled | claimed | sent | failed | canceled | skipped | deferred | held
+  claimed_at: string | null;  // true UTC ISO
+  attempt_count: number;
+  last_error: string | null;
+  business_type: string | null;
+  window_label: string | null;
+  disposition: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const stmtCreateScheduled = sqlite.prepare<[string, string, string, string | null, string | null, string, string], void>(`
+  INSERT INTO scheduled_sends (id, business_id, scheduled_at, business_type, window_label, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+`);
+
+export function createScheduledSend(input: {
+  businessId: string;
+  scheduledAtUtc: string;
+  businessType: string | null;
+  windowLabel: string | null;
+}): ScheduledSendRow {
+  const id = crypto.randomUUID();
+  const now = nowUtcMinus3();
+  stmtCreateScheduled.run(id, input.businessId, input.scheduledAtUtc, input.businessType, input.windowLabel, now, now);
+  return getScheduledSendById(id)!;
+}
+
+const stmtGetScheduledById = sqlite.prepare<[string], ScheduledSendRow>(
+  `SELECT * FROM scheduled_sends WHERE id = ?`
+);
+export function getScheduledSendById(id: string): ScheduledSendRow | undefined {
+  return stmtGetScheduledById.get(id);
+}
+
+// Due = still scheduled and its UTC fire time has passed. nowUtcIso is TRUE UTC.
+const stmtDueScheduled = sqlite.prepare<[string], ScheduledSendRow>(`
+  SELECT * FROM scheduled_sends WHERE status = 'scheduled' AND scheduled_at <= ? ORDER BY scheduled_at ASC
+`);
+export function getDueScheduledSends(nowUtcIso: string): ScheduledSendRow[] {
+  return stmtDueScheduled.all(nowUtcIso);
+}
+
+// Atomic claim — the idempotency primitive. SQLite serializes writers, so among
+// overlapping ticks / a restart, exactly one UPDATE flips 'scheduled'→'claimed'.
+// changes===1 ⇒ this caller owns the row and may transmit. attempt_count counts
+// real transmit attempts only (claim fires immediately before sendEmail).
+const stmtClaimScheduled = sqlite.prepare<[string, string, string], void>(`
+  UPDATE scheduled_sends
+  SET status = 'claimed', claimed_at = ?, attempt_count = attempt_count + 1, updated_at = ?
+  WHERE id = ? AND status = 'scheduled'
+`);
+export function claimScheduledSend(id: string, nowUtcIso: string): boolean {
+  return stmtClaimScheduled.run(nowUtcIso, nowUtcMinus3(), id).changes === 1;
+}
+
+// Pre-claim terminal/defer transitions stay conditional on status='scheduled' so
+// they never pass through 'claimed' (keeps attempt_count to real send attempts)
+// and overlapping ticks can't double-apply. Returns changes===1 for the winner.
+const stmtResolveFromScheduled = sqlite.prepare<[string, string | null, string | null, string, string], void>(`
+  UPDATE scheduled_sends SET status = ?, disposition = ?, last_error = ?, updated_at = ?
+  WHERE id = ? AND status = 'scheduled'
+`);
+export function resolveScheduledFromScheduled(id: string, status: string, disposition: string | null, lastError: string | null): boolean {
+  return stmtResolveFromScheduled.run(status, disposition, lastError, nowUtcMinus3(), id).changes === 1;
+}
+
+const stmtDeferScheduled = sqlite.prepare<[string, string | null, string, string], void>(`
+  UPDATE scheduled_sends SET status = 'scheduled', scheduled_at = ?, last_error = ?, updated_at = ?
+  WHERE id = ? AND status = 'scheduled'
+`);
+export function deferScheduledSend(id: string, newScheduledAtUtc: string, reason: string): boolean {
+  return stmtDeferScheduled.run(newScheduledAtUtc, reason, nowUtcMinus3(), id).changes === 1;
+}
+
+// Post-claim finalization — this caller already owns the row via claim.
+const stmtFinishScheduled = sqlite.prepare<[string, string | null, string | null, string, string], void>(`
+  UPDATE scheduled_sends SET status = ?, disposition = ?, last_error = ?, updated_at = ?
+  WHERE id = ?
+`);
+export function finishScheduledSend(id: string, status: string, disposition: string | null, lastError?: string | null): void {
+  stmtFinishScheduled.run(status, disposition, lastError ?? null, nowUtcMinus3(), id);
+}
+
+// Crash safety: a claim older than the lease is moved to failed and NOT retried —
+// a crash between SMTP transmit and status-write is indistinguishable from one
+// before transmit, and the rule is never email twice. Surfaced for manual review.
+const stmtReapStale = sqlite.prepare<[string, string], void>(`
+  UPDATE scheduled_sends
+  SET status = 'failed', disposition = 'failed', last_error = 'lease_expired_unknown_disposition', updated_at = ?
+  WHERE status = 'claimed' AND claimed_at < ?
+`);
+export function reapStaleClaims(cutoffUtcIso: string): number {
+  return stmtReapStale.run(nowUtcMinus3(), cutoffUtcIso).changes;
+}
+
+export interface UpcomingScheduledSend {
+  id: string;
+  business_id: string;
+  business_name: string;
+  scheduled_at: string;
+  status: string;
+  window_label: string | null;
+}
+const stmtListUpcoming = sqlite.prepare<[], UpcomingScheduledSend>(`
+  SELECT s.id, s.business_id, b.name AS business_name, s.scheduled_at, s.status, s.window_label
+  FROM scheduled_sends s JOIN businesses b ON b.id = s.business_id
+  WHERE s.status IN ('scheduled', 'deferred')
+  ORDER BY s.scheduled_at ASC
+`);
+export function listUpcomingScheduledSends(): UpcomingScheduledSend[] {
+  return stmtListUpcoming.all();
+}
+
+const stmtCancelScheduled = sqlite.prepare<[string, string], void>(`
+  UPDATE scheduled_sends SET status = 'canceled', updated_at = ?
+  WHERE id = ? AND status IN ('scheduled', 'deferred')
+`);
+export function cancelScheduledSend(id: string): boolean {
+  return stmtCancelScheduled.run(nowUtcMinus3(), id).changes === 1;
+}
+
+const stmtRescheduleScheduled = sqlite.prepare<[string, string, string], void>(`
+  UPDATE scheduled_sends SET scheduled_at = ?, status = 'scheduled', updated_at = ?
+  WHERE id = ? AND status IN ('scheduled', 'deferred')
+`);
+export function rescheduleScheduledSend(id: string, newScheduledAtUtc: string): boolean {
+  return stmtRescheduleScheduled.run(newScheduledAtUtc, nowUtcMinus3(), id).changes === 1;
+}
+
+// Governor counters. 'dryrun' rows count alongside 'sent' so a dry-run test
+// exercises cap/pacing exactly as a real run would; in production no 'dryrun'
+// rows exist so this is identical to counting 'sent'. sent_at is UTC-3 shifted.
+const stmtRolling24h = sqlite.prepare<[string], { n: number }>(`
+  SELECT COUNT(*) AS n FROM email_sends WHERE status IN ('sent', 'dryrun') AND sent_at >= ?
+`);
+export function rollingSentCount24h(): number {
+  const cutoff = new Date(Date.now() - UTC_MINUS_3_OFFSET_MS - 24 * 60 * 60 * 1000).toISOString();
+  return stmtRolling24h.get(cutoff)?.n ?? 0;
+}
+
+const stmtLastSentAny = sqlite.prepare<[], { sent_at: string }>(`
+  SELECT sent_at FROM email_sends WHERE status IN ('sent', 'dryrun') ORDER BY sent_at DESC LIMIT 1
+`);
+export function lastSentAtAny(): string | null {
+  return stmtLastSentAny.get()?.sent_at ?? null;
+}
+
+const stmtIsSuppressed = sqlite.prepare<[string], { email: string }>(
+  `SELECT email FROM suppression_list WHERE email = ?`
+);
+export function isSuppressed(email: string): boolean {
+  return !!stmtIsSuppressed.get(email.trim().toLowerCase());
+}
+
+const stmtAddSuppression = sqlite.prepare<[string, string | null, string], void>(`
+  INSERT INTO suppression_list (email, reason, created_at) VALUES (?, ?, ?)
+  ON CONFLICT(email) DO NOTHING
+`);
+export function addSuppression(email: string, reason: string | null): void {
+  stmtAddSuppression.run(email.trim().toLowerCase(), reason, nowUtcMinus3());
+}
+
+// Secondary idempotency guard keyed to THIS scheduled send (not the business),
+// so legitimate scheduled follow-ups to an already-contacted business still send.
+const stmtSentForScheduled = sqlite.prepare<[string], { id: string }>(`
+  SELECT id FROM email_sends WHERE scheduled_send_id = ? AND status IN ('sent', 'dryrun') LIMIT 1
+`);
+export function sentRowExistsForScheduledSend(scheduledSendId: string): boolean {
+  return !!stmtSentForScheduled.get(scheduledSendId);
 }
 
 // ── Few-shot example pool ─────────────────────────────────────────────────────

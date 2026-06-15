@@ -284,10 +284,16 @@ async function runPsi(finalUrl: string): Promise<PsiData | null> {
   if (result) {
     upsertPsiCache(finalUrl, result);
     console.log(`[psi] fetched for ${finalUrl}: score=${result.mobileScore}`);
-  } else {
-    console.warn(`[psi] fetch failed for ${finalUrl}, degrading to null`);
+    return result;
   }
-  return result;
+  // Cache the degraded result (all-null) so the next scan within 24h fast-degrades
+  // instead of re-burning the 60s call. fetchPsi already logged the reason.
+  const degraded: PsiData = {
+    mobileScore: null, lcp: null, tbt: null, tti: null,
+    mobileFriendly: null, fetchedAt: new Date().toISOString(),
+  };
+  upsertPsiCache(finalUrl, degraded);
+  return null;
 }
 
 export async function runPremiumAnalysis(row: PremiumAnalysisRow): Promise<void> {

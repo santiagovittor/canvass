@@ -17,6 +17,7 @@ import adminRouter from './routes/admin';
 import analyticsRouter from './routes/analytics';
 import trackRouter from './routes/track';
 import { startReplyChecker } from './services/replyChecker';
+import { startScheduledSendWorker } from './services/scheduledSendWorker';
 import { resumeOrphanedJobs } from './services/jobRunner';
 import { kickEnrichment } from './services/enrichmentQueue';
 import { kickPremiumAnalysis } from './services/premiumAnalysisQueue';
@@ -65,6 +66,7 @@ app.listen(env.PORT, () => {
 });
 
 startReplyChecker();
+startScheduledSendWorker();
 
 function shutdown() {
   sqlite.pragma('wal_checkpoint(FULL)');

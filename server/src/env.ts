@@ -26,6 +26,12 @@ const schema = z.object({
   PLAYWRIGHT_WS_URL: z.string().optional(),
   PREMIUM_RENDER_TIMEOUT_MS: z.coerce.number().default(20000),
   PAGESPEED_API_KEY: z.string().optional(),
+  // When 'true', the scheduled-send worker exercises the full path but suppresses
+  // the SMTP transmit (records a 'dryrun' row, never flips contacted-state).
+  // Explicit enum — z.coerce.boolean() would treat the string "false" as true.
+  OUTREACH_DRY_RUN: z.enum(['true', 'false']).default('false').transform(v => v === 'true'),
+  // Rolling-24h send cap. Default 15 = fresh sending identity; ramp to 30 warmed.
+  OUTREACH_DAILY_CAP: z.coerce.number().int().positive().default(15),
 }).refine(
   d => (d.APP_AUTH_USER == null) === (d.APP_AUTH_PASS == null),
   { message: 'AUTH_USER and AUTH_PASS must both be set or both be unset' },

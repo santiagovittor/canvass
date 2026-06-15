@@ -3,10 +3,10 @@ import { LeadQueue } from '../components/Outreach/LeadQueue';
 import type { QueueMode } from '../components/Outreach/LeadQueue';
 import { EmailComposer } from '../components/Outreach/EmailComposer';
 import { BusinessContext } from '../components/Outreach/BusinessContext';
-import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis } from '../lib/outreachApi';
+import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis, scheduleDraft, listScheduled, cancelScheduled, rescheduleScheduled } from '../lib/outreachApi';
 import { patchOutreach, getConfig } from '../lib/api';
 import { useSSE } from '../hooks/useSSE';
-import type { OutreachLead, OutreachStats, WebsiteAnalysis, DetectedSig, PsiMetrics, VisionResult } from '../lib/outreachApi';
+import type { OutreachLead, OutreachStats, WebsiteAnalysis, DetectedSig, PsiMetrics, VisionResult, PremiumSignal, ScheduledSend } from '../lib/outreachApi';
 
 interface Draft {
   subject: string;
@@ -29,13 +29,15 @@ export function Outreach({ onEmailSent }: OutreachProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [analysis, setAnalysis] = useState<WebsiteAnalysis | null>(null);
-  const [premium, setPremium] = useState<{ status: string; renderOutcome: string | null; detectedSigs?: DetectedSig[]; psi?: PsiMetrics | null; vision?: VisionResult | null } | null>(null);
+  const [premium, setPremium] = useState<{ status: string; renderOutcome: string | null; detectedSigs?: DetectedSig[]; psi?: PsiMetrics | null; vision?: VisionResult | null; signals?: Record<string, PremiumSignal> | null } | null>(null);
+  const [verificationVerdict, setVerificationVerdict] = useState<{ status: string; violations?: Array<{ claim: string; evidence: string }> } | null>(null);
   const [stats, setStats] = useState<OutreachStats | null>(null);
   const [signatureHtml, setSignatureHtml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savingState, setSavingState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [senderName, setSenderName] = useState('');
   const [senderEmail, setSenderEmail] = useState('');
+  const [scheduled, setScheduled] = useState<ScheduledSend[]>([]);
 
   // Keep mutable refs for use inside keyboard listener without stale closure
   const activeLeadRef = useRef<OutreachLead | null>(null);
@@ -57,13 +59,20 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     } catch (err) { console.error('[Outreach]', err); }
   }, []);
 
+  const fetchScheduled = useCallback(async () => {
+    try {
+      setScheduled(await listScheduled());
+    } catch (err) { console.error('[Outreach]', err); }
+  }, []);
+
   const handleLeadsChange = useCallback((rows: OutreachLead[]) => {
     queueLeadsRef.current = rows;
   }, []);
 
-  // Mount: load stats + signature + sender config
+  // Mount: load stats + signature + sender config + scheduled queue
   useEffect(() => {
     fetchStats();
+    fetchScheduled();
     getSignatureHtml().then(html => {
       setSignatureHtml(html);
       console.log('[Outreach] signature:', html ? 'loaded (' + html.length + ' chars)' : 'NULL — preview will have no signature');
@@ -72,7 +81,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
       setSenderName(cfg.senderName);
       setSenderEmail(cfg.senderEmail);
     }).catch(() => {});
-  }, [fetchStats]);
+  }, [fetchStats, fetchScheduled]);
 
   const handleGenerate = useCallback(async () => {
     const lead = activeLeadRef.current;
@@ -80,15 +89,22 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     setIsGenerating(true);
     setError(null);
     try {
-      const result = modeRef.current === 'followup'
-        ? await generateFollowUp(lead.id)
-        : await generateEmail(lead.id);
-      setDraft({ subject: result.subject, body: result.body });
-      setIsAiDraft(true);
-      setSavingState('saving');
-      saveDraft(lead.id, result.subject, result.body, true)
-        .then(() => setSavingState('saved'))
-        .catch(() => setSavingState('idle'));
+      if (modeRef.current === 'followup') {
+        const result = await generateFollowUp(lead.id);
+        setDraft({ subject: result.subject, body: result.body });
+        setIsAiDraft(true);
+        setSavingState('saving');
+        saveDraft(lead.id, result.subject, result.body, true)
+          .then(() => setSavingState('saved'))
+          .catch(() => setSavingState('idle'));
+      } else {
+        // Server saves draft + verification atomically — no client-side saveDraft needed
+        const result = await generateEmail(lead.id);
+        setDraft({ subject: result.subject, body: result.body });
+        setIsAiDraft(true);
+        setVerificationVerdict(result.verification ?? null);
+        setSavingState('saved');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Generation failed');
     } finally {
@@ -113,13 +129,12 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     setIsAnalyzing(false);
     setIsGenerating(true);
     try {
+      // Server saves draft + verification atomically — no client-side saveDraft needed
       const result = await generateEmail(lead.id, currentAnalysis);
       setDraft({ subject: result.subject, body: result.body });
       setIsAiDraft(true);
-      setSavingState('saving');
-      saveDraft(lead.id, result.subject, result.body, true)
-        .then(() => setSavingState('saved'))
-        .catch(() => setSavingState('idle'));
+      setVerificationVerdict(result.verification ?? null);
+      setSavingState('saved');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Generation failed');
     } finally {
@@ -139,19 +154,20 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     }
   }, []);
 
-  const handleSend = useCallback(async () => {
+  const doSend = useCallback(async (override = false) => {
     const lead = activeLeadRef.current;
     if (!lead || isGeneratingRef.current || isSendingRef.current) return;
     setIsSending(true);
     setError(null);
     try {
-      const result = await sendOutreachEmail(lead.id, draft.subject, draft.body);
+      const result = await sendOutreachEmail(lead.id, draft.subject, draft.body, override ? { override: true } : undefined);
       if (!result.success) {
         setError(result.error ?? 'Send failed');
         return;
       }
       setDraft({ subject: '', body: '' });
       setIsAiDraft(false);
+      setVerificationVerdict(null);
       onEmailSent();
       // navigate after 800ms (pulse animation in EmailComposer) then refetch
       setTimeout(() => {
@@ -162,11 +178,51 @@ export function Outreach({ onEmailSent }: OutreachProps) {
         fetchStats();
       }, 800);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Send failed');
+      const msg = err instanceof Error ? err.message : 'Send failed';
+      // 409 means verification gate held the draft — surface a clean message
+      if (msg.startsWith('409')) {
+        setError('Draft held for verification — regenerate or use "Send anyway" to override.');
+      } else {
+        setError(msg);
+      }
     } finally {
       setIsSending(false);
     }
   }, [draft, fetchStats, onEmailSent]);
+
+  const handleSend = useCallback(() => doSend(false), [doSend]);
+  const handleForceSend = useCallback(() => doSend(true), [doSend]);
+
+  const handleSchedule = useCallback(async (opts: { sendAt?: string; optimalWindow?: boolean }) => {
+    const lead = activeLeadRef.current;
+    if (!lead) return;
+    setError(null);
+    try {
+      await scheduleDraft(lead.id, opts);
+      await fetchScheduled();
+      // Advance to the next lead — the draft persists server-side for the worker
+      // to read live at fire time; we don't delete it.
+      const rows = queueLeadsRef.current;
+      const idx = rows.findIndex(r => r.id === lead.id);
+      setActiveLead(rows[idx + 1] ?? rows[idx - 1] ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Schedule failed');
+    }
+  }, [fetchScheduled]);
+
+  const handleCancelScheduled = useCallback(async (id: string) => {
+    try {
+      await cancelScheduled(id);
+      await fetchScheduled();
+    } catch (err) { console.error('[Outreach]', err); }
+  }, [fetchScheduled]);
+
+  const handleRescheduleScheduled = useCallback(async (id: string, sendAt: string) => {
+    try {
+      await rescheduleScheduled(id, sendAt);
+      await fetchScheduled();
+    } catch (err) { console.error('[Outreach]', err); }
+  }, [fetchScheduled]);
 
   const handleSkip = useCallback(async () => {
     const lead = activeLeadRef.current;
@@ -216,7 +272,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
       if (!d.businessId || d.businessId !== activeLeadRef.current?.id || !d.status) return;
       if (d.status === 'done') {
         getPremiumAnalysis(d.businessId).then(a => {
-          if (a) setPremium({ status: a.status, renderOutcome: a.renderOutcome, detectedSigs: a.detectedSigs, psi: a.psi, vision: a.vision });
+          if (a) setPremium({ status: a.status, renderOutcome: a.renderOutcome, detectedSigs: a.detectedSigs, psi: a.psi, vision: a.vision, signals: a.signals });
         }).catch(() => {
           setPremium({ status: d.status!, renderOutcome: d.renderOutcome ?? null });
         });
@@ -234,6 +290,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     setIsAiDraft(false);
     setAnalysis(null);
     setPremium(null);
+    setVerificationVerdict(null);
     setError(null);
     setSavingState('idle');
   }, []);
@@ -255,6 +312,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
   function handleDraftChange(d: Draft) {
     setDraft(d);
     setIsAiDraft(false);
+    setVerificationVerdict(null); // user-edited drafts bypass verification gate
     if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
     const lead = activeLeadRef.current;
     if (!lead) return;
@@ -280,16 +338,26 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     setIsAiDraft(false);
     setAnalysis(null);
     setPremium(null);
+    setVerificationVerdict(null);
     setError(null);
     setSavingState('idle');
     getPremiumAnalysis(lead.id).then(a => {
-      if (a) setPremium({ status: a.status, renderOutcome: a.renderOutcome, detectedSigs: a.detectedSigs, psi: a.psi });
+      if (a) setPremium({ status: a.status, renderOutcome: a.renderOutcome, detectedSigs: a.detectedSigs, psi: a.psi, vision: a.vision, signals: a.signals });
     }).catch(() => {});
     loadDraft(lead.id).then(d => {
       if (!d) return;
       setDraft({ subject: d.subject, body: d.body });
       setIsAiDraft(d.isAiDraft);
       setSavingState('saved');
+      if (d.verificationJson) {
+        try {
+          const parsed = JSON.parse(d.verificationJson) as { status: string; claims?: Array<{ claim: string; supported: boolean; evidence: string }> };
+          setVerificationVerdict({
+            status: parsed.status,
+            violations: (parsed.claims ?? []).filter(c => !c.supported).map(c => ({ claim: c.claim, evidence: c.evidence })),
+          });
+        } catch { /* ignore malformed */ }
+      }
     }).catch(() => {});
   }
 
@@ -346,6 +414,9 @@ export function Outreach({ onEmailSent }: OutreachProps) {
         onPremiumAnalyze={handlePremiumAnalyze}
         premium={premium}
         onSend={handleSend}
+        onForceSend={handleForceSend}
+        onSchedule={handleSchedule}
+        verificationVerdict={verificationVerdict}
         onSkip={handleSkip}
         signatureHtml={signatureHtml}
         senderName={senderName}
@@ -358,6 +429,9 @@ export function Outreach({ onEmailSent }: OutreachProps) {
         lead={activeLead}
         analysis={analysis}
         onMarkReplied={mode === 'followup' && activeLead ? () => handleMarkReplied(activeLead) : undefined}
+        scheduled={scheduled}
+        onCancelScheduled={handleCancelScheduled}
+        onRescheduleScheduled={handleRescheduleScheduled}
       />
     </div>
   );

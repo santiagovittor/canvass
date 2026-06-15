@@ -51,6 +51,7 @@ export interface PsiMetrics {
 }
 
 export interface VisionObservation {
+  headline?: string;  // ≈3–7 words; absent on old vision_json rows (derive from text)
   text: string;
   confidence: number;
 }
@@ -205,23 +206,31 @@ export function getPremiumAnalysis(businessId: string): Promise<PremiumAnalysis 
     .then(d => d.analysis);
 }
 
-export async function generateEmail(businessId: string, analysis?: WebsiteAnalysis): Promise<{ subject: string; body: string }> {
-  const data = await request<{ subject: string; body: string; topGap?: string | null }>('/outreach/generate', {
+export async function generateEmail(
+  businessId: string,
+  analysis?: WebsiteAnalysis,
+): Promise<{ subject: string; body: string; verification?: { status: string; violations?: Array<{ claim: string; evidence: string }> } }> {
+  // Server saves the draft atomically (including verification verdict) — no client-side saveDraft needed.
+  const data = await request<{
+    subject: string;
+    body: string;
+    topGap?: string | null;
+    verification?: { status: string; violations?: Array<{ claim: string; evidence: string }> };
+  }>('/outreach/generate', {
     method: 'POST',
     body: JSON.stringify({ businessId, analysis }),
   });
-  if (data.topGap !== undefined) {
-    saveDraft(businessId, data.subject, data.body, true, data.topGap).catch(() => undefined);
-  }
-  return { subject: data.subject, body: data.body };
+  return { subject: data.subject, body: data.body, verification: data.verification };
 }
 
 export function sendOutreachEmail(
   businessId: string,
   subject: string,
   body: string,
+  options?: { override?: boolean },
 ): Promise<{ success: boolean; remaining: number; error?: string }> {
-  return request('/outreach/send', {
+  const url = options?.override ? '/outreach/send?override=true' : '/outreach/send';
+  return request(url, {
     method: 'POST',
     body: JSON.stringify({ businessId, subject, body }),
   });
@@ -244,9 +253,74 @@ export function saveDraft(businessId: string, subject: string, body: string, isA
   }).then(() => undefined);
 }
 
-export function loadDraft(businessId: string): Promise<{ subject: string; body: string; isAiDraft: boolean } | null> {
-  return request<{ draft: { subject: string; body: string; isAiDraft: boolean } | null }>(`/outreach/draft/${businessId}`)
+export function loadDraft(businessId: string): Promise<{ subject: string; body: string; isAiDraft: boolean; verificationJson?: string | null } | null> {
+  return request<{ draft: { subject: string; body: string; isAiDraft: boolean; verificationJson?: string | null } | null }>(`/outreach/draft/${businessId}`)
     .then(d => d.draft);
+}
+
+// Buenos Aires is UTC-3 with no DST → a fixed offset is exact. The datetime-local
+// picker yields a bare wall-clock string with no timezone; we treat it as BA local
+// and convert to a TRUE-UTC instant explicitly, independent of the browser's tz.
+const BA_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+// 'YYYY-MM-DDTHH:mm' (BA wall-clock) → true-UTC ISO string.
+export function baLocalToUtcIso(local: string): string {
+  const [datePart, timePart] = local.split('T');
+  const [y, mo, d] = datePart.split('-').map(Number);
+  const [h, mi] = timePart.split(':').map(Number);
+  // BA wall-clock → UTC = BA + 3h.
+  return new Date(Date.UTC(y, mo - 1, d, h, mi) + BA_OFFSET_MS).toISOString();
+}
+
+// Default picker value: BA wall-clock now + 1h, formatted 'YYYY-MM-DDTHH:mm'.
+export function defaultScheduleLocal(): string {
+  const ba = new Date(Date.now() - BA_OFFSET_MS + 60 * 60 * 1000);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${ba.getUTCFullYear()}-${p(ba.getUTCMonth() + 1)}-${p(ba.getUTCDate())}T${p(ba.getUTCHours())}:${p(ba.getUTCMinutes())}`;
+}
+
+// Format a true-UTC ISO as a compact BA-local label for display.
+export function formatScheduledAt(utcIso: string): string {
+  return new Intl.DateTimeFormat('es', {
+    dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Argentina/Buenos_Aires',
+  }).format(new Date(utcIso));
+}
+
+export interface ScheduledSend {
+  id: string;
+  business_id: string;
+  business_name: string;
+  scheduled_at: string; // true UTC ISO
+  status: string;
+  window_label: string | null;
+}
+
+// sendAt must be a TRUE-UTC ISO string. The caller computes it from the BA
+// wall-clock picker (see Outreach.tsx baLocalToUtcIso) — never pass a raw
+// datetime-local value, which has no timezone.
+export function scheduleDraft(
+  businessId: string,
+  opts: { sendAt?: string; optimalWindow?: boolean },
+): Promise<{ scheduled: ScheduledSend }> {
+  return request('/outreach/schedule', {
+    method: 'POST',
+    body: JSON.stringify({ businessId, ...opts }),
+  });
+}
+
+export function listScheduled(): Promise<ScheduledSend[]> {
+  return request<{ scheduled: ScheduledSend[] }>('/outreach/scheduled').then(d => d.scheduled);
+}
+
+export function cancelScheduled(id: string): Promise<void> {
+  return request(`/outreach/schedule/${id}`, { method: 'DELETE' }).then(() => undefined);
+}
+
+export function rescheduleScheduled(id: string, sendAt: string): Promise<void> {
+  return request(`/outreach/schedule/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ sendAt }),
+  }).then(() => undefined);
 }
 
 export function countryFlag(country: string | null): string {

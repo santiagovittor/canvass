@@ -140,15 +140,27 @@ One warm near-black, four surface steps, one safelight. Semantics are carried by
 
 ## 4. Elevation
 
-This system uses tonal layering, not shadows. Depth is communicated by background color: each nested surface is one step lighter on the warm ramp (Film Base → Developer Tray → Print Surface → Lifted Grain). There are no `box-shadow` values on resting surfaces.
+Depth here is primarily tonal: each nested surface is one step lighter on the warm ramp (Film Base → Developer Tray → Print Surface → Lifted Grain). The **root canvas and resting panels stay flat** — depth-by-background is the default.
 
-The only intentional "glow" in the system is semantic: the amber safelight glow (`0 0 12px rgba(232, 147, 10, 0.35)`) appears exclusively on two elements — the active progress fill and the primary button hover state. This glow is not elevation; it is a pulse signal indicating live activity or interactivity.
+Modern layering (added 2026, deliberate evolution of the original flat-only rule): genuinely **elevated or floating** surfaces — raised regions, send/confirm action strips, popovers, menus — may carry real depth via the additive tokens below. Depth marks elevation; it is not sprinkled on resting surfaces, and it is never amber (depth is neutral warm-black). Warmth and identity are unchanged.
+
+### Elevation tokens (globals.css)
+- `--shadow-sm` / `--shadow-md` / `--shadow-lg` — warm near-black drop shadows (not pure black), low-alpha. `sm` for small lifts (alerts, popovers), `md` for raised regions / action strips, `lg` for true overlays.
+- `--surface-highlight` — a subtle warm specular top-edge (`inset 0 1px 0 …`), paired with a shadow on raised surfaces.
+- `--hairline` — a translucent edge lighter than `--border`, for seams/dividers and softened chrome.
+- `--radius-pane` (14px) — radius for raised pane containers (one step over the 12px panel cap).
+
+The amber safelight glow (`var(--accent-glow)`) remains semantic: progress fill, the primary action (restrained resting glow, deepens on hover), and the input focus ring. Not elevation — a live-activity / interactivity signal.
 
 ### Named Rules
 
-**The Flat-By-Default Rule.** Panels are flat at rest. No drop shadows on cards, sidebars, or tables. Elevation is a background color step, not a shadow. The ghost-card pattern (1px border + soft wide drop shadow) is explicitly prohibited.
+**The Flat-Root Rule.** The root canvas and resting panels are flat — elevation there is a background-ramp step, not a shadow. Reserve shadows for surfaces actually raised above their parent.
 
-**The Semantic Glow Rule.** The amber glow (`rgba(232, 147, 10, 0.35)`) is a system signal, not a visual style. It means: this element is active or invites interaction. Do not apply it to decorative or static elements.
+**The Depth-or-Outline Rule.** On any single element, choose **depth (shadow ± top-highlight) OR a visible outline — never both.** The 1px-solid-border + soft-wide-drop-shadow "ghost card" stays prohibited. A `--hairline` seam or a *semantic* colored border (warn/error conveying state) may coexist with a shadow, since those carry meaning rather than decorative outline weight.
+
+**No Nested Depth.** A raised surface's children stay flat (background steps only). No card inside a card, no shadow inside a shadow.
+
+**The Semantic Glow Rule.** The amber glow (`var(--accent-glow)`) is a system signal, not a visual style. It marks live activity or interactivity — progress fill, the one primary affordance per composition, the input focus ring. Never on decorative or static elements.
 
 ## 5. Components
 
@@ -209,4 +221,4 @@ Film Base background (one step below the parent panel), 1px border, 6px radius, 
 - **Don't** add a second accent color. Warn (#F5B700), error (#FF4D6D), and success (#4ADE80) are semantic-only and must never carry brand or interactive meaning.
 - **Don't** use `border-left` or `border-right` greater than 1px as a decorative stripe on cards or list items.
 - **Don't** render numbers in Outfit. Every count, coordinate, percentage, and ID uses JetBrains Mono. This is enforced at the system level, not the component level.
-- **Don't** use `border-radius` above 12px on panels or cards. Full-pill (100px) is acceptable for status badges only.
+- **Don't** use `border-radius` above 14px on panels or cards. Resting panels cap at 12px; a *raised* pane container may use `--radius-pane` (14px). Full-pill (100px) is acceptable for status badges only.

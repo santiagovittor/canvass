@@ -2,12 +2,18 @@ import { fetch } from 'undici';
 import type { PsiData } from '../db/psiCache';
 
 const PSI_ENDPOINT = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';
-const RETRY_DELAYS_MS = [1500, 3000, 6000];
-const TIMEOUT_MS = 30_000;
+// One retry only, for genuinely transient errors. A timeout is NOT retried
+// (a 60s Lighthouse run won't finish faster on instant retry — see catch below).
+const RETRY_DELAYS_MS = [2000];
+const TIMEOUT_MS = 60_000;
 const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isTimeout(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
 }
 
 function extractPsiData(body: unknown): PsiData {
@@ -46,18 +52,26 @@ export async function fetchPsi(finalUrl: string, apiKey: string): Promise<PsiDat
           await sleep(RETRY_DELAYS_MS[attempt]);
           continue;
         }
-        console.error(`[psi] HTTP ${res.status} (non-retryable) for ${finalUrl}`);
+        console.warn(`[psi] degraded → UNKNOWN (HTTP ${res.status}) for ${finalUrl}`);
         return null;
       }
       const body = await res.json();
       return extractPsiData(body);
     } catch (err) {
+      // Timeout = PSI is slow, not a transient blip. Retrying just burns another
+      // 60s for the same result. Fast-degrade with one clean line, no stack dump.
+      if (isTimeout(err)) {
+        console.warn(`[psi] degraded → UNKNOWN (timeout ${TIMEOUT_MS / 1000}s) for ${finalUrl}`);
+        return null;
+      }
       if (attempt < RETRY_DELAYS_MS.length) {
-        console.warn(`[psi] network error, retry ${attempt + 1}:`, err);
+        const reason = err instanceof Error ? err.message : String(err);
+        console.warn(`[psi] network error (${reason}), retry ${attempt + 1}`);
         await sleep(RETRY_DELAYS_MS[attempt]);
         continue;
       }
-      console.error(`[psi] failed after all retries for ${finalUrl}:`, err);
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[psi] degraded → UNKNOWN (${reason}) for ${finalUrl}`);
       return null;
     }
   }

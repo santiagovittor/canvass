@@ -2,10 +2,13 @@ import { Router } from 'express';
 import { db } from '../db';
 import { businesses } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
-import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens } from '../db';
+import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens, getOutreachSendRow, createScheduledSend, listUpcomingScheduledSends, cancelScheduledSend, rescheduleScheduledSend } from '../db';
+import { resolveBusinessType, describeWindow } from '../services/outreachSchedulingConfig';
+import { nextOptimalWindowUtc } from '../services/outreachGovernor';
 import { composeFollowUp } from '../services/geminiComposer';
-import { SEND_ALLOWED_STATUSES, type VerificationResult } from '../services/geminiVerifier';
+import { type VerificationResult } from '../services/geminiVerifier';
 import { composeVerifiedEmail } from '../services/outreachComposePipeline';
+import { evaluateSendGate, parseVerdict } from '../services/sendGate';
 import { sendEmail, signatureHtml } from '../services/emailSender';
 import { checkReplies } from '../services/replyChecker';
 import { analyzeWebsite } from '../services/websiteAnalyzer';
@@ -223,33 +226,27 @@ router.post('/send', async (req, res) => {
   const row = db.select().from(businesses).where(eq(businesses.id, businessId)).get();
   if (!row) return res.status(404).json({ error: 'Business not found' });
 
-  // Verification gate — allowlist only. isAiDraft=false drafts (user-edited) are human-reviewed, bypass.
+  // Verification gate (shared with the scheduled-send worker via evaluateSendGate).
+  // isAiDraft=false drafts (user-edited) are human-reviewed and pass. A human may
+  // override a held verdict with ?override=true — the worker never can.
   const draft = getDraft(businessId);
-  if (draft?.isAiDraft) {
-    if (!draft.verificationJson) {
-      if (!isOverride) {
-        return res.status(409).json({ error: 'verification_held', reason: 'Draft not verified — regenerate to verify.' });
-      }
-    } else {
-      const verdict = JSON.parse(draft.verificationJson) as VerificationResult;
-      if (!SEND_ALLOWED_STATUSES.includes(verdict.status) && !isOverride) {
-        return res.status(409).json({
-          error: 'verification_held',
-          reason: verdict.error ?? 'Verifier held this draft.',
-          violations: verdict.claims?.filter(c => !c.supported) ?? [],
-        });
-      }
-      if (isOverride && !SEND_ALLOWED_STATUSES.includes(verdict.status)) {
-        // Record the server-side bypass before the draft is deleted
-        const overrideRecord: VerificationResult = {
-          ...verdict,
-          status: 'override_sent',
-          overrideAt: new Date().toISOString(),
-          overriddenStatus: verdict.status,
-        };
-        saveDraftVerification(businessId, JSON.stringify(overrideRecord));
-        console.warn(`[verification] override used by user for businessId=${businessId}, original status=${verdict.status}`);
-      }
+  const gate = evaluateSendGate(draft);
+  if (!gate.allowed && !isOverride) {
+    return res.status(409).json({ error: 'verification_held', reason: gate.reason, violations: gate.violations ?? [] });
+  }
+  if (isOverride && !gate.allowed && draft?.isAiDraft) {
+    // Record the server-side bypass before the draft is deleted (only when a
+    // stored verdict exists; an unverified draft has nothing to override-stamp).
+    const verdict = parseVerdict(draft);
+    if (verdict) {
+      const overrideRecord: VerificationResult = {
+        ...verdict,
+        status: 'override_sent',
+        overrideAt: new Date().toISOString(),
+        overriddenStatus: verdict.status,
+      };
+      saveDraftVerification(businessId, JSON.stringify(overrideRecord));
+      console.warn(`[verification] override used by user for businessId=${businessId}, original status=${verdict.status}`);
     }
   }
 
@@ -322,6 +319,65 @@ router.get('/stats', (_req, res) => {
   const total_contacted = db.select({ n: sql<number>`count(*)` })
     .from(businesses).where(eq(businesses.outreachStatus, 'contacted')).get()?.n ?? 0;
   res.json({ sent_today, remaining: DAILY_CAP - sent_today, total_contacted });
+});
+
+// ── Scheduled sends ───────────────────────────────────────────────────────────
+
+// Schedule an existing draft. sendAt is a TRUE-UTC ISO string the client computed
+// from the BA-wall-clock picker; optimalWindow resolves the next type-aware slot.
+// The draft is NOT snapshotted — the worker re-reads it live and re-gates at fire
+// time (single source of truth). A held/unverified draft may be scheduled; the gate
+// holds it at fire time.
+router.post('/schedule', (req, res) => {
+  const { businessId, sendAt, optimalWindow } = req.body as {
+    businessId?: unknown; sendAt?: unknown; optimalWindow?: unknown;
+  };
+  if (typeof businessId !== 'string') {
+    return res.status(400).json({ error: 'businessId is required' });
+  }
+  const row = getOutreachSendRow(businessId);
+  if (!row) return res.status(404).json({ error: 'Business not found' });
+
+  const type = resolveBusinessType(row.category);
+  let scheduledAtUtc: string;
+  if (optimalWindow === true) {
+    scheduledAtUtc = new Date(nextOptimalWindowUtc(Date.now(), type)).toISOString();
+  } else {
+    if (typeof sendAt !== 'string') {
+      return res.status(400).json({ error: 'sendAt (UTC ISO) or optimalWindow is required' });
+    }
+    const t = new Date(sendAt).getTime();
+    if (Number.isNaN(t)) return res.status(400).json({ error: 'sendAt is not a valid date' });
+    scheduledAtUtc = new Date(t).toISOString();
+  }
+
+  const created = createScheduledSend({
+    businessId,
+    scheduledAtUtc,
+    businessType: type,
+    windowLabel: describeWindow(type),
+  });
+  res.json({ scheduled: created });
+});
+
+router.get('/scheduled', (_req, res) => {
+  res.json({ scheduled: listUpcomingScheduledSends() });
+});
+
+router.delete('/schedule/:id', (req, res) => {
+  const ok = cancelScheduledSend(req.params.id);
+  if (!ok) return res.status(404).json({ error: 'not found or not cancelable' });
+  res.json({ canceled: true });
+});
+
+router.patch('/schedule/:id', (req, res) => {
+  const { sendAt } = req.body as { sendAt?: unknown };
+  if (typeof sendAt !== 'string') return res.status(400).json({ error: 'sendAt (UTC ISO) is required' });
+  const t = new Date(sendAt).getTime();
+  if (Number.isNaN(t)) return res.status(400).json({ error: 'sendAt is not a valid date' });
+  const ok = rescheduleScheduledSend(req.params.id, new Date(t).toISOString());
+  if (!ok) return res.status(404).json({ error: 'not found or not reschedulable' });
+  res.json({ rescheduled: true });
 });
 
 export default router;

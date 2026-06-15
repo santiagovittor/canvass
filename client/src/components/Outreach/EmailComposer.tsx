@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import type { OutreachLead, DetectedSig, PsiMetrics, VisionResult } from '../../lib/outreachApi';
+import type { OutreachLead, DetectedSig, PsiMetrics, VisionResult, VisionObservation, PremiumSignal } from '../../lib/outreachApi';
+import { baLocalToUtcIso, defaultScheduleLocal } from '../../lib/outreachApi';
 
 interface Draft {
   subject: string;
@@ -21,8 +22,11 @@ interface EmailComposerProps {
   onAnalyzeAndGenerate: () => void;
   onGenerate: () => void;
   onPremiumAnalyze: () => void;
-  premium: { status: string; renderOutcome: string | null; detectedSigs?: DetectedSig[]; psi?: PsiMetrics | null; vision?: VisionResult | null } | null;
+  premium: { status: string; renderOutcome: string | null; detectedSigs?: DetectedSig[]; psi?: PsiMetrics | null; vision?: VisionResult | null; signals?: Record<string, PremiumSignal> | null } | null;
   onSend: () => void;
+  onForceSend: () => void;
+  onSchedule: (opts: { sendAt?: string; optimalWindow?: boolean }) => void;
+  verificationVerdict: { status: string; violations?: Array<{ claim: string; evidence: string }> } | null;
   onSkip: () => void;
   signatureHtml: string | null;
   senderName: string;
@@ -55,9 +59,234 @@ function PsiChip({ label, value, bad, warn }: { label: string; value: string; ba
   );
 }
 
+type VerificationVerdict = { status: string; violations?: Array<{ claim: string; evidence: string }> } | null;
+
+function VerificationPanel({ verdict }: { verdict: VerificationVerdict }) {
+  if (!verdict) return null;
+
+  const isHeld = verdict.status === 'held' || verdict.status === 'verifier_failed';
+  const isOk = verdict.status === 'ok';
+  const isStripped = verdict.status === 'violations_stripped';
+  const isOverride = verdict.status === 'override_sent';
+
+  if (isOk) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--success)' }}>✓ Claims verified</span>
+      </div>
+    );
+  }
+
+  if (isStripped) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--warn)' }}>⚠ Claims auto-corrected</span>
+      </div>
+    );
+  }
+
+  if (isOverride) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>Sent with manual override</span>
+      </div>
+    );
+  }
+
+  if (isHeld) {
+    const violations = verdict.violations ?? [];
+    return (
+      <div style={{
+        background: 'var(--bg-elevated)',
+        border: '1px solid rgba(245,183,0,0.2)',
+        borderRadius: 8,
+        padding: '10px 12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        flexShrink: 0,
+      }}>
+        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, color: 'var(--warn)' }}>
+          ⚠ Draft held — verifier {verdict.status === 'verifier_failed' ? 'failed' : 'found unsupported claims'}
+        </span>
+        {violations.length > 0 && (
+          <ul style={{ margin: 0, padding: '0 0 0 16px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {violations.map((v, i) => (
+              <li key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)' }}>
+                "{v.claim}"
+              </li>
+            ))}
+          </ul>
+        )}
+        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>
+          Regenerate to fix, or use "Send anyway" to override.
+        </span>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+// Tier 1 — uppercase-mono section header, one treatment across DETECTED / PAGESPEED / VISION.
+const sectionHeaderStyle = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 10,
+  fontWeight: 600,
+  color: 'var(--text-muted)',
+  letterSpacing: '0.11em',
+  textTransform: 'uppercase' as const,
+};
+
+// Tier 2 — group subheader (Fortalezas / Oportunidades). font-ui + lighter ink
+// separates it from the mono section header above and the bold headline below.
+const visionSubheaderStyle = {
+  fontFamily: 'var(--font-ui)',
+  fontSize: 10,
+  fontWeight: 600,
+  color: 'var(--text-secondary)',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase' as const,
+};
+
+const visionMoreBtnStyle = {
+  alignSelf: 'flex-start' as const,
+  marginLeft: 14,
+  background: 'none',
+  border: 'none',
+  padding: 0,
+  cursor: 'pointer',
+  fontFamily: 'var(--font-ui)',
+  fontSize: 11,
+  color: 'var(--text-secondary)',
+};
+
+const VISION_DETAIL_TRUNC = 90;
+
+function VisionRow({ obs, kind, index }: { obs: VisionObservation; kind: 'strength' | 'opportunity'; index: number }) {
+  const [open, setOpen] = useState(false);
+  const color = kind === 'strength' ? 'var(--success)' : 'var(--warn)';
+  // New rows: distinct headline + detail. Old rows (no headline): the sentence IS the line, no second tier.
+  const headline = obs.headline ?? obs.text;
+  const detail = obs.headline ? obs.text : null;
+  const longDetail = !!detail && detail.length > VISION_DETAIL_TRUNC;
+  const shownDetail = detail && longDetail && !open
+    ? detail.slice(0, VISION_DETAIL_TRUNC).trimEnd() + '…'
+    : detail;
+  return (
+    <div
+      className="outreach-vision-row"
+      style={{ display: 'flex', gap: 8, alignItems: 'flex-start', animationDelay: `${index * 40}ms` }}
+    >
+      <span style={{
+        width: 6,
+        height: 6,
+        borderRadius: '50%',
+        background: color,
+        opacity: obs.confidence >= 0.9 ? 1 : 0.5,
+        marginTop: 6,
+        flexShrink: 0,
+      }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+        <span style={{
+          fontFamily: 'var(--font-ui)',
+          fontSize: 13,
+          fontWeight: 600,
+          color: 'var(--text-primary)',
+          lineHeight: 1.35,
+        }}>
+          {headline}
+        </span>
+        {detail && (
+          <span
+            onClick={longDetail ? () => setOpen(o => !o) : undefined}
+            style={{
+              fontFamily: 'var(--font-ui)',
+              fontSize: 11,
+              lineHeight: 1.45,
+              color: 'var(--text-secondary)',
+              cursor: longDetail ? 'pointer' : 'default',
+            }}
+          >
+            {shownDetail}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function VisionGroup({ label, items, kind }: {
+  label: string;
+  items: VisionObservation[];
+  kind: 'strength' | 'opportunity';
+}) {
+  const [showAll, setShowAll] = useState(false);
+  if (!items.length) return null;
+  const shown = showAll ? items : items.slice(0, 3);
+  const rest = items.length - 3;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <span style={visionSubheaderStyle}>{label}</span>
+      {shown.map((obs, i) => <VisionRow key={i} obs={obs} kind={kind} index={i} />)}
+      {rest > 0 && (
+        <button style={visionMoreBtnStyle} onClick={() => setShowAll(s => !s)}>
+          {showAll ? 'menos' : `+${rest} más`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function VisionSection({ vision }: { vision: VisionResult }) {
+  const strengths = [...vision.strengths]
+    .filter(s => s.confidence >= 0.8)
+    .sort((a, b) => b.confidence - a.confidence);
+  const opportunities = [...vision.opportunities]
+    .filter(s => s.confidence >= 0.75)
+    .sort((a, b) => b.confidence - a.confidence);
+  if (!strengths.length && !opportunities.length) return null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <span style={sectionHeaderStyle}>Vision</span>
+        {vision.designEra && (
+          <span style={{ fontFamily: 'var(--font-ui)', fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+            {vision.designEra}
+          </span>
+        )}
+      </div>
+      <VisionGroup label="Fortalezas" items={strengths} kind="strength" />
+      <VisionGroup label="Oportunidades" items={opportunities} kind="opportunity" />
+      <div style={{ display: 'flex', gap: 8 }}>
+        {(['whatsapp', 'chat', 'booking'] as const).map(k => {
+          const v = vision.widgetVisibility[k];
+          const color = v === 'yes' ? 'var(--success)' : 'var(--text-muted)';
+          const label: Record<string, string> = { whatsapp: 'WA', chat: 'Chat', booking: 'Book' };
+          return (
+            <span key={k} style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 10,
+              color,
+              padding: '1px 6px',
+              borderRadius: 4,
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--hairline)',
+            }}>
+              {label[k]} {v}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function EmailComposer({
   mode, lead, draft, isAiDraft, isAnalyzing, isGenerating, isSending,
   remaining, error, savingState, onDraftChange, onAnalyzeAndGenerate, onGenerate,
+  onForceSend, onSchedule, verificationVerdict,
   onPremiumAnalyze, premium, onSend, onSkip,
   signatureHtml, senderName, senderEmail,
   pendingLead, onConfirmSwitch, onCancelSwitch,
@@ -65,6 +294,9 @@ export function EmailComposer({
   const [isSent, setIsSent] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [confirmingSend, setConfirmingSend] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
+  const [scheduleChoice, setScheduleChoice] = useState<'time' | 'optimal'>('time');
+  const [scheduleLocal, setScheduleLocal] = useState('');
   const [expandedSig, setExpandedSig] = useState<string | null>(null);
   const sendTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track whether the current busy cycle started with an analysis step
@@ -73,6 +305,7 @@ export function EmailComposer({
   useEffect(() => {
     setPreviewing(false);
     setConfirmingSend(false);
+    setScheduling(false);
   }, [lead?.id]);
 
   useEffect(() => {
@@ -103,6 +336,35 @@ export function EmailComposer({
     onSend();
     sendTimeoutRef.current = setTimeout(() => setIsSent(false), 800);
   }
+
+  function handleForceSendConfirm() {
+    setConfirmingSend(false);
+    if (sendTimeoutRef.current) clearTimeout(sendTimeoutRef.current);
+    setIsSent(true);
+    onForceSend();
+    sendTimeoutRef.current = setTimeout(() => setIsSent(false), 800);
+  }
+
+  // Scheduling is allowed even for held/unverified drafts — the same gate runs at
+  // fire time, so it never lets a held draft transmit. We only require a complete
+  // draft + a deliverable address.
+  const canSchedule = !!(lead?.valid_email) && !isAnalyzing && !isGenerating && !isSending && !isSent && !!draft.subject.trim() && !!draft.body.trim();
+
+  function handleScheduleClick() {
+    if (!canSchedule) return;
+    setScheduleLocal(defaultScheduleLocal());
+    setScheduleChoice('time');
+    setConfirmingSend(false);
+    setScheduling(true);
+  }
+
+  function handleConfirmSchedule() {
+    if (scheduleChoice === 'optimal') onSchedule({ optimalWindow: true });
+    else onSchedule({ sendAt: baLocalToUtcIso(scheduleLocal) });
+    setScheduling(false);
+  }
+
+  const isVerdictHeld = verificationVerdict?.status === 'held' || verificationVerdict?.status === 'verifier_failed';
 
   const shimmerStyle = {
     background: 'linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-hover) 50%, var(--bg-elevated) 75%)',
@@ -137,18 +399,30 @@ export function EmailComposer({
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.35; transform: scale(0.8); }
         }
+        @keyframes visionRowIn {
+          from { opacity: 0; transform: translateY(4px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        /* Staggered enter for vision rows (delay set inline per index). Matches the
+           app's quint ease-out (globals.css). */
+        .outreach-vision-row { animation: visionRowIn 320ms cubic-bezier(0.22, 1, 0.36, 1) both; }
         @media (prefers-reduced-motion: reduce) {
           .outreach-dot-pulse { animation: none !important; }
+          .outreach-vision-row { animation: none !important; }
         }
       `}</style>
       <div style={{
         display: 'flex',
         flexDirection: 'column',
         background: 'var(--bg-base)',
-        padding: '16px 20px',
-        gap: 12,
+        height: '100%',
+        minHeight: 0,
         overflow: 'hidden',
       }}>
+
+        {/* Chrome — switch guard, preview toggle, shortcut legend. Fixed above the
+            two scrolling panes so it never scrolls away. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '14px 20px 10px', flexShrink: 0 }}>
 
         {/* Switch guard — unsaved draft warning */}
         {pendingLead && (
@@ -161,6 +435,7 @@ export function EmailComposer({
             background: 'rgba(245,183,0,0.07)',
             border: '1px solid rgba(245,183,0,0.22)',
             borderRadius: 8,
+            boxShadow: 'var(--shadow-sm)',
             flexShrink: 0,
           }}>
             <span style={{
@@ -262,6 +537,22 @@ export function EmailComposer({
           <span style={{ color: 'var(--accent)', fontWeight: 500 }}>R</span> {mode === 'followup' ? 'generate follow-up' : 'regenerate'}
         </div>
 
+        </div>{/* /chrome */}
+
+        {/* COMPOSE PANE — subject, body, send controls. Own scroll, so its footer
+            row can never collide with the analysis pane below. Takes the larger
+            share (3:2) when an analysis pane is present; full height otherwise. */}
+        <div style={{
+          flex: hasWebsite && !previewing ? '3 1 0' : '1 1 0',
+          minHeight: 0,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+          padding: '4px 20px 14px',
+        }}>
+
         {previewing ? (
           /* Preview panel */
           <>
@@ -337,16 +628,17 @@ export function EmailComposer({
                   padding: '9px 12px',
                   outline: 'none',
                   boxSizing: 'border-box' as const,
-                  transition: 'background 200ms',
+                  transition: 'background 200ms, border-color 150ms, box-shadow 150ms',
                   ...(isGenerating ? shimmerStyle : { background: 'var(--bg-elevated)' }),
                 }}
-                onFocus={e => { if (!isGenerating) e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onFocus={e => { if (!isGenerating) { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-dim)'; } }}
+                onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
               />
             </div>
 
-            {/* Body */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' as const, minHeight: 0 }}>
+            {/* Body — grows to fill the compose pane; min-height keeps a full 60–90-word
+                draft visible without scrolling the textarea, even on short viewports. */}
+            <div style={{ flex: 1, minHeight: 240, display: 'flex', flexDirection: 'column' as const }}>
               <label htmlFor="email-body" style={{
                 display: 'block',
                 fontFamily: 'var(--font-ui)',
@@ -376,12 +668,12 @@ export function EmailComposer({
                   outline: 'none',
                   resize: 'vertical' as const,
                   boxSizing: 'border-box' as const,
-                  transition: 'background 200ms',
-                  minHeight: 160,
+                  transition: 'background 200ms, border-color 150ms, box-shadow 150ms',
+                  minHeight: 220,
                   ...(isGenerating ? shimmerStyle : { background: 'var(--bg-elevated)' }),
                 }}
-                onFocus={e => { if (!isGenerating) e.currentTarget.style.borderColor = 'var(--accent)'; }}
-                onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onFocus={e => { if (!isGenerating) { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.boxShadow = '0 0 0 3px var(--accent-dim)'; } }}
+                onBlur={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; }}
               />
               {/* Word count + draft badge row */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, flexShrink: 0 }}>
@@ -410,7 +702,7 @@ export function EmailComposer({
             gap: 10,
             padding: '8px 14px',
             background: 'var(--bg-elevated)',
-            border: '1px solid var(--border)',
+            border: '1px solid var(--hairline)',
             borderRadius: 8,
             flexShrink: 0,
           }}>
@@ -486,54 +778,177 @@ export function EmailComposer({
         {confirmingSend ? (
           <div style={{
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
+            flexDirection: 'column',
+            gap: 10,
             padding: '10px 14px',
             background: 'var(--bg-elevated)',
-            border: '1px solid var(--border-strong)',
-            borderRadius: 8,
+            border: isVerdictHeld ? '1px solid rgba(245,183,0,0.3)' : '1px solid var(--hairline)',
+            borderRadius: 10,
+            boxShadow: 'var(--shadow-md), var(--surface-highlight)',
             flexShrink: 0,
           }}>
-            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-secondary)', minWidth: 0 }}>
-              Send to{' '}
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-primary)' }}>
-                {lead.first_email}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--text-secondary)', minWidth: 0 }}>
+                Send to{' '}
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-primary)' }}>
+                  {lead.first_email}
+                </span>
+                ?
+                {verificationVerdict?.status === 'ok' && (
+                  <span style={{ marginLeft: 8, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--success)' }}>✓ verified</span>
+                )}
+                {verificationVerdict?.status === 'violations_stripped' && (
+                  <span style={{ marginLeft: 8, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--warn)' }}>⚠ auto-corrected</span>
+                )}
               </span>
-              ?
+              <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                <button
+                  onClick={() => setConfirmingSend(false)}
+                  style={{
+                    fontFamily: 'var(--font-ui)',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    padding: '6px 14px',
+                    borderRadius: 6,
+                    border: '1px solid var(--border-strong)',
+                    background: 'transparent',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmSend}
+                  disabled={isVerdictHeld}
+                  style={{
+                    fontFamily: 'var(--font-ui)',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    padding: '6px 16px',
+                    borderRadius: 6,
+                    border: 'none',
+                    background: 'var(--accent)',
+                    color: 'var(--accent-ink)',
+                    cursor: isVerdictHeld ? 'not-allowed' : 'pointer',
+                    opacity: isVerdictHeld ? 0.4 : 1,
+                  }}
+                >
+                  Confirm Send ✉
+                </button>
+              </div>
+            </div>
+            {/* Force-send escape hatch when verifier held the draft */}
+            {isVerdictHeld && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--warn)' }}>
+                  Draft held — verifier {verificationVerdict?.status === 'verifier_failed' ? 'failed' : 'found unsupported claims'}. Regenerate to fix.
+                </span>
+                <button
+                  onClick={handleForceSendConfirm}
+                  style={{
+                    fontFamily: 'var(--font-ui)',
+                    fontSize: 11,
+                    fontWeight: 500,
+                    padding: '4px 12px',
+                    borderRadius: 6,
+                    border: '1px solid rgba(245,183,0,0.4)',
+                    background: 'transparent',
+                    color: 'var(--warn)',
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                  }}
+                >
+                  Send anyway (unverified)
+                </button>
+              </div>
+            )}
+          </div>
+        ) : scheduling ? (
+          /* Schedule panel — raised strip (depth marks elevation, flat children).
+             Secondary action: Send keeps the lone amber accent, Schedule does not. */
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+            padding: '12px 14px',
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--hairline)',
+            borderRadius: 10,
+            boxShadow: 'var(--shadow-md), var(--surface-highlight)',
+            flexShrink: 0,
+          }}>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>
+              Schedule send
             </span>
-            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-              <button
-                onClick={() => setConfirmingSend(false)}
+            <div style={{ display: 'flex', gap: 6 }}>
+              {(['time', 'optimal'] as const).map(c => (
+                <button
+                  key={c}
+                  onClick={() => setScheduleChoice(c)}
+                  style={{
+                    fontFamily: 'var(--font-ui)',
+                    fontSize: 11,
+                    fontWeight: 500,
+                    padding: '4px 12px',
+                    borderRadius: 100,
+                    cursor: 'pointer',
+                    border: scheduleChoice === c ? '1px solid var(--accent-dim)' : '1px solid var(--border)',
+                    background: scheduleChoice === c ? 'var(--accent-dim)' : 'transparent',
+                    color: scheduleChoice === c ? 'var(--accent)' : 'var(--text-secondary)',
+                  }}
+                >
+                  {c === 'time' ? 'Pick time' : 'Next optimal window'}
+                </button>
+              ))}
+            </div>
+            {scheduleChoice === 'time' ? (
+              <input
+                type="datetime-local"
+                value={scheduleLocal}
+                onChange={e => setScheduleLocal(e.target.value)}
                 style={{
-                  fontFamily: 'var(--font-ui)',
+                  fontFamily: 'var(--font-mono)',
                   fontSize: 12,
-                  fontWeight: 500,
-                  padding: '6px 14px',
+                  color: 'var(--text-primary)',
+                  background: 'var(--bg-panel)',
+                  border: '1px solid var(--border)',
                   borderRadius: 6,
-                  border: '1px solid var(--border-strong)',
-                  background: 'transparent',
-                  color: 'var(--text-secondary)',
-                  cursor: 'pointer',
+                  padding: '7px 10px',
+                  outline: 'none',
+                  colorScheme: 'dark',
+                }}
+              />
+            ) : (
+              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+                Fires at the next business-type-aware window (BA hours). Exact time chosen on the server.
+              </span>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                onClick={() => setScheduling(false)}
+                style={{
+                  fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 500,
+                  padding: '6px 14px', borderRadius: 6,
+                  border: '1px solid var(--border-strong)', background: 'transparent',
+                  color: 'var(--text-secondary)', cursor: 'pointer',
                 }}
               >
                 Cancel
               </button>
               <button
-                onClick={handleConfirmSend}
+                onClick={handleConfirmSchedule}
+                disabled={scheduleChoice === 'time' && !scheduleLocal}
                 style={{
-                  fontFamily: 'var(--font-ui)',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  padding: '6px 16px',
-                  borderRadius: 6,
-                  border: 'none',
-                  background: 'var(--accent)',
-                  color: 'var(--accent-ink)',
-                  cursor: 'pointer',
+                  fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600,
+                  padding: '6px 16px', borderRadius: 6,
+                  border: '1px solid var(--border-strong)', background: 'var(--bg-hover)',
+                  color: 'var(--text-primary)',
+                  cursor: scheduleChoice === 'time' && !scheduleLocal ? 'not-allowed' : 'pointer',
+                  opacity: scheduleChoice === 'time' && !scheduleLocal ? 0.4 : 1,
                 }}
               >
-                Confirm Send ✉
+                Schedule ⏰
               </button>
             </div>
           </div>
@@ -559,6 +974,14 @@ export function EmailComposer({
                 : hasWebsite ? 'Analyze & Generate' : 'Generate'}
             </button>
             <button
+              className="btn-secondary"
+              onClick={handleScheduleClick}
+              disabled={!canSchedule}
+              style={{ flex: '0 0 auto' }}
+            >
+              Schedule ⏰
+            </button>
+            <button
               className="btn-primary"
               onClick={handleSendClick}
               disabled={!canSend}
@@ -573,8 +996,36 @@ export function EmailComposer({
           </div>
         )}
 
+        {/* Error — compose-pane scope (kept next to the controls it relates to) */}
+        {error && (
+          <p role="alert" aria-live="assertive" style={{ margin: 0, fontFamily: 'var(--font-ui)', fontSize: 13, color: 'var(--error)', flexShrink: 0 }}>
+            {error}
+          </p>
+        )}
+
+        </div>{/* /compose pane */}
+
+        {/* ANALYSIS PANE — one grouped, raised surface with its own scroll. Depth
+            (shadow + warm top-highlight) marks elevation; content inside stays flat
+            (no nested cards). Hidden in preview mode. */}
+        {hasWebsite && !previewing && (
+          <div style={{ flex: '2 1 0', minHeight: 0, padding: '10px 20px 16px', display: 'flex' }}>
+            <div style={{
+              flex: 1,
+              minHeight: 0,
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+              background: 'var(--bg-panel)',
+              borderRadius: 'var(--radius-pane)',
+              boxShadow: 'var(--shadow-md), var(--surface-highlight)',
+              padding: 16,
+            }}>
+
         {/* Premium analysis trigger + status chip */}
-        {hasWebsite && !confirmingSend && (
+        {!confirmingSend && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
             <button
               className="btn-secondary"
@@ -606,16 +1057,9 @@ export function EmailComposer({
         )}
 
         {/* Detected signatures — shown when premium scan is done and found something */}
-        {hasWebsite && !confirmingSend && premium?.status === 'done' && !!premium.detectedSigs?.length && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
-            <div style={{
-              fontFamily: 'var(--font-ui)',
-              fontSize: 10,
-              fontWeight: 600,
-              color: 'var(--text-muted)',
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase' as const,
-            }}>
+        {premium?.status === 'done' && !!premium.detectedSigs?.length && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+            <div style={sectionHeaderStyle}>
               Detected
             </div>
             {(['whatsapp', 'chat', 'booking', 'forms', 'builder', 'analytics'] as const).map(cat => {
@@ -626,15 +1070,16 @@ export function EmailComposer({
                 forms: 'Forms', builder: 'Builder', analytics: 'Analytics',
               };
               return (
-                <div key={cat} style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 4, alignItems: 'flex-start' }}>
+                <div key={cat} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <span style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: 10,
+                    fontSize: 11,
                     color: 'var(--text-muted)',
-                    minWidth: 54,
+                    minWidth: 64,
+                    flexShrink: 0,
                     paddingTop: 3,
                   }}>{catLabel[cat]}</span>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6, alignItems: 'flex-start' }}>
                     {sigs.map(sig => (
                       <div key={sig.id}>
                         <button
@@ -644,10 +1089,11 @@ export function EmailComposer({
                             fontSize: 11,
                             padding: '2px 8px',
                             borderRadius: 100,
-                            border: '1px solid var(--border-strong)',
+                            border: expandedSig === sig.id ? '1px solid var(--accent-dim)' : '1px solid var(--border)',
                             background: expandedSig === sig.id ? 'var(--accent-dim)' : 'var(--bg-elevated)',
                             color: expandedSig === sig.id ? 'var(--accent)' : 'var(--text-secondary)',
                             cursor: 'pointer',
+                            transition: 'border-color 150ms, background 150ms, color 150ms',
                           }}
                         >
                           {sig.name}
@@ -657,8 +1103,9 @@ export function EmailComposer({
                             marginTop: 4,
                             padding: '5px 8px',
                             background: 'var(--bg-elevated)',
-                            border: '1px solid var(--border)',
+                            border: '1px solid var(--hairline)',
                             borderRadius: 6,
+                            boxShadow: 'var(--shadow-sm)',
                             fontFamily: 'var(--font-mono)',
                             fontSize: 10,
                             color: 'var(--text-muted)',
@@ -687,15 +1134,9 @@ export function EmailComposer({
         )}
 
         {/* PSI metrics — shown when premium scan is done, render ok, and PSI data available */}
-        {hasWebsite && !confirmingSend && premium?.status === 'done' && premium.renderOutcome === 'ok' && premium.psi && premium.psi.mobileScore !== null && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
-            <div style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 10,
-              color: 'var(--text-muted)',
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase' as const,
-            }}>
+        {premium?.status === 'done' && premium.renderOutcome === 'ok' && premium.psi && premium.psi.mobileScore !== null && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+            <div style={sectionHeaderStyle}>
               PageSpeed (mobile)
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
@@ -734,87 +1175,17 @@ export function EmailComposer({
         )}
 
         {/* Vision observations */}
-        {hasWebsite && !confirmingSend && premium?.status === 'done' && premium.renderOutcome === 'ok' && premium.vision && (
-          (() => {
-            const highStr = premium.vision.strengths.filter(s => s.confidence >= 0.8);
-            const highOpp = premium.vision.opportunities.filter(s => s.confidence >= 0.75);
-            if (!highStr.length && !highOpp.length) return null;
-            return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 10,
-                    color: 'var(--text-muted)',
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase' as const,
-                  }}>
-                    Vision
-                  </div>
-                  <span style={{
-                    fontFamily: 'var(--font-ui)',
-                    fontSize: 10,
-                    color: 'var(--text-muted)',
-                    fontStyle: 'italic',
-                  }}>
-                    {premium.vision.designEra}
-                  </span>
-                </div>
-                {highStr.map((s, i) => (
-                  <div key={i} style={{
-                    fontFamily: 'var(--font-ui)',
-                    fontSize: 11,
-                    color: 'var(--success)',
-                    padding: '3px 8px',
-                    background: 'rgba(74,222,128,0.07)',
-                    border: '1px solid rgba(74,222,128,0.15)',
-                    borderRadius: 6,
-                    lineHeight: 1.4,
-                  }}>
-                    ↑ {s.text}
-                  </div>
-                ))}
-                {highOpp.map((s, i) => (
-                  <div key={i} style={{
-                    fontFamily: 'var(--font-ui)',
-                    fontSize: 11,
-                    color: 'var(--warn)',
-                    padding: '3px 8px',
-                    background: 'rgba(245,183,0,0.07)',
-                    border: '1px solid rgba(245,183,0,0.15)',
-                    borderRadius: 6,
-                    lineHeight: 1.4,
-                  }}>
-                    ↓ {s.text}
-                  </div>
-                ))}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {(['whatsapp', 'chat', 'booking'] as const).map(k => {
-                    const v = premium.vision!.widgetVisibility[k];
-                    const color = v === 'yes' ? 'var(--success)' : 'var(--text-muted)';
-                    const label: Record<string, string> = { whatsapp: 'WA', chat: 'Chat', booking: 'Book' };
-                    return (
-                      <span key={k} style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 10,
-                        color,
-                        padding: '1px 6px',
-                        borderRadius: 4,
-                        background: 'var(--bg-elevated)',
-                        border: '1px solid var(--border)',
-                      }}>
-                        {label[k]} {v}
-                      </span>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()
+        {premium?.status === 'done' && premium.renderOutcome === 'ok' && premium.vision && (
+          <VisionSection key={lead.id} vision={premium.vision} />
+        )}
+
+        {/* Verification verdict — shown when premium scan is done and a verdict exists */}
+        {premium?.status === 'done' && verificationVerdict && (
+          <VerificationPanel verdict={verificationVerdict} />
         )}
 
         {/* Skip analysis option */}
-        {hasWebsite && !confirmingSend && (
+        {!confirmingSend && (
           <div style={{ textAlign: 'center', flexShrink: 0 }}>
             <button
               onClick={onGenerate}
@@ -837,21 +1208,8 @@ export function EmailComposer({
           </div>
         )}
 
-        {/* Error */}
-        {error && (
-          <p
-            role="alert"
-            aria-live="assertive"
-            style={{
-              margin: 0,
-              fontFamily: 'var(--font-ui)',
-              fontSize: 13,
-              color: 'var(--error)',
-              flexShrink: 0,
-            }}
-          >
-            {error}
-          </p>
+            </div>{/* /analysis card */}
+          </div>
         )}
       </div>
     </>

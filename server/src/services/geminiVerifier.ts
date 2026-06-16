@@ -61,6 +61,8 @@ B) Scan the draft body for any factual WEBSITE claim that is NOT in the declared
 
 ## Rules for "supported"
 
+A claim containing multiple assertions is supported ONLY if EVERY assertion in it is independently supported; if any part fails, supported=false.
+
 **Hedged phrasing** ("no encontré... a primera vista", "I couldn't find...", "no parece...", "doesn't seem to") is supported ONLY if the relevant signal is ABSENT_VERIFIED or UNKNOWN in the evidence bundle. If the evidence contradicts the hedge (e.g., vision.strengths contains that feature at high confidence), the hedge is UNSUPPORTED. Hedged phrasing is necessary but not sufficient.
 
 **Flat negatives** ("no tiene X", "carece de X", "doesn't have X", "lacks X") are UNSUPPORTED unless the signal state is ABSENT_VERIFIED with evidence.
@@ -74,6 +76,10 @@ B) Scan the draft body for any factual WEBSITE claim that is NOT in the declared
 **UNKNOWN signals**: any claim about that feature — positive, negative, or hedged — is UNSUPPORTED.
 
 **Non-website claims** (the sender's name, the CTA, the greeting, compliments about the business itself) are not factual website claims — skip them entirely in part B and do not report them.
+
+**Service / offer statements** about what the SENDER provides ("I also design AI assistants", "también diseño asistentes virtuales con IA", "I build websites") are always-true service statements, NOT claims about the lead's site — skip them in part B, do not grade them. BUT any assertion that the LEAD lacks/has no a feature ("you have no assistant", "no tienen un asistente", "the site doesn't have a chatbot", "parece no tener un asistente") IS a website claim and is graded against the signal state: supported ONLY if that signal is ABSENT_VERIFIED with evidence (e.g. hasLiveChatWidget=ABSENT_VERIFIED). Do not let an offer launder an unsupported absence claim.
+
+**Hedged advisory consequences** — a soft prediction of outcome attached to an observation ("puede provocar que las visitas se retiren", "suele hacer que…", "may cause visitors to leave", "tends to make…") is an advisory opinion, NOT a standalone factual website claim. Do not report it as an undeclared violation, provided the observation it attaches to is itself supported. Grade the observation, not the predicted consequence.
 
 ## Output
 

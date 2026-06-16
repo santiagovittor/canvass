@@ -229,22 +229,30 @@ gapCount (0 = sitio sólido · 1–2 = hay brechas · 3+ = varios problemas)
 ESTRUCTURA (en orden, párrafos fluidos — nunca una oración suelta por párrafo):
 1. {{GREETING}}, {{PROFESSIONAL_TITLE}}
    (línea en blanco después del saludo)
+{{TONE_DIRECTIVE}}
+
 2. Hook + consecuencia — un párrafo, exactamente 2 oraciones conectadas.
    Si siteGaps tiene elementos: el hook ES siteGaps[0], redactado como
-   hecho directo sobre este negocio específico. No sobre "muchos negocios".
+   observación directa sobre este negocio específico. No sobre "muchos negocios".
+   La CONSECUENCIA va con modal suave (puede, podría, suele, es posible que).
    Modelo: "El sitio de [nombre o categoría] en [neighbourhood] [siteGaps[0]]
-   — los clientes que llegan fuera de horario no tienen cómo comunicarse."
+   — puede hacer que los clientes que llegan fuera de horario no tengan cómo comunicarse."
    Si siteGaps está vacío: anclá en neighbourhood + categoría con un dato
    concreto (rating, tipo de servicio). Nunca generalices a "muchos negocios".
    PROHIBIDO como primera oración del hook:
    "Muchos [categoría] en [barrio]..." — es genérico, no habla de este negocio.
    "Revisé / noté / encontré / vi su sitio..." — el hook no narra tu proceso.
 3. Oferta — un párrafo, máximo 2 oraciones que fluyan entre sí.
-   Si gapCount == 0: ofrecé el asistente de chat IA como propuesta principal.
-   Si gapCount 1–2: ofrecé la solución a siteGaps[0]. No menciones el chatbot.
+   Si gapCount == 0: ofrecé el asistente virtual con IA como propuesta principal.
+   Si gapCount 1–2: ofrecé la solución a siteGaps[0]. No menciones el asistente.
    Si gapCount 3+: ofrecé la solución a siteGaps[0] en la primera oración.
-   Segunda oración (opcional): "También desarrollo asistentes de chat que
-   responden consultas las 24 horas, si le interesa."
+   Oferta del asistente virtual (redactala con estas palabras, adaptando lo mínimo):
+   {{ASSISTANT_OFFER}}
+   GATE DEL ASISTENTE — la oferta del asistente es un servicio que YO ofrezco
+   (siempre verdadero), presentala como beneficio. AFIRMAR que ESTE negocio NO
+   tiene un asistente es una afirmación sobre su sitio: hacelo ÚNICAMENTE si
+   requiredAnchor.fact lo dice. Si no, ofrecé el asistente como beneficio sin
+   afirmar nunca que les falta.
 4. Presentación — una oración exacta, sin cambios:
    "Mi nombre es Santiago Vittor, soy desarrollador web y trabajo con
    negocios de la zona."
@@ -269,7 +277,7 @@ subject: "su estudio en Núñez"
 body:
 Buenas tardes,
 
-El sitio de su estudio en Núñez no muestra WhatsApp ni un formulario de contacto a primera vista — los clientes que llegan de noche o el fin de semana no tienen cómo comunicarse.
+El sitio de su estudio en Núñez no muestra WhatsApp ni un formulario de contacto a primera vista — puede hacer que los clientes que llegan de noche o el fin de semana se queden sin una forma rápida de comunicarse.
 
 Trabajo con un asistente de chat con IA que responde consultas básicas las 24 horas y deja todo registrado para que usted lo retome cuando pueda.
 
@@ -312,7 +320,7 @@ ESTRUCTURAS PROHIBIDAS:
 - Hook narrativo: verbos que narran tu proceso ("revisé", "noté", "encontré", "vi")
 - Primera oración del email comenzando con "Yo"
 - Cualquier forma de nosotros: implementamos, ofrecemos, hacemos, trabajamos
-- Condicionales suavizadores: "podría", "quizás", "si le interesa" (excepto la línea de chatbot)
+- Condicionales suavizadores ("podría", "quizás", "si le interesa") en la OFERTA: la oferta va directa. (En la CONSECUENCIA de la observación del sitio los modales suaves son obligatorios — ver tono.)
 - Elogios sin dato concreto del negocio
 - Bullets, listas o numeración de cualquier tipo
 - Mencionar credenciales, años de experiencia o clientes anteriores
@@ -325,11 +333,21 @@ Responder ÚNICAMENTE con JSON válido, sin texto adicional, sin markdown:
 const SYSTEM_EN = `You are a B2B cold email copywriter. Plain, direct American English.
 Sound like a real person, not a company or agency.
 
+{{TONE_DIRECTIVE}}
+
 STRUCTURE (follow in order):
 1. Hook: one specific detail about their business — neighbourhood, category,
    rating, or something concrete from their web presence
-2. Problem: one friction that type of business typically has online
+2. Problem: one friction that type of business typically has online.
+   Phrase the consequence with a soft modal (may, might, often, tends to).
+   Model: "...at first glance, which may make after-hours visitors leave."
 3. Offer: {{OFFER_CONTEXT}}
+   You may also weave in the AI assistant offer (use this wording, adapt minimally):
+   {{ASSISTANT_OFFER}}
+   ASSISTANT GATE — the assistant offer is a service I provide (always true); present
+   it as a benefit. Claiming THIS business HAS NO assistant is a claim about their site:
+   do that ONLY if requiredAnchor.fact says so. Otherwise offer it as a benefit and never
+   assert they lack one.
 4. Intro: one line — who you are, no credentials or history
    Example: "I'm a web developer working with local businesses in the area."
 5. CTA: invite a short conversation, not to receive a proposal
@@ -666,6 +684,8 @@ export async function composeEmail(
   const title = getProfessionalTitle(business.category);
   const systemPrompt = (isArgentina ? SYSTEM_ES : SYSTEM_EN)
     .replace('{{OFFER_CONTEXT}}', offerContext + analysisContext + psiContext + visionContext + signalContext)
+    .replaceAll('{{TONE_DIRECTIVE}}', getString(isArgentina ? 'SITE_TONE_DIRECTIVE_ES' : 'SITE_TONE_DIRECTIVE_EN'))
+    .replaceAll('{{ASSISTANT_OFFER}}', getString(isArgentina ? 'ASSISTANT_OFFER_ES' : 'ASSISTANT_OFFER_EN'))
     .replaceAll('{{GREETING}}', greeting)
     .replaceAll('{{PROFESSIONAL_TITLE}}', title)
     + buildAnchorDirective(requiredAnchor, isArgentina);

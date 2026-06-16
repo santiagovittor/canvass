@@ -30,6 +30,7 @@ RULES:
 - Opportunities: goal-framed — how fixing it helps the business. GOOD headline: "Falta reserva online". detail: "agregar reservas reduciría la fricción para clientes que navegan fuera de horario".
 - Confidence: 1.0 = unmistakably clear; 0.7 = fairly certain; below 0.7 omit the item entirely.
 - widgetVisibility: only 'yes' if the widget is UNMISTAKABLY visible in the screenshot. Prefer 'unsure' over 'no' when in doubt.
+- widgetVisibility.chat means an automated chat/assistant launcher bubble (Intercom/Drift/Tidio/Messenger), NOT a WhatsApp button.
 - mobileResponsive: 'yes' if layout adapts cleanly on the mobile screenshot; 'no' if layout breaks, text overflows, or elements overlap on the mobile screenshot; 'unsure' if unclear.
 - LANGUAGE: write all headline and detail text in the primary language of the site content (Spanish or English — match the site).
 

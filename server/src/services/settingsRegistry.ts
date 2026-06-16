@@ -95,6 +95,26 @@ export const FIELDS: SettingField[] = [
     key: 'MAX_ANCHOR_ATTEMPTS', group: 'Analysis & Claim-Gating', label: 'Max anchor attempts',
     type: 'number', min: 1, max: 10, default: 3,
   },
+  {
+    key: 'META_PIXEL_ANCHOR_ENABLED', group: 'Analysis & Claim-Gating', label: 'Meta Pixel no-assistant anchor',
+    type: 'boolean', default: true,
+    help: 'When enabled, Meta Pixel plus verified no assistant can become a high-priority outreach anchor.',
+  },
+  {
+    key: 'META_PIXEL_ANCHOR_PRIORITY', group: 'Analysis & Claim-Gating', label: 'Meta Pixel anchor priority',
+    type: 'number', min: 0, max: 200, default: 90,
+    help: 'Priority for the compound Meta Pixel plus no-assistant anchor.',
+  },
+  {
+    key: 'ASSISTANT_ANCHOR_ENABLED', group: 'Analysis & Claim-Gating', label: 'No-assistant anchor (standalone)',
+    type: 'boolean', default: true,
+    help: 'When enabled, a verified-absent chat/assistant widget (without a Meta Pixel) can become an outreach anchor. Claim stays narrow — no ads/spend framing.',
+  },
+  {
+    key: 'ASSISTANT_ANCHOR_PRIORITY', group: 'Analysis & Claim-Gating', label: 'No-assistant anchor priority',
+    type: 'number', min: 0, max: 200, default: 85,
+    help: 'Priority for the standalone no-assistant anchor. Keep below the Meta Pixel anchor so the compound anchor wins when both apply.',
+  },
 
   // ── Gemini & Rate Limits ──
   {
@@ -125,6 +145,30 @@ export const FIELDS: SettingField[] = [
     key: 'EMAIL_SIGNATURE_HTML', group: 'Offer & Copy', label: 'Email signature (HTML)',
     type: 'signature', default: '', fileBacked: true,
     help: 'Appended at send time, after compose + verify. Saved to the signature file and reloaded live.',
+  },
+  {
+    key: 'ASSISTANT_OFFER_ES', group: 'Offer & Copy', label: 'Assistant offer copy (ES)',
+    type: 'string',
+    default: 'También diseño asistentes virtuales con IA: chatbots que responden las consultas de los visitantes al instante, las 24 horas, y registran cada mensaje para que usted lo retome cuando pueda.',
+    help: 'Service statement (always true). Woven in as a benefit. Asserting the lead LACKS one is gated separately by the anchor.',
+  },
+  {
+    key: 'ASSISTANT_OFFER_EN', group: 'Offer & Copy', label: 'Assistant offer copy (EN)',
+    type: 'string',
+    default: 'I also design AI virtual assistants — chatbots that answer visitor questions instantly, 24/7, and log every message so you can follow up when you have a moment.',
+    help: 'Service statement (always true). Woven in as a benefit. Asserting the lead LACKS one is gated separately by the anchor.',
+  },
+  {
+    key: 'SITE_TONE_DIRECTIVE_ES', group: 'Offer & Copy', label: 'Site-observation tone directive (ES)',
+    type: 'string',
+    default: 'TONO DE LAS OBSERVACIONES DEL SITIO: toda observación sobre el sitio y su consecuencia se redacta como un aviso de buena fe, nunca como un veredicto. Usá modales suaves (puede, podría, suele, es posible que) en la consecuencia. Ejemplo: "puede provocar que las visitas se retiren", no "provoca que las visitas se retiren". Esto aplica sólo a las observaciones del sitio; la oferta sigue siendo directa.',
+    help: 'Injected into the Spanish composer prompt. Governs the hedged advisory register for site observations.',
+  },
+  {
+    key: 'SITE_TONE_DIRECTIVE_EN', group: 'Offer & Copy', label: 'Site-observation tone directive (EN)',
+    type: 'string',
+    default: 'TONE FOR SITE OBSERVATIONS: every observation about the site and its consequence is a good-faith heads-up, never a verdict. Use soft modals (may, might, often, tends to) on the consequence. Example: "may cause visitors to leave", not "causes visitors to leave". This applies only to site observations; the offer stays direct.',
+    help: 'Injected into the English composer prompt. Governs the hedged advisory register for site observations.',
   },
 
   // ── Secrets (read-only masked status) ──

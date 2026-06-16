@@ -77,7 +77,7 @@ export const VIEWPORT_RX = /name=["']viewport["']/i;
 export const BOOKING_RX = /\b(reserva|turno|booking|book\s+now|cita|appointment|agendar|schedule)\b|calendly\.com|acuityscheduling|reservo\.com|booksy|setmore|simplybook/i;
 export const WHATSAPP_RX = /wa\.me\/|wa\.link\/|whatsapp\.com\/send|api\.whatsapp\.com|whatsapp:\/\/|["']whatsapp["']/i;
 export const MENU_RX = /\b(men[uú]|servicios|services|productos|products|carta|offerings)\b|agregar.al.carrito|add.to.cart/i;
-export const CHAT_RX = /jivosite\.com|jivochat|tidio\.com|tidiochat|crisp\.chat|client\.crisp|intercomcdn\.com|widget\.intercom|tawk\.to|zopim\.com|zendesk.*widget|freshchat|livechatinc\.com/i;
+export const CHAT_RX = /jivosite\.com|jivochat|tidio\.com|tidiochat|crisp\.chat|client\.crisp|intercomcdn\.com|widget\.intercom|tawk\.to|zopim\.com|zendesk.*widget|freshchat|livechatinc\.com|drift\.com|driftt|olark|livechat-widget|freshworks|manychat|fb-customerchat|xfbml\.customerchat\.js/i;
 export const ANALYTICS_RX = /gtag\(|google-analytics\.com|analytics\.js|G-[A-Z0-9]{6,}|fbq\(|connect\.facebook\.net.*fbevents|hotjar\.com|mixpanel/i;
 export const TEL_RX = /href=["']tel:/i;
 export const STRUCTURED_DATA_RX = /application\/ld\+json/i;

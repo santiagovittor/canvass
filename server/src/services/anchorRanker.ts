@@ -1,7 +1,7 @@
 import type { DetectedSig, SignalMap } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from './visionClient';
-import { getNumber } from './appSettings';
+import { getBool, getNumber } from './appSettings';
 
 // Deterministic anchor selection. Ranks a lead's *assertable* evidence into an
 // ordered candidate list. "Assertable" reuses the existing claim-gating thresholds
@@ -11,6 +11,7 @@ import { getNumber } from './appSettings';
 
 export type AnchorKind =
   | 'psi'
+  | 'meta_pixel_no_assistant'
   | 'absent_verified'
   | 'vision_opportunity'
   | 'vision_strength'
@@ -56,6 +57,41 @@ export function rankAnchors(
   const VISION_OPP_MIN = getNumber('VISION_OPP_MIN');
   const VISION_STRENGTH_MIN = getNumber('VISION_STRENGTH_MIN');
 
+  if (
+    signalMap?.hasMetaPixel?.state === 'PRESENT' &&
+    signalMap.hasLiveChatWidget?.state === 'ABSENT_VERIFIED' &&
+    getBool('META_PIXEL_ANCHOR_ENABLED')
+  ) {
+    candidates.push({
+      id: 'pixel_no_assistant',
+      kind: 'meta_pixel_no_assistant',
+      fact: isAR
+        ? 'está pagando anuncios online (el Meta Pixel está instalado) pero no tiene un asistente automático 24/7 para responder leads que llegan fuera de horario'
+        : "you're paying for online ads (the Meta Pixel is installed) but have no 24/7 automated assistant to answer leads that arrive after hours",
+      evidenceRef: 'signal.hasMetaPixel=PRESENT;signal.hasLiveChatWidget=ABSENT_VERIFIED',
+      priority: getNumber('META_PIXEL_ANCHOR_PRIORITY'),
+    });
+  }
+
+  // Standalone verified-no-assistant anchor (no Meta Pixel). chat=ABSENT_VERIFIED is by
+  // itself truthful, fully-gated evidence for "no 24/7 assistant". The combo anchor owns the
+  // pixel case and the ads/spend framing; here the claim stays narrow — no ads framing leaks.
+  if (
+    signalMap?.hasLiveChatWidget?.state === 'ABSENT_VERIFIED' &&
+    signalMap.hasMetaPixel?.state !== 'PRESENT' &&
+    getBool('ASSISTANT_ANCHOR_ENABLED')
+  ) {
+    candidates.push({
+      id: 'no_assistant',
+      kind: 'absent_verified',
+      fact: isAR
+        ? 'el sitio parece no tener un asistente automático 24/7 que responda las consultas de los visitantes fuera de horario'
+        : "the site doesn't appear to have a 24/7 automated assistant to answer visitor questions after hours",
+      evidenceRef: 'signal.hasLiveChatWidget=ABSENT_VERIFIED',
+      priority: getNumber('ASSISTANT_ANCHOR_PRIORITY'),
+    });
+  }
+
   // 1. PSI — real measured metric, most concrete and verifiable.
   if (psiData?.mobileScore !== null && psiData?.mobileScore !== undefined && psiData.mobileScore < PSI_CRITICAL) {
     const score = psiData.mobileScore;
@@ -76,6 +112,7 @@ export function rankAnchors(
   // 2. ABSENT_VERIFIED signals — verified-absent by render + DOM + network + vision.
   if (signalMap) {
     for (const [key, sig] of Object.entries(signalMap)) {
+      if (key === 'hasLiveChatWidget') continue;
       if (sig.state !== 'ABSENT_VERIFIED') continue;
       const phrase = ABSENT_PHRASE[key];
       const fact = phrase

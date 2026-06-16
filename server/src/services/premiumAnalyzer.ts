@@ -74,7 +74,8 @@ function applyVisionUpgrades(
   }
 
   // Widget signals: UNKNOWN → PRESENT when vision spots something DOM/network missed.
-  // These can NEVER become ABSENT_VERIFIED (lazy-load-prone; bias is always UNKNOWN).
+  // Live chat can become ABSENT_VERIFIED only through DOM + network + vision agreement.
+  // WhatsApp and booking stay UNKNOWN-only on absence.
   if (signals.hasWhatsappLink?.state === 'UNKNOWN' && vision.widgetVisibility.whatsapp === 'yes') {
     signals.hasWhatsappLink = {
       state: 'PRESENT',
@@ -88,6 +89,18 @@ function applyVisionUpgrades(
       evidence: { kind: 'vision', value: 'chat widget visible in screenshot' },
       checkedBy: [...(signals.hasLiveChatWidget.checkedBy), 'vision'],
     };
+  }
+  if (signals.hasLiveChatWidget?.state === 'UNKNOWN' && vision.widgetVisibility.chat === 'no') {
+    const chat = signals.hasLiveChatWidget;
+    const domAbsent = chat.checkedBy.includes('dom');
+    const networkAbsent = chat.checkedBy.includes('network');
+    if (verifyAbsent({ renderOk, domAbsent, networkAbsent, visionAbsent: true })) {
+      signals.hasLiveChatWidget = {
+        state: 'ABSENT_VERIFIED',
+        evidence: { kind: 'vision', value: 'no chat/assistant widget in DOM, network, or screenshot' },
+        checkedBy: [...chat.checkedBy, 'vision'],
+      };
+    }
   }
   if (signals.hasOnlineBooking?.state === 'UNKNOWN' && vision.widgetVisibility.booking === 'yes') {
     signals.hasOnlineBooking = {
@@ -120,7 +133,7 @@ const DETECTORS: { key: string; dom?: RegExp; network?: RegExp; source: 'html' |
 
 const RAW_FETCH_BOOLEAN_KEYS = [
   ...DETECTORS.map(d => d.key),
-  'hasContactForm', 'hasSSL',
+  'hasContactForm', 'hasSSL', 'hasMetaPixel',
 ] as const;
 
 // Raw-fetch reinterpretation: a positive is real evidence, a negative proves
@@ -198,8 +211,61 @@ function detectSignals(html: string, networkUrls: string[], finalUrl: string): S
     ? { state: 'PRESENT', evidence: { kind: 'network', value: finalUrl }, checkedBy: ['network'] }
     : { state: 'ABSENT_VERIFIED', evidence: { kind: 'network', value: finalUrl }, checkedBy: ['network'] };
 
+  const metaPixel = detectMetaPixel(html, networkUrls);
+  signals.hasMetaPixel = metaPixel
+    ? {
+        state: 'PRESENT',
+        evidence: { kind: metaPixel.evidenceKind, value: metaPixel.evidenceValue },
+        checkedBy: ['dom', 'network'],
+      }
+    : { state: 'UNKNOWN', checkedBy: ['dom', 'network'] };
+
   return signals;
 }
+
+function detectMetaPixel(html: string, networkUrls: string[]): {
+  evidenceKind: 'dom' | 'network';
+  evidenceValue: string;
+} | null {
+  const markers: string[] = [];
+  const pixelIds: string[] = [];
+  let evidenceKind: 'dom' | 'network' = 'dom';
+
+  if (networkUrls.some(u => /connect\.facebook\.net.*fbevents/i.test(u))) {
+    markers.push('network:fbevents.js');
+    evidenceKind = 'network';
+  }
+
+  for (const url of networkUrls) {
+    const match = /facebook\.com\/tr\?(?:[^#]*&)?id=([^&#]+)/i.exec(url);
+    if (!match) continue;
+    markers.push('network:facebook_tr');
+    pixelIds.push(decodeURIComponent(match[1]));
+    evidenceKind = 'network';
+  }
+
+  for (const match of html.matchAll(/fbq\s*\(\s*['"]init['"]\s*,\s*['"]([^'"]+)['"]/gi)) {
+    markers.push('dom:fbq_init');
+    pixelIds.push(match[1]);
+  }
+
+  for (const match of html.matchAll(/<noscript[\s\S]*?facebook\.com\/tr\?[\s\S]*?\bid=([^&"'<>]+)/gi)) {
+    markers.push('dom:noscript_tr');
+    pixelIds.push(decodeURIComponent(match[1]));
+  }
+
+  if (markers.length === 0) return null;
+
+  const uniqueMarkers = [...new Set(markers)];
+  const uniqueIds = [...new Set(pixelIds.filter(Boolean))];
+  return {
+    evidenceKind,
+    evidenceValue: `markers=[${uniqueMarkers.join(',')}]; pixelId=${uniqueIds[0] ?? 'unknown'}`,
+  };
+}
+
+export const detectSignalsForTest = detectSignals;
+export const applyVisionUpgradesForTest = applyVisionUpgrades;
 
 function scanSignatures(
   html: string,

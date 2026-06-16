@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db';
 import { businesses } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
-import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens, getOutreachSendRow, createScheduledSend, listUpcomingScheduledSends, cancelScheduledSend, rescheduleScheduledSend } from '../db';
+import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens, getOutreachSendRow, createScheduledSend, listUpcomingScheduledSends, cancelScheduledSend, rescheduleScheduledSend, saveOutreachAnalysis } from '../db';
 import { resolveBusinessType, describeWindow } from '../services/outreachSchedulingConfig';
 import { nextOptimalWindowUtc } from '../services/outreachGovernor';
 import { composeFollowUp } from '../services/geminiComposer';
@@ -13,6 +13,7 @@ import { sendEmail, signatureHtml } from '../services/emailSender';
 import { checkReplies } from '../services/replyChecker';
 import { analyzeWebsite } from '../services/websiteAnalyzer';
 import type { WebsiteAnalysis } from '../services/websiteAnalyzer';
+import { isPersistableWebsiteAnalysis, serializeWebsiteAnalysis } from '../services/outreachAnalysis';
 import { requestPremiumAnalysis } from '../services/premiumAnalysisQueue';
 import { getBusinessWebsite, getLatestPremiumAnalysis, type DetectedSig, type SignalMap } from '../db/premium';
 import { env } from '../env';
@@ -117,6 +118,9 @@ router.post('/analyze', async (req, res) => {
   }
 
   const result = await analyzeWebsite(row.website);
+  if (isPersistableWebsiteAnalysis(result)) {
+    saveOutreachAnalysis(businessId, serializeWebsiteAnalysis(result));
+  }
   res.json(result);
 });
 
@@ -192,8 +196,12 @@ router.post('/generate', async (req, res) => {
   };
 
   try {
+    if (isPersistableWebsiteAnalysis(analysis)) {
+      saveOutreachAnalysis(businessId, serializeWebsiteAnalysis(analysis));
+    }
+
     const { subject, body, topGap, verdict } = await composeVerifiedEmail(
-      business, analysis, detectedSigs, psiData, visionResult, signalMap,
+      business, analysis, detectedSigs, psiData, visionResult, signalMap, businessId,
     );
 
     upsertDraft(businessId, subject, body, true);

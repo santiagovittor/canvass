@@ -186,6 +186,89 @@ function SocialIcons({ lead }: { lead: OutreachLead }) {
   );
 }
 
+function LeadResearch({ analysis, category }: { analysis: WebsiteAnalysis; category: string | null }) {
+  const isBookable = BOOKABLE_CATS.test(category ?? '');
+  const isFood = FOOD_CATS.test(category ?? '');
+  const chips: { label: string; present: boolean }[] = [
+    { label: analysis.hasSSL ? 'SSL OK' : 'No SSL', present: analysis.hasSSL },
+    { label: analysis.hasViewportMeta ? 'Mobile OK' : 'No mobile', present: analysis.hasViewportMeta },
+    { label: analysis.hasContactForm ? 'Form OK' : 'No form', present: analysis.hasContactForm },
+    { label: analysis.hasWhatsappLink ? 'WhatsApp OK' : 'No WhatsApp', present: analysis.hasWhatsappLink },
+    ...(isBookable ? [{ label: analysis.hasOnlineBooking ? 'Booking OK' : 'No booking', present: analysis.hasOnlineBooking }] : []),
+    ...(isFood ? [{ label: analysis.hasMenuOrServices ? 'Menu OK' : 'No menu', present: analysis.hasMenuOrServices }] : []),
+  ];
+
+  return (
+    <details
+      open
+      style={{
+        background: 'var(--bg-elevated)',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        padding: '10px 12px',
+      }}
+    >
+      <summary style={{
+        cursor: 'pointer',
+        fontFamily: 'var(--font-ui)',
+        fontSize: 12,
+        fontWeight: 600,
+        color: 'var(--text-secondary)',
+      }}>
+        Lead research
+      </summary>
+      <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8, marginTop: 10 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 4 }}>
+          {chips.map((chip, i) => (
+            <span key={i} style={{
+              fontFamily: 'var(--font-ui)',
+              fontSize: 10,
+              fontWeight: 500,
+              padding: '2px 7px',
+              borderRadius: 100,
+              background: chip.present ? 'var(--accent-dim)' : 'rgba(245,183,0,0.12)',
+              color: chip.present ? 'var(--accent)' : 'var(--warn)',
+            }}>
+              {chip.label}
+            </span>
+          ))}
+        </div>
+        {(analysis.pageTitle || analysis.metaDescription || analysis.finalUrl) && (
+          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 5 }}>
+            {analysis.pageTitle && (
+              <div style={{ fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                {analysis.pageTitle}
+              </div>
+            )}
+            {analysis.metaDescription && (
+              <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                {analysis.metaDescription.length > 180
+                  ? analysis.metaDescription.slice(0, 180) + '...'
+                  : analysis.metaDescription}
+              </div>
+            )}
+            {analysis.finalUrl && (
+              <a
+                href={analysis.finalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 10,
+                  color: 'var(--text-muted)',
+                  overflowWrap: 'anywhere' as const,
+                }}
+              >
+                {analysis.finalUrl.replace(/^https?:\/\//i, '').replace(/\/$/, '')}
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCancelScheduled, onRescheduleScheduled }: BusinessContextProps) {
   if (!lead) {
     return (
@@ -346,40 +429,9 @@ export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCa
         )}
       </div>
 
-      {/* Website analysis chips */}
-      {analysis?.loadedSuccessfully && (() => {
-        const cat = lead.category ?? '';
-        const isBookable = BOOKABLE_CATS.test(cat);
-        const isFood = FOOD_CATS.test(cat);
-        const chips: { label: string; present: boolean }[] = [
-          { label: analysis.hasSSL ? 'SSL ✓' : 'No SSL', present: analysis.hasSSL },
-          { label: analysis.hasViewportMeta ? 'Mobile ✓' : 'No mobile', present: analysis.hasViewportMeta },
-          { label: analysis.hasContactForm ? 'Form ✓' : 'No form', present: analysis.hasContactForm },
-          { label: analysis.hasWhatsappLink ? 'WhatsApp ✓' : 'No WhatsApp', present: analysis.hasWhatsappLink },
-          ...(isBookable ? [{ label: analysis.hasOnlineBooking ? 'Booking ✓' : 'No booking', present: analysis.hasOnlineBooking }] : []),
-          ...(isFood ? [{ label: analysis.hasMenuOrServices ? 'Menu ✓' : 'No menu', present: analysis.hasMenuOrServices }] : []),
-        ];
-        return (
-          <>
-            <style>{`@keyframes chipFade { from { opacity: 0; } to { opacity: 1; } }`}</style>
-            <div style={{ display: 'flex', flexWrap: 'wrap' as const, gap: 4, animation: 'chipFade 200ms ease forwards' }}>
-              {chips.map((chip, i) => (
-                <span key={i} style={{
-                  fontFamily: 'var(--font-ui)',
-                  fontSize: 10,
-                  fontWeight: 500,
-                  padding: '2px 7px',
-                  borderRadius: 100,
-                  background: chip.present ? 'rgba(0,229,204,0.1)' : 'rgba(245,183,0,0.12)',
-                  color: chip.present ? 'var(--accent)' : 'var(--warn)',
-                }}>
-                  {chip.label}
-                </span>
-              ))}
-            </div>
-          </>
-        );
-      })()}
+      {analysis?.loadedSuccessfully && (
+        <LeadResearch analysis={analysis} category={lead.category} />
+      )}
 
       {/* Phone */}
       {lead.phone && (

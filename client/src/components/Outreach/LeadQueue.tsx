@@ -343,8 +343,8 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
               aria-pressed={isActive}
               aria-disabled={invalid}
               aria-label={`${lead.name}${lead.first_email ? `, ${lead.first_email}` : ''}`}
-              onClick={() => { if (!invalid && mode !== 'replied') onSelect(lead); }}
-              onKeyDown={e => { if (!invalid && mode !== 'replied' && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(lead); } }}
+              onClick={() => { if (!invalid) onSelect(lead); }}
+              onKeyDown={e => { if (!invalid && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(lead); } }}
               style={{
                 display: 'flex',
                 alignItems: 'center',

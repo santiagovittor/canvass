@@ -406,6 +406,7 @@ export interface OutreachLead {
   linkedin: string | null;
   youtube: string | null;
   has_draft: boolean;
+  outreachAnalysisJson: string | null;
 }
 
 type RawLeadRow = {
@@ -417,6 +418,7 @@ type RawLeadRow = {
   instagram: string | null; facebook: string | null; twitter: string | null;
   tiktok: string | null; linkedin: string | null; youtube: string | null;
   has_draft: number;
+  outreach_analysis_json: string | null;
 };
 
 export interface OutreachLeadFilters {
@@ -463,7 +465,7 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
 
   const leadsSQL = `
     SELECT b.id, b.name, b.address, b.phone, b.website, b.emails_json, b.category, b.rating, b.review_count,
-           b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status,
+           b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status, b.outreach_analysis_json,
            b.latitude, b.longitude, b.instagram, b.facebook, b.twitter, b.tiktok, b.linkedin, b.youtube,
            CASE WHEN d.business_id IS NOT NULL THEN 1 ELSE 0 END AS has_draft
     FROM businesses b
@@ -492,6 +494,7 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
       instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
       tiktok: r.tiktok, linkedin: r.linkedin, youtube: r.youtube,
       has_draft: r.has_draft === 1,
+      outreachAnalysisJson: r.outreach_analysis_json,
     };
   });
 
@@ -549,6 +552,17 @@ export function markContacted(businessId: string): void {
     UPDATE businesses SET outreach_status = 'contacted'
     WHERE id = ? AND (outreach_status IS NULL OR outreach_status = 'contacted')
   `).run(businessId);
+}
+
+let stmtSaveOutreachAnalysis: import('better-sqlite3').Statement<[string, string], void> | null = null;
+
+export function saveOutreachAnalysis(businessId: string, analysisJson: string): void {
+  if (!stmtSaveOutreachAnalysis) {
+    stmtSaveOutreachAnalysis = sqlite.prepare<[string, string], void>(
+      `UPDATE businesses SET outreach_analysis_json = ? WHERE id = ?`
+    );
+  }
+  stmtSaveOutreachAnalysis.run(analysisJson, businessId);
 }
 
 // ── Draft persistence ─────────────────────────────────────────────────────────
@@ -993,7 +1007,7 @@ export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: 
 
   const leadsSQL = `
     SELECT b.id, b.name, b.address, b.phone, b.website, b.emails_json, b.category, b.rating, b.review_count,
-           b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status,
+           b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status, b.outreach_analysis_json,
            b.latitude, b.longitude, b.instagram, b.facebook, b.twitter, b.tiktok, b.linkedin, b.youtube,
            CASE WHEN d.business_id IS NOT NULL THEN 1 ELSE 0 END AS has_draft,
            b.reply_type, ls.last_sent_at, ls.send_count,
@@ -1029,6 +1043,7 @@ export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: 
       instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
       tiktok: r.tiktok, linkedin: r.linkedin, youtube: r.youtube,
       has_draft: r.has_draft === 1,
+      outreachAnalysisJson: r.outreach_analysis_json,
       last_sent_at: r.last_sent_at, send_count: r.send_count,
       open_count: r.open_count, last_opened_at: r.last_opened_at,
       reply_type: r.reply_type,
@@ -1061,7 +1076,7 @@ export function getRepliedLeads(page = 1, pageSize = 25): { rows: RepliedLead[];
 
   const leadsSQL = `
     SELECT b.id, b.name, b.address, b.phone, b.website, b.emails_json, b.category, b.rating, b.review_count,
-           b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status,
+           b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status, b.outreach_analysis_json,
            b.latitude, b.longitude, b.instagram, b.facebook, b.twitter, b.tiktok, b.linkedin, b.youtube,
            CASE WHEN d.business_id IS NOT NULL THEN 1 ELSE 0 END AS has_draft,
            b.reply_type, b.replied_at, ls.last_sent_at, ls.send_count,
@@ -1097,6 +1112,7 @@ export function getRepliedLeads(page = 1, pageSize = 25): { rows: RepliedLead[];
       instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
       tiktok: r.tiktok, linkedin: r.linkedin, youtube: r.youtube,
       has_draft: r.has_draft === 1,
+      outreachAnalysisJson: r.outreach_analysis_json,
       last_sent_at: r.last_sent_at, send_count: r.send_count,
       open_count: r.open_count, last_opened_at: r.last_opened_at,
       reply_type: r.reply_type, replied_at: r.replied_at,

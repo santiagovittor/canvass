@@ -16,6 +16,16 @@ interface Draft {
   body: string;
 }
 
+function parseSavedAnalysis(raw: string | null): WebsiteAnalysis | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as WebsiteAnalysis;
+    return parsed?.loadedSuccessfully === true ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 interface OutreachProps {
   onEmailSent: () => void;
 }
@@ -76,6 +86,16 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     setQueueCount(rows.length);
   }, []);
 
+  function rememberSavedAnalysis(leadId: string, saved: WebsiteAnalysis) {
+    const serialized = JSON.stringify(saved);
+    queueLeadsRef.current = queueLeadsRef.current.map(row =>
+      row.id === leadId ? { ...row, outreachAnalysisJson: serialized } : row,
+    );
+    setActiveLead(current =>
+      current?.id === leadId ? { ...current, outreachAnalysisJson: serialized } : current,
+    );
+  }
+
   const handleStartBatch = useCallback(async (size: number, dryRun: boolean) => {
     const ids = queueLeadsRef.current.slice(0, size).map(l => l.id);
     if (ids.length === 0) return;
@@ -119,6 +139,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
 
   const handleGenerate = useCallback(async () => {
     const lead = activeLeadRef.current;
+    if (modeRef.current === 'replied') return;
     if (!lead || isAnalyzingRef.current || isGeneratingRef.current || isSendingRef.current) return;
     setIsGenerating(true);
     setError(null);
@@ -148,13 +169,17 @@ export function Outreach({ onEmailSent }: OutreachProps) {
 
   const handleAnalyzeAndGenerate = useCallback(async () => {
     const lead = activeLeadRef.current;
+    if (modeRef.current === 'replied') return;
     if (!lead || isAnalyzingRef.current || isGeneratingRef.current || isSendingRef.current) return;
     setIsAnalyzing(true);
     setError(null);
     let currentAnalysis: WebsiteAnalysis | null = null;
     try {
       currentAnalysis = await analyzeWebsite(lead.id);
-      setAnalysis(currentAnalysis);
+      if (currentAnalysis.loadedSuccessfully) {
+        setAnalysis(currentAnalysis);
+        rememberSavedAnalysis(lead.id, currentAnalysis);
+      }
     } catch (err) {
       setIsAnalyzing(false);
       setError(err instanceof Error ? err.message : 'Analysis failed');
@@ -190,6 +215,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
 
   const doSend = useCallback(async (override = false) => {
     const lead = activeLeadRef.current;
+    if (modeRef.current === 'replied') return;
     if (!lead || isGeneratingRef.current || isSendingRef.current) return;
     setIsSending(true);
     setError(null);
@@ -229,6 +255,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
 
   const handleSchedule = useCallback(async (opts: { sendAt?: string; optimalWindow?: boolean }) => {
     const lead = activeLeadRef.current;
+    if (modeRef.current === 'replied') return;
     if (!lead) return;
     setError(null);
     try {
@@ -260,6 +287,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
 
   const handleSkip = useCallback(async () => {
     const lead = activeLeadRef.current;
+    if (modeRef.current === 'replied') return;
     if (!lead || isGeneratingRef.current || isSendingRef.current) return;
     const rows = queueLeadsRef.current;
     const idx = rows.findIndex(r => r.id === lead.id);
@@ -376,7 +404,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     setPendingLead(null);
     setDraft({ subject: '', body: '' });
     setIsAiDraft(false);
-    setAnalysis(null);
+    setAnalysis(parseSavedAnalysis(lead.outreachAnalysisJson));
     setPremium(null);
     setVerificationVerdict(null);
     setError(null);
@@ -452,7 +480,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
       </div>
       <EmailComposer
         mode={mode === 'followup' ? 'followup' : 'new'}
-        lead={activeLead}
+        lead={mode === 'replied' ? null : activeLead}
         draft={draft}
         isAiDraft={isAiDraft}
         isAnalyzing={isAnalyzing}

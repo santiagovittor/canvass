@@ -43,6 +43,7 @@ export const businesses = sqliteTable('businesses', {
   scrapedAt: text('scraped_at').notNull(),
   outreachStatus: text('outreach_status'),
   outreachNote: text('outreach_note'),
+  outreachAnalysisJson: text('outreach_analysis_json'),
   locCountry: text('loc_country'),
   locState: text('loc_state'),
   locCity: text('loc_city'),

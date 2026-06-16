@@ -62,6 +62,9 @@ export function runMigrations() {
   if (!cols.includes('outreach_note')) {
     sqlite.exec('ALTER TABLE businesses ADD COLUMN outreach_note TEXT');
   }
+  if (!cols.includes('outreach_analysis_json')) {
+    sqlite.exec('ALTER TABLE businesses ADD COLUMN outreach_analysis_json TEXT');
+  }
   if (!cols.includes('loc_country')) {
     sqlite.exec('ALTER TABLE businesses ADD COLUMN loc_country TEXT');
   }

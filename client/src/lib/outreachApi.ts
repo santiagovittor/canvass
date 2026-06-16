@@ -114,6 +114,7 @@ export interface OutreachLead {
   linkedin: string | null;
   youtube: string | null;
   has_draft: boolean;
+  outreachAnalysisJson: string | null;
 }
 
 export interface FollowUpLead extends OutreachLead {

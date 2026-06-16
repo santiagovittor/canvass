@@ -6,6 +6,7 @@ import type { DetectedSig, SignalMap } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from './visionClient';
 import { getNumber } from './appSettings';
+import { withAnalysis, stage, setSummary } from './stageTracker';
 
 // Bounded anchor attempts. Assertable candidates rarely exceed ~3 strong ones
 // (PSI + one vision + one absent_verified); each attempt costs 1 compose + up to
@@ -43,12 +44,27 @@ export async function composeVerifiedEmail(
   psiData: PsiData | null,
   visionResult: VisionResult | null,
   signalMap: SignalMap | undefined,
+  businessId?: string,
+): Promise<ComposeVerifiedResult> {
+  const run = () => composeVerifiedEmailInner(business, analysis, detectedSigs, psiData, visionResult, signalMap);
+  // businessId present → emit the stage-event stream (logs + SSE) keyed to the lead.
+  return businessId ? withAnalysis(businessId, 'compose', run) : run();
+}
+
+async function composeVerifiedEmailInner(
+  business: BusinessForEmail,
+  analysis: WebsiteAnalysis | undefined,
+  detectedSigs: DetectedSig[] | undefined,
+  psiData: PsiData | null,
+  visionResult: VisionResult | null,
+  signalMap: SignalMap | undefined,
 ): Promise<ComposeVerifiedResult> {
   const bundle: VerificationBundle = { signals: signalMap, vision: visionResult, psi: psiData };
   const candidates = rankAnchors(business, detectedSigs, psiData, visionResult, signalMap);
 
   // No assertable evidence to anchor on → hold, never auto-send a generic husk.
   if (candidates.length === 0) {
+    setSummary({ disposition: 'held_generic' });
     return {
       subject: '', body: '', topGap: null,
       verdict: {
@@ -66,12 +82,12 @@ export async function composeVerifiedEmail(
 
   for (let i = 0; i < maxAttempts; i++) {
     const anchor = candidates[i];
-    const composed = await composeEmail(business, anchor, analysis, undefined, detectedSigs, psiData, visionResult, signalMap);
+    const composed = await stage('compose', () => composeEmail(business, anchor, analysis, undefined, detectedSigs, psiData, visionResult, signalMap));
     const declaredAnchor = composed.claims.find(c => c.evidenceRef === anchor.evidenceRef);
 
     const subject = composed.subject;
     let body = composed.body;
-    let verdict = await verifyDraft({ subject, body }, composed.claims, bundle);
+    let verdict = await stage('verify', () => verifyDraft({ subject, body }, composed.claims, bundle));
 
     // Specificity guard: the anchor's declared claim must survive as supported.
     const anchorSurvived = (v: VerificationResult): boolean =>
@@ -89,7 +105,7 @@ export async function composeVerifiedEmail(
         const escaped = c.claim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         strippedBody = strippedBody.replace(new RegExp(`[^.!?]*${escaped}[^.!?]*[.!?]?\\s*`, 'g'), '').trim();
       }
-      const verdict3 = await verifyDraft({ subject, body: strippedBody }, composed.claims, bundle);
+      const verdict3 = await stage('verify', () => verifyDraft({ subject, body: strippedBody }, composed.claims, bundle));
       if (verdict3.status === 'ok' && anchorSurvived(verdict3)) {
         body = strippedBody;
         verdict = verdict3;
@@ -104,6 +120,8 @@ export async function composeVerifiedEmail(
     attempts.push({ anchorId: anchor.id, status, survived });
 
     if (survived) {
+      await stage('gate', async () => { /* disposition decision: send-specific */ });
+      setSummary({ anchor: anchor.id, disposition: 'sent_specific' });
       return {
         subject, body, topGap: composed.topGap,
         verdict: { ...verdict, status, anchorId: anchor.id, anchorFact: anchor.fact, attempts, disposition: 'sent_specific' },
@@ -113,7 +131,9 @@ export async function composeVerifiedEmail(
   }
 
   // No candidate produced a surviving specific anchor → hold generic.
+  await stage('gate', async () => { /* disposition decision: hold generic */ });
   const last = candidates[maxAttempts - 1];
+  setSummary({ anchor: last?.id ?? null, disposition: 'held_generic' });
   return {
     subject: '', body: '', topGap: null,
     verdict: {

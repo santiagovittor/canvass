@@ -20,6 +20,7 @@ import { fetchPsi } from './psiClient';
 import { getCachedPsi, upsertPsiCache, type PsiData } from '../db/psiCache';
 import { runVision, type VisionResult } from './visionClient';
 import { getRubric } from '../data/visionRubrics';
+import { withAnalysis, stage } from './stageTracker';
 
 export type { TriState, DetectorKind, Signal, SignalEvidence, SignalMap } from '../db/premium';
 
@@ -363,6 +364,10 @@ async function runPsi(finalUrl: string): Promise<PsiData | null> {
 }
 
 export async function runPremiumAnalysis(row: PremiumAnalysisRow): Promise<void> {
+  await withAnalysis(row.businessId, 'premium', () => runPremiumAnalysisInner(row));
+}
+
+async function runPremiumAnalysisInner(row: PremiumAnalysisRow): Promise<void> {
   const biz = getBusinessWebsite(row.businessId);
 
   if (!biz || !biz.website) {
@@ -374,7 +379,8 @@ export async function runPremiumAnalysis(row: PremiumAnalysisRow): Promise<void>
     return;
   }
 
-  const render = await renderSite(normalizeUrl(biz.website));
+  const website = biz.website;
+  const render = await stage('render', () => renderSite(normalizeUrl(website)));
 
   if (render.outcome !== 'ok') {
     // Failed render is never a negative: everything UNKNOWN, then keep any
@@ -404,17 +410,22 @@ export async function runPremiumAnalysis(row: PremiumAnalysisRow): Promise<void>
   }
 
   const paths = writeBundle(row.businessId, row.id, render);
-  const signals = detectSignals(render.html!, render.networkUrls, render.finalUrl!);
-  const { detectedSigs, signalUpgrades } = scanSignatures(render.html!, render.networkUrls);
-  // Upgrade UNKNOWN signals where scanner found evidence (PRESENT-grade detections only)
-  for (const [key, upgrade] of Object.entries(signalUpgrades)) {
-    if (upgrade && signals[key]?.state === 'UNKNOWN') signals[key] = upgrade;
-  }
+  const signals = await stage('signatures', async () => {
+    const signals = detectSignals(render.html!, render.networkUrls, render.finalUrl!);
+    const { detectedSigs, signalUpgrades } = scanSignatures(render.html!, render.networkUrls);
+    // Upgrade UNKNOWN signals where scanner found evidence (PRESENT-grade detections only)
+    for (const [key, upgrade] of Object.entries(signalUpgrades)) {
+      if (upgrade && signals[key]?.state === 'UNKNOWN') signals[key] = upgrade;
+    }
+    return { signals, detectedSigs };
+  });
+  const detectedSigs = signals.detectedSigs;
+  const signalMap = signals.signals;
 
   // PSI: only on ok renders with a real finalUrl. Non-ok path above already returned.
   let psiJson: string | null = null;
   try {
-    const psiData = await runPsi(render.finalUrl!);
+    const psiData = await stage('psi', () => runPsi(render.finalUrl!));
     if (psiData) psiJson = JSON.stringify(psiData);
   } catch (err) {
     console.error('[psi] unexpected error, skipping:', err);
@@ -425,15 +436,15 @@ export async function runPremiumAnalysis(row: PremiumAnalysisRow): Promise<void>
   if (render.desktopScreenshot) {
     try {
       const rubric = getRubric(biz.category ?? null);
-      const visionResult: VisionResult | null = await runVision(
-        render.desktopScreenshot,
+      const visionResult: VisionResult | null = await stage('vision', () => runVision(
+        render.desktopScreenshot!,
         render.mobileScreenshot,
         biz.category ?? null,
         rubric,
-      );
+      ));
       if (visionResult) {
         const psiForCrossCheck: PsiData | null = psiJson ? JSON.parse(psiJson) : null;
-        applyVisionUpgrades(signals, visionResult, true, psiForCrossCheck);
+        applyVisionUpgrades(signalMap, visionResult, true, psiForCrossCheck);
         visionJson = JSON.stringify(visionResult);
         console.log(`[vision] ok for ${biz.website ?? row.businessId}`);
       }
@@ -444,7 +455,7 @@ export async function runPremiumAnalysis(row: PremiumAnalysisRow): Promise<void>
 
   completePremiumAnalysis(row.id, {
     status: 'done', renderOutcome: 'ok', finalUrl: render.finalUrl,
-    signals, cookieWall: render.cookieWallDetected, consoleErrors: render.consoleErrors,
+    signals: signalMap, cookieWall: render.cookieWallDetected, consoleErrors: render.consoleErrors,
     paths, detectedSigs, psiJson, visionJson,
   });
   broadcast('premium:progress', { businessId: row.businessId, analysisId: row.id, status: 'done', renderOutcome: 'ok' });

@@ -121,7 +121,7 @@ async function processItem(runId: string, item: BatchItemRow, dryRun: boolean): 
   transitionItem(itemRef, 'composing');
   broadcastProgress(runId);
   const { subject, body, topGap, verdict } = await composeVerifiedEmail(
-    business, undefined, detectedSigs, psiData, visionResult, signalMap,
+    business, undefined, detectedSigs, psiData, visionResult, signalMap, businessId,
   );
 
   if (verdict.disposition !== 'sent_specific') {

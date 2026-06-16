@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { OutreachLead, DetectedSig, PsiMetrics, VisionResult, VisionObservation, PremiumSignal } from '../../lib/outreachApi';
 import { baLocalToUtcIso, defaultScheduleLocal } from '../../lib/outreachApi';
+import { StageTracker } from './StageTracker';
 
 interface Draft {
   subject: string;
@@ -694,84 +695,14 @@ export function EmailComposer({
           </>
         )}
 
-        {/* Progress strip — analyze/generate pipeline */}
+        {/* Progress strip — determinate stage tracker over SSE (analyze/generate pipeline) */}
         {(isAnalyzing || isGenerating) && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            padding: '8px 14px',
-            background: 'var(--bg-elevated)',
-            border: '1px solid var(--hairline)',
-            borderRadius: 8,
-            flexShrink: 0,
-          }}>
-            {isMultiStep ? (
-              <>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div
-                    className="outreach-dot-pulse"
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      background: isAnalyzing ? 'var(--accent)' : 'var(--success)',
-                      flexShrink: 0,
-                      animation: isAnalyzing ? 'dotPulse 1s ease-in-out infinite' : 'none',
-                    }}
-                  />
-                  <span style={{
-                    fontFamily: 'var(--font-ui)',
-                    fontSize: 12,
-                    color: isAnalyzing ? 'var(--accent)' : 'var(--text-muted)',
-                    fontWeight: isAnalyzing ? 500 : 400,
-                  }}>
-                    Analyzing
-                  </span>
-                </div>
-                <span style={{ color: 'var(--border-strong)', fontSize: 11, userSelect: 'none' as const }}>→</span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div
-                    className="outreach-dot-pulse"
-                    style={{
-                      width: 6,
-                      height: 6,
-                      borderRadius: '50%',
-                      background: isGenerating ? 'var(--accent)' : 'var(--bg-hover)',
-                      border: isGenerating ? 'none' : '1px solid var(--border-strong)',
-                      flexShrink: 0,
-                      animation: isGenerating ? 'dotPulse 1s ease-in-out infinite' : 'none',
-                    }}
-                  />
-                  <span style={{
-                    fontFamily: 'var(--font-ui)',
-                    fontSize: 12,
-                    color: isGenerating ? 'var(--accent)' : 'var(--text-muted)',
-                    fontWeight: isGenerating ? 500 : 400,
-                  }}>
-                    Generating
-                  </span>
-                </div>
-              </>
-            ) : (
-              <>
-                <div
-                  className="outreach-dot-pulse"
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    background: 'var(--accent)',
-                    flexShrink: 0,
-                    animation: 'dotPulse 1s ease-in-out infinite',
-                  }}
-                />
-                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--accent)', fontWeight: 500 }}>
-                  Generating email...
-                </span>
-              </>
-            )}
-          </div>
+          <StageTracker
+            lead={lead}
+            active={isAnalyzing || isGenerating}
+            mode={isMultiStep ? 'full' : isAnalyzing ? 'analyze' : 'generate'}
+            premiumPresent={premium?.status === 'done'}
+          />
         )}
 
         {/* Send confirmation strip — replaces button row when active */}

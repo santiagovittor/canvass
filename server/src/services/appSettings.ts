@@ -112,8 +112,9 @@ export function setSetting(key: string, raw: unknown): SettingValue {
   upsertAppSetting(key, JSON.stringify(value));
   invalidate();
 
-  // Side-effects: rate-limiter reservoir must update live (no restart).
+  // Side-effects: rate-limiter reservoir/concurrency must update live (no restart).
   if (key === 'GEMINI_RPM') rateLimiter.applyRpm(value as number);
+  if (key === 'GEMINI_MAX_CONCURRENT') rateLimiter.applyConcurrency(value as number);
 
   return resolve(key);
 }
@@ -127,6 +128,7 @@ export function resetSetting(key: string): SettingValue {
   deleteAppSetting(key);
   invalidate();
   if (key === 'GEMINI_RPM') rateLimiter.applyRpm(resolve(key) as number);
+  if (key === 'GEMINI_MAX_CONCURRENT') rateLimiter.applyConcurrency(resolve(key) as number);
   return resolve(key);
 }
 

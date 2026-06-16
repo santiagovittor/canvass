@@ -118,16 +118,42 @@ export const FIELDS: SettingField[] = [
 
   // ── Gemini & Rate Limits ──
   {
-    key: 'GEMINI_MODEL', group: 'Gemini & Rate Limits', label: 'Gemini model (compose + verify)',
+    key: 'GEMINI_MODEL', group: 'Gemini & Rate Limits', label: 'Gemini model (compose)',
     type: 'string', default: 'gemini-3.5-flash',
   },
   {
+    key: 'GEMINI_VERIFIER_MODEL', group: 'Gemini & Rate Limits', label: 'Gemini model (verify)',
+    type: 'string', default: 'gemini-2.5-flash',
+    help: 'Must stay a SEPARATE model from the composer. 2.5-flash is cheaper and currently more reliable than 3.5-flash for the fact-check pass.',
+  },
+  {
     key: 'GEMINI_RPM', group: 'Gemini & Rate Limits', label: 'Gemini requests/min',
-    type: 'number', unit: 'rpm', min: 1, max: 10_000, default: 10, envVar: 'GEMINI_RPM',
+    type: 'number', unit: 'rpm', min: 1, max: 10_000, default: 120, envVar: 'GEMINI_RPM',
+    help: 'Tuned to Tier-1 headroom for fast generation. minTime spacing = 60000/RPM ms between calls.',
   },
   {
     key: 'GEMINI_RPD', group: 'Gemini & Rate Limits', label: 'Gemini requests/day',
     type: 'number', unit: 'rpd', min: 1, max: 10_000_000, default: 1000, envVar: 'GEMINI_RPD',
+  },
+  {
+    key: 'GEMINI_MAX_CONCURRENT', group: 'Gemini & Rate Limits', label: 'Gemini max concurrent calls',
+    type: 'number', min: 1, max: 8, default: 1,
+    help: 'Keep at 1 to serialize vision image calls so one analysis can’t burst. Raise only for batch throughput.',
+  },
+  {
+    key: 'GEMINI_TIMEOUT_MS', group: 'Gemini & Rate Limits', label: 'Per-call hard timeout (compose/verify)',
+    type: 'number', unit: 'ms', min: 5_000, max: 120_000, default: 30_000,
+    help: 'Each generateContent call is aborted past this. Fail fast, then retry within the total cap — nothing hangs for minutes.',
+  },
+  {
+    key: 'GEMINI_VISION_TIMEOUT_MS', group: 'Gemini & Rate Limits', label: 'Per-call hard timeout (vision)',
+    type: 'number', unit: 'ms', min: 5_000, max: 120_000, default: 40_000,
+    help: 'Vision calls carry screenshots and run slower; given a longer per-call ceiling than text calls.',
+  },
+  {
+    key: 'GEMINI_TOTAL_CAP_MS', group: 'Gemini & Rate Limits', label: 'Total wall-clock cap per call',
+    type: 'number', unit: 'ms', min: 10_000, max: 300_000, default: 90_000,
+    help: 'Hard ceiling on a single logical call across all retries (honors server retryDelay but bounded). Past this, fail safe.',
   },
 
   // ── Batch & Automation ──

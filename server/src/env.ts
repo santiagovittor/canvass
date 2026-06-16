@@ -38,7 +38,8 @@ const schema = z.object({
   // Per-item analyze timeout (Playwright render + PSI + vision can hang).
   BATCH_ANALYZE_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
   // Gemini throttle. RPM enforced in-memory by Bottleneck; keep below the tier limit.
-  GEMINI_RPM: z.coerce.number().int().positive().default(10),
+  // Default tuned to Tier-1 headroom for fast generation (minTime = 60000/RPM ms).
+  GEMINI_RPM: z.coerce.number().int().positive().default(120),
   // Gemini daily request budget — persisted, Pacific-date keyed. Conservative default;
   // tune to the account tier. Retries are absorbed by the margin below the real ceiling.
   GEMINI_RPD: z.coerce.number().int().positive().default(1000),

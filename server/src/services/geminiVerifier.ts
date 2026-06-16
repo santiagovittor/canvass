@@ -6,7 +6,7 @@ import type { SignalMap } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from './visionClient';
 import type { ComposedClaim } from './geminiComposer';
-import { getString } from './appSettings';
+import { getString, getNumber } from './appSettings';
 
 export interface VerificationBundle {
   signals?: SignalMap;
@@ -115,8 +115,11 @@ async function callGeminiVerifier(
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
 
   const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+  // SEPARATE model from the composer (GEMINI_VERIFIER_MODEL) — an independent model
+  // fact-checking the composer's output, never the same one that wrote it.
+  const verifierModel = getString('GEMINI_VERIFIER_MODEL');
   const model = genAI.getGenerativeModel({
-    model: getString('GEMINI_MODEL'),
+    model: verifierModel,
     systemInstruction: SYSTEM_VERIFIER,
     generationConfig: {
       responseMimeType: 'application/json',
@@ -134,7 +137,12 @@ async function callGeminiVerifier(
     },
   };
 
-  const result = await withGeminiRate(() => model.generateContent(JSON.stringify(userPayload)), 'verify');
+  const timeoutMs = getNumber('GEMINI_TIMEOUT_MS');
+  const result = await withGeminiRate(
+    signal => model.generateContent(JSON.stringify(userPayload), { signal, timeout: timeoutMs }),
+    'verify',
+    { timeoutMs, model: verifierModel },
+  );
   const text = result.response.text().trim();
 
   // Strip markdown code fences if model wraps response

@@ -78,7 +78,7 @@ async function analyzeAndCompose(target: Target): Promise<{ row: Row; syntheticI
     const signalMap: SignalMap | undefined = premium?.signalsJson ? JSON.parse(premium.signalsJson) as SignalMap : undefined;
     const anchors = rankAnchors(business, detectedSigs, psiData, visionResult, signalMap);
 
-    const result = await composeVerifiedEmail(business, undefined, detectedSigs, psiData, visionResult, signalMap);
+    const result = await composeVerifiedEmail(business, undefined, detectedSigs, psiData, visionResult, signalMap, businessId);
     upsertDraft(businessId, result.subject, result.body, true);
     saveDraftTopGap(businessId, result.topGap);
     saveDraftVerification(businessId, JSON.stringify(result.verdict));

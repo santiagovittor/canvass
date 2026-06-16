@@ -1,7 +1,10 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { Part } from '@google/generative-ai';
 import { env } from '../env';
-import { withGeminiRate } from './geminiRateLimiter';
+import { withGeminiRate, describeGeminiError } from './geminiRateLimiter';
+import { getNumber } from './appSettings';
+
+const VISION_MODEL = 'gemini-2.5-flash';
 
 export interface VisionObservation {
   headline: string;   // ≈3–7 words, scannable
@@ -64,7 +67,7 @@ export async function runVision(
 
   const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: VISION_MODEL,
     systemInstruction: SYSTEM_PROMPT,
   });
 
@@ -78,7 +81,12 @@ export async function runVision(
   }
 
   try {
-    const result = await withGeminiRate(() => model.generateContent({ contents: [{ role: 'user', parts }] }), 'vision');
+    const visionTimeout = getNumber('GEMINI_VISION_TIMEOUT_MS');
+    const result = await withGeminiRate(
+      signal => model.generateContent({ contents: [{ role: 'user', parts }] }, { signal, timeout: visionTimeout }),
+      'vision',
+      { timeoutMs: visionTimeout, model: VISION_MODEL },
+    );
     const raw = result.response.text().trim();
     const cleaned = stripFences(raw);
 
@@ -134,7 +142,9 @@ export async function runVision(
       mobileResponsive: toTristate(v.mobileResponsive),
     };
   } catch (err) {
-    console.error('[vision] API error, degrading to null:', err);
+    const d = describeGeminiError(err);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[vision] API error, degrading to null: ${msg} (status=${d.status ?? '?'}${d.quotaLimitValue ? ` limit=${d.quotaLimitValue}` : ''}${d.retryDelayMs != null ? ` retryDelay=${(d.retryDelayMs / 1000).toFixed(1)}s` : ''})`);
     return null;
   }
 }

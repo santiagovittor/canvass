@@ -114,7 +114,7 @@ async function runOne(label: string, row: AnalysisRow): Promise<boolean> {
   const visionResult: VisionResult | null = row.vision_json ? JSON.parse(row.vision_json) : null;
 
   const ranked = rankAnchors(business, detectedSigs, psiData, visionResult, signalMap);
-  const result = await composeVerifiedEmail(business, undefined, detectedSigs, psiData, visionResult, signalMap);
+  const result = await composeVerifiedEmail(business, undefined, detectedSigs, psiData, visionResult, signalMap, row.business_id);
   const v = result.verdict;
   const sendAllowed = SEND_ALLOWED_STATUSES.includes(v.status);
 

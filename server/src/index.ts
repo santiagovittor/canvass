@@ -25,8 +25,12 @@ import { kickEnrichment } from './services/enrichmentQueue';
 import { kickPremiumAnalysis } from './services/premiumAnalysisQueue';
 import { resetOrphanedRunning } from './db/premium';
 import { resumeInterruptedBatches } from './services/batchOrchestrator';
+import { initLimiterFromSettings } from './services/geminiRateLimiter';
 
 runMigrations();
+// Apply persisted Gemini RPM / concurrency overrides to the limiter (the module-load
+// reservoir only sees env defaults; a Settings override must take effect without restart).
+initLimiterFromSettings();
 resumeOrphanedJobs();
 // Pick up any social/location enrichment left unfinished by a restart
 kickEnrichment();

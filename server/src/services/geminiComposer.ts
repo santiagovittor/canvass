@@ -9,7 +9,7 @@ import type { DetectedSig, SignalMap } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from './visionClient';
 import type { AnchorCandidate } from './anchorRanker';
-import { getString } from './appSettings';
+import { getString, getNumber } from './appSettings';
 
 // Structured composer output. The composer declares the anchor it built the
 // opening on, plus every website claim it made (each tied to an evidenceRef) so
@@ -557,12 +557,18 @@ async function callGemini(systemPrompt: string, userPayload: Record<string, unkn
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
 
   const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+  const composeModel = getString('GEMINI_MODEL');
   const model = genAI.getGenerativeModel({
-    model: getString('GEMINI_MODEL'),
+    model: composeModel,
     systemInstruction: systemPrompt,
   });
 
-  const result = await withGeminiRate(() => model.generateContent(JSON.stringify(userPayload)), 'compose-followup');
+  const timeoutMs = getNumber('GEMINI_TIMEOUT_MS');
+  const result = await withGeminiRate(
+    signal => model.generateContent(JSON.stringify(userPayload), { signal, timeout: timeoutMs }),
+    'compose-followup',
+    { timeoutMs, model: composeModel },
+  );
   const text = result.response.text().trim();
 
   let parsed: unknown;
@@ -614,8 +620,9 @@ async function callGeminiStructured(systemPrompt: string, userPayload: Record<st
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
 
   const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+  const composeModel = getString('GEMINI_MODEL');
   const model = genAI.getGenerativeModel({
-    model: getString('GEMINI_MODEL'),
+    model: composeModel,
     systemInstruction: systemPrompt,
     generationConfig: {
       responseMimeType: 'application/json',
@@ -623,10 +630,15 @@ async function callGeminiStructured(systemPrompt: string, userPayload: Record<st
     },
   });
 
+  const timeoutMs = getNumber('GEMINI_TIMEOUT_MS');
   let lastErr: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const result = await withGeminiRate(() => model.generateContent(JSON.stringify(userPayload)), 'compose');
+      const result = await withGeminiRate(
+        signal => model.generateContent(JSON.stringify(userPayload), { signal, timeout: timeoutMs }),
+        'compose',
+        { timeoutMs, model: composeModel },
+      );
       const text = result.response.text().trim();
       const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
       return ComposedEmailSchema.parse(JSON.parse(cleaned));

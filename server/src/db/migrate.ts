@@ -117,4 +117,11 @@ export function runMigrations() {
   if (!premiumCols.includes('detected_sigs_json')) {
     sqlite.exec('ALTER TABLE premium_analyses ADD COLUMN detected_sigs_json TEXT');
   }
+
+  // Safety-net: at most one active (scheduled/claimed/deferred) row per business.
+  // Existing duplicates were cleaned manually; backup at scheduled_sends_bak_20260617.
+  const ssIdxNames = (sqlite.prepare(`PRAGMA index_list(scheduled_sends)`).all() as { name: string }[]).map(r => r.name);
+  if (!ssIdxNames.includes('uq_ss_business_active')) {
+    sqlite.exec(`CREATE UNIQUE INDEX uq_ss_business_active ON scheduled_sends (business_id) WHERE status IN ('scheduled','claimed','deferred')`);
+  }
 }

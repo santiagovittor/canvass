@@ -723,6 +723,14 @@ export function getDueScheduledSends(nowUtcIso: string): ScheduledSendRow[] {
   return stmtDueScheduled.all(nowUtcIso);
 }
 
+// Business-level dedup guard for enqueue: returns true if any active row exists.
+const stmtHasActiveScheduledSend = sqlite.prepare<[string], { id: string }>(
+  `SELECT id FROM scheduled_sends WHERE business_id = ? AND status IN ('scheduled','claimed','deferred') LIMIT 1`
+);
+export function hasActiveScheduledSend(businessId: string): boolean {
+  return stmtHasActiveScheduledSend.get(businessId) !== undefined;
+}
+
 // Atomic claim — the idempotency primitive. SQLite serializes writers, so among
 // overlapping ticks / a restart, exactly one UPDATE flips 'scheduled'→'claimed'.
 // changes===1 ⇒ this caller owns the row and may transmit. attempt_count counts

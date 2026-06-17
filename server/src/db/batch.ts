@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { and, eq, inArray } from 'drizzle-orm';
-import { db, sqlite, createScheduledSend } from './index';
+import { db, sqlite, createScheduledSend, hasActiveScheduledSend } from './index';
 import { nowUtcMinus3 } from '../util/time';
 import { batchRuns, batchItems } from './schema';
 
@@ -42,8 +42,9 @@ export function createBatchRun(input: { size: number; dryRun: boolean; total: nu
 
 export function addBatchItems(batchId: string, businessIds: string[]): void {
   const now = nowUtcMinus3();
+  const unique = [...new Set(businessIds)];
   const txn = sqlite.transaction(() => {
-    for (const businessId of businessIds) {
+    for (const businessId of unique) {
       db.insert(batchItems).values({
         id: randomUUID(), batchId, businessId, state: 'pending', createdAt: now, updatedAt: now,
       }).run();
@@ -104,6 +105,7 @@ const enqueueTxn = sqlite.transaction((args: {
 }): { scheduledId: string | null; alreadyQueued: boolean } => {
   const cur = db.select({ state: batchItems.state }).from(batchItems).where(eq(batchItems.id, args.item.id)).get();
   if (cur?.state === 'queued_for_send') return { scheduledId: null, alreadyQueued: true };
+  if (hasActiveScheduledSend(args.scheduled.businessId)) return { scheduledId: null, alreadyQueued: true };
   const sched = createScheduledSend(args.scheduled);
   transitionItem(args.item, 'queued_for_send', { disposition: 'sent_specific' });
   return { scheduledId: sched.id, alreadyQueued: false };

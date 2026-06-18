@@ -10,14 +10,14 @@ const MAX_BATCH = 200; // safety ceiling; presets are 15/30/60
 // concurrency + Gemini throttle; passing drafts enqueue into scheduled_sends (the
 // governor still meters actual sending). dryRun threads through to the queue rows.
 router.post('/', (req, res) => {
-  const { businessIds, dryRun } = req.body as { businessIds?: unknown; dryRun?: unknown };
+  const { businessIds, dryRun, forceRefresh } = req.body as { businessIds?: unknown; dryRun?: unknown; forceRefresh?: unknown };
   if (!Array.isArray(businessIds) || businessIds.length === 0 || !businessIds.every(b => typeof b === 'string')) {
     return res.status(400).json({ error: 'businessIds (non-empty string[]) is required' });
   }
   if (businessIds.length > MAX_BATCH) {
     return res.status(400).json({ error: `batch size ${businessIds.length} exceeds max ${MAX_BATCH}` });
   }
-  const runId = startBatch(businessIds as string[], dryRun === true);
+  const runId = startBatch(businessIds as string[], dryRun === true, forceRefresh === true);
   res.json({ runId });
 });
 

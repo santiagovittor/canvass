@@ -19,6 +19,7 @@ import { resolveBusinessType, describeWindow } from './outreachSchedulingConfig'
 import { nextOptimalWindowUtc } from './outreachGovernor';
 import { GeminiRpdExhausted } from './geminiRateLimiter';
 import { getNumber } from './appSettings';
+import { withAnalysis, stageCached } from './stageTracker';
 
 // ── In-house bounded-concurrency semaphore ────────────────────────────────────
 // Concurrency is a throttle, not a speed dial: it caps how many leads prepare at
@@ -50,6 +51,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 
 // One driver per run at a time. startBatch/resumeBatch are idempotent against this.
 const activeRuns = new Set<string>();
+const forceRefreshRuns = new Set<string>();
 
 function broadcastProgress(runId: string): void {
   const run = getBatchRun(runId);
@@ -83,16 +85,34 @@ async function processItem(runId: string, item: BatchItemRow, dryRun: boolean): 
     return broadcastProgress(runId);
   }
 
-  // ── analyze: reuse a done premium analysis, else run it directly under our slot ──
+  // ── analyze: TTL-gated reuse — skip if fresh + complete, else re-run ──
   if (!runIsRunning(runId)) return;
   transitionItem(itemRef, 'analyzing');
   broadcastProgress(runId);
 
   let premium = getLatestPremiumAnalysis(businessId);
-  if (!premium || premium.status !== 'done') {
+  const ttlDays = getNumber('REUSE_ANALYSIS_TTL_DAYS');
+  const forceRefresh = forceRefreshRuns.has(runId);
+  const isStale =
+    !premium
+    || premium.status !== 'done'
+    || !premium.completedAt
+    || ttlDays === 0
+    || forceRefresh
+    || Date.now() - new Date(premium.completedAt).getTime() > ttlDays * 86400000
+    || !premium.detectedSigsJson || !premium.psiJson || !premium.visionJson || !premium.signalsJson;
+
+  if (isStale) {
     const fresh = createPremiumAnalysisRunning(businessId);
     await withTimeout(runPremiumAnalysis(fresh), getNumber('BATCH_ANALYZE_TIMEOUT_MS'), 'analyze_timeout');
     premium = getLatestPremiumAnalysis(businessId);
+  } else {
+    await withAnalysis(businessId, 'premium', async () => {
+      stageCached('render');
+      stageCached('signatures');
+      stageCached('psi');
+      stageCached('vision');
+    });
   }
   if (!premium || premium.status !== 'done') {
     transitionItem(itemRef, 'failed', { lastError: 'premium_analysis_failed', disposition: 'failed' });
@@ -190,14 +210,16 @@ async function driveRun(runId: string): Promise<void> {
     broadcastProgress(runId);
   } finally {
     activeRuns.delete(runId);
+    forceRefreshRuns.delete(runId);
   }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export function startBatch(businessIds: string[], dryRun: boolean): string {
+export function startBatch(businessIds: string[], dryRun: boolean, forceRefresh = false): string {
   const run = createBatchRun({ size: businessIds.length, dryRun, total: businessIds.length });
   addBatchItems(run.id, businessIds);
+  if (forceRefresh) forceRefreshRuns.add(run.id);
   void driveRun(run.id);
   return run.id;
 }

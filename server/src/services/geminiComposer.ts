@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
-import { withGeminiRate, GeminiRpdExhausted } from './geminiRateLimiter';
+import { withGeminiRate, GeminiRpdExhausted, describeGeminiError } from './geminiRateLimiter';
 import type { ResponseSchema } from '@google/generative-ai';
 import { z } from 'zod';
 import { env } from '../env';
@@ -650,6 +650,35 @@ async function callGeminiStructured(systemPrompt: string, userPayload: Record<st
     }
   }
   const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  const errDesc = describeGeminiError(lastErr);
+  const fallbackModelId = getString('GEMINI_COMPOSER_FALLBACK_MODEL');
+  const shouldFallback =
+    errDesc.status !== null &&
+    errDesc.status >= 500 &&
+    !!fallbackModelId &&
+    fallbackModelId !== composeModel;
+  if (shouldFallback) {
+    console.warn(
+      `[gemini] composer 503 fallback: primary=${composeModel} exhausted ` +
+      `(status=${errDesc.status}), trying fallback=${fallbackModelId}`,
+    );
+    const fallbackModel = genAI.getGenerativeModel({
+      model: fallbackModelId,
+      systemInstruction: systemPrompt,
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: COMPOSED_RESPONSE_SCHEMA,
+      },
+    });
+    const fallbackResult = await withGeminiRate(
+      signal => fallbackModel.generateContent(JSON.stringify(userPayload), { signal, timeout: timeoutMs }),
+      'compose-fallback',
+      { timeoutMs, model: fallbackModelId },
+    );
+    const fallbackText = fallbackResult.response.text().trim();
+    const fallbackCleaned = fallbackText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    return ComposedEmailSchema.parse(JSON.parse(fallbackCleaned));
+  }
   throw new Error(`Composer structured output failed after retries: ${msg}`);
 }
 

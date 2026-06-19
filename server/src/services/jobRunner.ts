@@ -74,6 +74,34 @@ export async function startJob(params: StartJobParams): Promise<string> {
   return jobId;
 }
 
+// Synchronous variant for the scrape scheduler: creates a scrapeJob row, awaits
+// runJob directly (does not fire-and-forget), returns businessesFound from DB.
+export async function runJobSync(params: StartJobParams): Promise<{ jobId: string; businessesFound: number }> {
+  const jobId = randomBytes(16).toString('base64url');
+  const bbox = bboxFromGeoJSON(params.geometry);
+  const count = computeCellCount(bbox, params.gridCellKm);
+  const now = new Date().toISOString();
+  const ring = params.geometry.coordinates[0];
+  const usableCells = computeGrid(bbox, params.gridCellKm).filter(cell =>
+    pointInPolygon((cell.minLon + cell.maxLon) / 2, (cell.minLat + cell.maxLat) / 2, ring));
+  if (usableCells.length === 0) throw new Error('Polygon too small for current cell size');
+  db.insert(scrapeJobs).values({
+    id: jobId,
+    searchTerm: params.searchTerm,
+    language: params.language,
+    bboxJson: JSON.stringify(bbox),
+    gridCellKm: params.gridCellKm,
+    cellCount: count,
+    status: 'pending',
+    geometryJson: JSON.stringify(params.geometry),
+    extractEmails: params.extractEmails ? 1 : 0,
+    createdAt: now,
+  }).run();
+  await runJob(jobId, params, bbox, count);
+  const job = db.select().from(scrapeJobs).where(eq(scrapeJobs.id, jobId)).get();
+  return { jobId, businessesFound: job?.businessesFound ?? 0 };
+}
+
 // On boot, re-enter jobs interrupted by a server restart instead of failing them.
 // computeGrid order is deterministic, so cellsDone identifies the first unfinished
 // cell; the in-flight cell is redone and the place_id upsert makes that idempotent.

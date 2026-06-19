@@ -146,6 +146,64 @@ export function resumeErroredJob(jobId: string): 'ok' | 'not_found' | 'not_resum
   return resumeJob(job) ? 'ok' : 'not_resumable';
 }
 
+function upsertRawResults(
+  rawResults: Record<string, unknown>[],
+  jobId: string,
+  scrapedAt: string,
+): { inserted: number } {
+  let inserted = 0;
+  for (const r of rawResults) {
+    const lat = (r.latitude as number) ?? (r.lat as number);
+    const lng = (r.longitude as number) ?? (r.lng as number);
+    if (lat == null || lng == null) continue;
+
+    db.insert(businesses).values({
+      id: (r.place_id as string) ?? randomBytes(16).toString('base64url'),
+      jobId,
+      name: (r.title as string) ?? 'Unknown',
+      address: (r.address as string) ?? null,
+      phone: (r.phone as string) ?? null,
+      website: (r.website as string) ?? null,
+      hoursJson: r.open_hours ? JSON.stringify(r.open_hours) : null,
+      rating: (r.review_rating as number) ?? null,
+      reviewCount: (r.review_count as number) ?? (r.reviewCount as number) ?? null,
+      category: (r.category as string) ?? null,
+      latitude: lat,
+      longitude: lng,
+      instagram: null, facebook: null, twitter: null, tiktok: null,
+      linkedin: null, youtube: null,
+      emailsJson: r.emails ? JSON.stringify(r.emails) : null,
+      socialEnriched: 0,
+      scrapedAt,
+    }).onConflictDoUpdate({
+      target: businesses.id,
+      set: {
+        name: sql`excluded.name`,
+        address: sql`excluded.address`,
+        phone: sql`excluded.phone`,
+        website: sql`excluded.website`,
+        hoursJson: sql`excluded.hours_json`,
+        rating: sql`excluded.rating`,
+        reviewCount: sql`excluded.review_count`,
+        category: sql`excluded.category`,
+        latitude: sql`excluded.latitude`,
+        longitude: sql`excluded.longitude`,
+        instagram: sql`excluded.instagram`,
+        facebook: sql`excluded.facebook`,
+        twitter: sql`excluded.twitter`,
+        tiktok: sql`excluded.tiktok`,
+        linkedin: sql`excluded.linkedin`,
+        youtube: sql`excluded.youtube`,
+        emailsJson: sql`COALESCE(excluded.emails_json, emails_json)`,
+        socialEnriched: sql`excluded.social_enriched`,
+        scrapedAt: sql`excluded.scraped_at`,
+      },
+    }).run();
+    inserted++;
+  }
+  return { inserted };
+}
+
 async function runJob(
   jobId: string,
   params: StartJobParams,
@@ -208,67 +266,20 @@ async function runJob(
         const rawResults = polledResults ?? await gosom.downloadResults(gosomId);
         const scrapedAt = new Date().toISOString();
 
-        let countNoLatLng = 0, countOutsidePolygon = 0, countDuplicate = 0, countInserted = 0;
+        let countNoLatLng = 0, countOutsidePolygon = 0, countDuplicate = 0;
+        const toUpsert: Record<string, unknown>[] = [];
         for (const r of rawResults) {
           const pid = r.place_id as string | undefined;
           if (pid && seenIds.has(pid)) { countDuplicate++; continue; }
-
           const lat = (r.latitude as number) ?? (r.lat as number);
           const lng = (r.longitude as number) ?? (r.lng as number);
           if (lat == null || lng == null) { countNoLatLng++; continue; }
-
           if (!pointInPolygon(lng, lat, polygonRing)) { countOutsidePolygon++; continue; }
-
           if (pid) seenIds.add(pid);
-          countInserted++;
-
-          db.insert(businesses).values({
-            id: pid ?? randomBytes(16).toString('base64url'),
-            jobId,
-            name: (r.title as string) ?? 'Unknown',
-            address: (r.address as string) ?? null,
-            phone: (r.phone as string) ?? null,
-            website: (r.website as string) ?? null,
-            hoursJson: r.open_hours ? JSON.stringify(r.open_hours) : null,
-            rating: (r.review_rating as number) ?? null,
-            reviewCount: (r.review_count as number) ?? (r.reviewCount as number) ?? null,
-            category: (r.category as string) ?? null,
-            latitude: lat,
-            longitude: lng,
-            instagram: null, facebook: null, twitter: null, tiktok: null,
-            linkedin: null, youtube: null,
-            emailsJson: r.emails ? JSON.stringify(r.emails) : null,
-            socialEnriched: 0,
-            scrapedAt,
-          }).onConflictDoUpdate({
-            target: businesses.id,
-            set: {
-              name: sql`excluded.name`,
-              address: sql`excluded.address`,
-              phone: sql`excluded.phone`,
-              website: sql`excluded.website`,
-              hoursJson: sql`excluded.hours_json`,
-              rating: sql`excluded.rating`,
-              reviewCount: sql`excluded.review_count`,
-              category: sql`excluded.category`,
-              latitude: sql`excluded.latitude`,
-              longitude: sql`excluded.longitude`,
-              instagram: sql`excluded.instagram`,
-              facebook: sql`excluded.facebook`,
-              twitter: sql`excluded.twitter`,
-              tiktok: sql`excluded.tiktok`,
-              linkedin: sql`excluded.linkedin`,
-              youtube: sql`excluded.youtube`,
-              // gosom no longer supplies emails (email: false) — keep enrichment-written
-              // emails on re-scrape instead of nulling them
-              emailsJson: sql`COALESCE(excluded.emails_json, emails_json)`,
-              socialEnriched: sql`excluded.social_enriched`,
-              scrapedAt: sql`excluded.scraped_at`,
-            },
-          }).run();
-
-          businessesFound++;
+          toUpsert.push(r);
         }
+        const { inserted: countInserted } = upsertRawResults(toUpsert, jobId, scrapedAt);
+        businessesFound += countInserted;
         console.log(`[jobRunner] pipeline stats for ${gosomId}: inserted=${countInserted} noLatLng=${countNoLatLng} outsidePolygon=${countOutsidePolygon} duplicate=${countDuplicate}`);
 
         jobsDone++;

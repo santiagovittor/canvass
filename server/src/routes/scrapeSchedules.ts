@@ -67,7 +67,7 @@ router.delete('/:id', (req, res) => {
 // POST /:id/run-now — set next_run_at = now so worker picks up on next tick
 router.post('/:id/run-now', (req, res) => {
   const { id } = req.params;
-  const row = updateSchedule(id, { next_run_at: new Date().toISOString() });
+  const row = updateSchedule(id, { next_run_at: new Date().toISOString(), enabled: 1 });
   if (!row) return void res.status(404).json({ error: 'not_found' });
   res.json(row);
 });

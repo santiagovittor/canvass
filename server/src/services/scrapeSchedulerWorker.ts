@@ -93,7 +93,7 @@ async function tick(): Promise<void> {
           const { jobId, businessesFound } = await runJobSync(params);
           const addedRow = sqlite.prepare('SELECT COUNT(*) as n FROM businesses WHERE job_id = ?').get(jobId) as { n: number };
           const addedCount = addedRow.n;
-          const dedupedCount = businessesFound - addedCount;
+          const dedupedCount = Math.max(0, businessesFound - addedCount);
           finishScheduleRun(runId, 'ok', addedCount, dedupedCount);
           updateScheduleAfterRun(schedule.id, 'ok', addedCount);
           counts.ran++;

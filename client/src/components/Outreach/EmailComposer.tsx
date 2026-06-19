@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import type { OutreachLead, DetectedSig, PsiMetrics, VisionResult, VisionObservation, PremiumSignal } from '../../lib/outreachApi';
-import { baLocalToUtcIso, defaultScheduleLocal } from '../../lib/outreachApi';
+import type { OutreachLead, DetectedSig, PsiMetrics, VisionResult, VisionObservation, PremiumSignal, ScheduledSendRow } from '../../lib/outreachApi';
+import { baLocalToUtcIso, defaultScheduleLocal, formatScheduledAt } from '../../lib/outreachApi';
 import { StageTracker } from './StageTracker';
 
 interface Draft {
@@ -35,6 +35,7 @@ interface EmailComposerProps {
   pendingLead: OutreachLead | null;
   onConfirmSwitch: () => void;
   onCancelSwitch: () => void;
+  leadScheduleRow?: ScheduledSendRow | null;
 }
 
 const DAILY_CAP = 30;
@@ -290,7 +291,7 @@ export function EmailComposer({
   onForceSend, onSchedule, verificationVerdict,
   onPremiumAnalyze, premium, onSend, onSkip,
   signatureHtml, senderName, senderEmail,
-  pendingLead, onConfirmSwitch, onCancelSwitch,
+  pendingLead, onConfirmSwitch, onCancelSwitch, leadScheduleRow,
 }: EmailComposerProps) {
   const [isSent, setIsSent] = useState(false);
   const [previewing, setPreviewing] = useState(false);
@@ -350,6 +351,31 @@ export function EmailComposer({
   // fire time, so it never lets a held draft transmit. We only require a complete
   // draft + a deliverable address.
   const canSchedule = !!(lead?.valid_email) && !isAnalyzing && !isGenerating && !isSending && !isSent && !!draft.subject.trim() && !!draft.body.trim();
+
+  function scheduleButtonLabel(): string {
+    if (!leadScheduleRow) return 'Schedule ⏰';
+    switch (leadScheduleRow.status) {
+      case 'scheduled':
+      case 'deferred':
+        return `Scheduled ${formatScheduledAt(leadScheduleRow.scheduled_at)}`;
+      case 'claimed':
+        return 'Sending…';
+      case 'sent':
+        return `Sent ${formatScheduledAt(leadScheduleRow.updated_at)}`;
+      case 'superseded':
+        return 'Sent manually';
+      case 'failed':
+        return 'Failed — retry';
+      case 'held':
+        return 'Held';
+      case 'skipped':
+        return 'Skipped';
+      case 'canceled':
+        return 'Canceled';
+      default:
+        return 'Schedule ⏰';
+    }
+  }
 
   function handleScheduleClick() {
     if (!canSchedule) return;
@@ -908,9 +934,14 @@ export function EmailComposer({
               className="btn-secondary"
               onClick={handleScheduleClick}
               disabled={!canSchedule}
+              title={
+                leadScheduleRow?.status === 'held' || leadScheduleRow?.status === 'failed'
+                  ? (leadScheduleRow.last_error ?? undefined)
+                  : undefined
+              }
               style={{ flex: '0 0 auto' }}
             >
-              Schedule ⏰
+              {scheduleButtonLabel()}
             </button>
             <button
               className="btn-primary"

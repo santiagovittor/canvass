@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { MapContainer, TileLayer } from 'react-leaflet';
-import type { OutreachLead, WebsiteAnalysis, ScheduledSend } from '../../lib/outreachApi';
+import type { OutreachLead, WebsiteAnalysis, ScheduledSend, ScheduledQueueStatus } from '../../lib/outreachApi';
 import { countryFlag, formatScheduledAt, baLocalToUtcIso, defaultScheduleLocal } from '../../lib/outreachApi';
+import { SchedulerStatus } from './SchedulerStatus';
 
 const BOOKABLE_CATS = /salón|salon|gym|gimnasio|clínica|clinica|restaurant|spa|peluquería|peluqueria|consultorio|dentist|fitness|studio|pilates|yoga|médico|medico/i;
 const FOOD_CATS = /restaurant|café|cafe|bar|comida|panadería|panaderia|heladería|heladeria|pizzería|pizzeria|delivery|cocina|sushi|burger|parrilla/i;
@@ -13,6 +14,7 @@ interface BusinessContextProps {
   scheduled?: ScheduledSend[];
   onCancelScheduled?: (id: string) => void;
   onRescheduleScheduled?: (id: string, sendAt: string) => void;
+  queueStatus?: ScheduledQueueStatus | null;
 }
 
 // Global (not lead-scoped) list of upcoming scheduled sends. Distinct elevated
@@ -269,7 +271,7 @@ function LeadResearch({ analysis, category }: { analysis: WebsiteAnalysis; categ
   );
 }
 
-export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCancelScheduled, onRescheduleScheduled }: BusinessContextProps) {
+export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCancelScheduled, onRescheduleScheduled, queueStatus }: BusinessContextProps) {
   if (!lead) {
     return (
       <div style={{
@@ -281,6 +283,7 @@ export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCa
         flexDirection: 'column' as const,
         gap: 12,
       }}>
+        {queueStatus && <SchedulerStatus status={queueStatus} />}
         {scheduled && (
           <ScheduledSection items={scheduled} onCancel={onCancelScheduled} onReschedule={onRescheduleScheduled} />
         )}
@@ -312,7 +315,8 @@ export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCa
       flexDirection: 'column' as const,
       gap: 12,
     }}>
-      {/* Global scheduled-sends list (not lead-scoped) */}
+      {/* Scheduler health panel + global scheduled-sends list (not lead-scoped) */}
+      {queueStatus && <SchedulerStatus status={queueStatus} />}
       {scheduled && (
         <ScheduledSection items={scheduled} onCancel={onCancelScheduled} onReschedule={onRescheduleScheduled} />
       )}

@@ -6,10 +6,10 @@ import { BusinessContext } from '../components/Outreach/BusinessContext';
 import { BatchRunner } from '../components/Outreach/BatchRunner';
 import { startBatch, pauseBatch, resumeBatch, cancelBatch } from '../lib/batchApi';
 import type { BatchProgress } from '../lib/batchApi';
-import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis, scheduleDraft, listScheduled, cancelScheduled, rescheduleScheduled } from '../lib/outreachApi';
+import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis, scheduleDraft, listScheduled, cancelScheduled, rescheduleScheduled, getLeadScheduleStatus, getScheduledQueueStatus } from '../lib/outreachApi';
 import { patchOutreach, getConfig } from '../lib/api';
 import { useSSE } from '../hooks/useSSE';
-import type { OutreachLead, OutreachStats, WebsiteAnalysis, DetectedSig, PsiMetrics, VisionResult, PremiumSignal, ScheduledSend } from '../lib/outreachApi';
+import type { OutreachLead, OutreachStats, WebsiteAnalysis, DetectedSig, PsiMetrics, VisionResult, PremiumSignal, ScheduledSend, ScheduledSendRow, ScheduledQueueStatus } from '../lib/outreachApi';
 
 interface Draft {
   subject: string;
@@ -51,6 +51,8 @@ export function Outreach({ onEmailSent }: OutreachProps) {
   const [senderName, setSenderName] = useState('');
   const [senderEmail, setSenderEmail] = useState('');
   const [scheduled, setScheduled] = useState<ScheduledSend[]>([]);
+  const [leadScheduleRow, setLeadScheduleRow] = useState<ScheduledSendRow | null>(null);
+  const [queueStatus, setQueueStatus] = useState<ScheduledQueueStatus | null>(null);
   const [queueCount, setQueueCount] = useState(0);
   const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null);
   const batchRunIdRef = useRef<string | null>(null);
@@ -79,6 +81,10 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     try {
       setScheduled(await listScheduled());
     } catch (err) { console.error('[Outreach]', err); }
+  }, []);
+
+  const fetchQueueStatus = useCallback(async () => {
+    try { setQueueStatus(await getScheduledQueueStatus()); } catch { /* non-fatal */ }
   }, []);
 
   const handleLeadsChange = useCallback((rows: OutreachLead[]) => {
@@ -127,6 +133,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
   useEffect(() => {
     fetchStats();
     fetchScheduled();
+    fetchQueueStatus();
     getSignatureHtml().then(html => {
       setSignatureHtml(html);
       console.log('[Outreach] signature:', html ? 'loaded (' + html.length + ' chars)' : 'NULL — preview will have no signature');
@@ -135,7 +142,16 @@ export function Outreach({ onEmailSent }: OutreachProps) {
       setSenderName(cfg.senderName);
       setSenderEmail(cfg.senderEmail);
     }).catch(() => {});
-  }, [fetchStats, fetchScheduled]);
+    const pollInterval = setInterval(() => {
+      fetchQueueStatus().catch(() => {});
+      if (activeLeadRef.current) {
+        getLeadScheduleStatus(activeLeadRef.current.id)
+          .then(row => setLeadScheduleRow(row))
+          .catch(() => {});
+      }
+    }, 15_000);
+    return () => clearInterval(pollInterval);
+  }, [fetchStats, fetchScheduled, fetchQueueStatus]);
 
   const handleGenerate = useCallback(async () => {
     const lead = activeLeadRef.current;
@@ -409,6 +425,10 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     setVerificationVerdict(null);
     setError(null);
     setSavingState('idle');
+    setLeadScheduleRow(null);
+    getLeadScheduleStatus(lead.id)
+      .then(row => setLeadScheduleRow(row))
+      .catch(() => {});
     getPremiumAnalysis(lead.id).then(a => {
       if (a) setPremium({ status: a.status, renderOutcome: a.renderOutcome, detectedSigs: a.detectedSigs, psi: a.psi, vision: a.vision, signals: a.signals });
     }).catch(() => {});
@@ -505,6 +525,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
         pendingLead={pendingLead}
         onConfirmSwitch={handleConfirmSwitch}
         onCancelSwitch={handleCancelSwitch}
+        leadScheduleRow={leadScheduleRow}
       />
       <BusinessContext
         lead={activeLead}
@@ -513,6 +534,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
         scheduled={scheduled}
         onCancelScheduled={handleCancelScheduled}
         onRescheduleScheduled={handleRescheduleScheduled}
+        queueStatus={queueStatus}
       />
     </div>
   );

@@ -1,9 +1,57 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import {
   createSchedule, listSchedules, getSchedule, updateSchedule,
   deleteSchedule, getRecentRuns,
 } from '../db/scrapeSchedules';
 import { getScrapeSchedulerHealth, setScrapeSchedulerPaused } from '../services/scrapeSchedulerWorker';
+
+const createScheduleSchema = z.object({
+  name: z.string().min(1),
+  polygon_json: z.string().optional().default('{}'),
+  business_type: z.string().optional().default(''),
+  interval_minutes: z.number().int().min(0),
+  enabled: z.number().int().min(0).max(1).optional().default(1),
+  kind: z.enum(['polygon', 'keyword']).optional().default('polygon'),
+  language: z.string().optional().nullable(),
+  grid_cell_km: z.number().positive().optional().nullable(),
+  keyword_query: z.string().optional().nullable(),
+  geo_lat: z.string().optional().nullable(),
+  geo_lng: z.string().optional().nullable(),
+  geo_radius: z.number().int().positive().optional().nullable(),
+  depth: z.number().int().min(1).max(20).optional().nullable(),
+}).superRefine((v, ctx) => {
+  if (v.kind === 'polygon' && (!v.polygon_json || v.polygon_json === '{}')) {
+    ctx.addIssue({ code: 'custom', message: 'polygon_json required for polygon kind', path: ['polygon_json'] });
+  }
+  if (v.kind === 'polygon' && !v.business_type?.trim()) {
+    ctx.addIssue({ code: 'custom', message: 'business_type required for polygon kind', path: ['business_type'] });
+  }
+  if (v.kind === 'keyword' && !v.keyword_query?.trim()) {
+    ctx.addIssue({ code: 'custom', message: 'keyword_query required for keyword kind', path: ['keyword_query'] });
+  }
+  const geoCount = [v.geo_lat, v.geo_lng, v.geo_radius].filter(x => x != null).length;
+  if (geoCount > 0 && geoCount < 3) {
+    ctx.addIssue({ code: 'custom', message: 'geo_lat, geo_lng, and geo_radius must all be provided together', path: ['geo_lat'] });
+  }
+});
+
+const patchScheduleSchema = z.object({
+  name: z.string().min(1).optional(),
+  interval_minutes: z.number().int().min(0).optional(),
+  enabled: z.number().int().min(0).max(1).optional(),
+  language: z.string().optional().nullable(),
+  grid_cell_km: z.number().positive().optional().nullable(),
+  geo_lat: z.string().optional().nullable(),
+  geo_lng: z.string().optional().nullable(),
+  geo_radius: z.number().int().positive().optional().nullable(),
+  depth: z.number().int().min(1).max(20).optional().nullable(),
+}).superRefine((v, ctx) => {
+  const geoCount = [v.geo_lat, v.geo_lng, v.geo_radius].filter(x => x != null).length;
+  if (geoCount > 0 && geoCount < 3) {
+    ctx.addIssue({ code: 'custom', message: 'geo_lat, geo_lng, and geo_radius must all be provided together', path: ['geo_lat'] });
+  }
+});
 
 const router = Router();
 
@@ -40,18 +88,37 @@ router.get('/', (_req, res) => {
 
 // POST / — create
 router.post('/', (req, res) => {
-  const { name, polygon_json, business_type, interval_minutes, enabled = 1 } = req.body ?? {};
-  if (!name || !polygon_json || !business_type || !interval_minutes) {
-    return void res.status(400).json({ error: 'name, polygon_json, business_type, interval_minutes required' });
+  const parsed = createScheduleSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return void res.status(400).json({ error: parsed.error.flatten() });
   }
-  const row = createSchedule({ name, polygon_json, business_type, interval_minutes, enabled });
+  const d = parsed.data;
+  const row = createSchedule({
+    name: d.name,
+    polygon_json: d.polygon_json,
+    business_type: d.business_type,
+    interval_minutes: d.interval_minutes,
+    enabled: d.enabled,
+    kind: d.kind,
+    language: d.language,
+    grid_cell_km: d.grid_cell_km,
+    keyword_query: d.keyword_query,
+    geo_lat: d.geo_lat,
+    geo_lng: d.geo_lng,
+    geo_radius: d.geo_radius,
+    depth: d.depth,
+  });
   res.status(201).json(row);
 });
 
 // PATCH /:id — update subset
 router.patch('/:id', (req, res) => {
   const { id } = req.params;
-  const row = updateSchedule(id, req.body ?? {});
+  const parsed = patchScheduleSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return void res.status(400).json({ error: parsed.error.flatten() });
+  }
+  const row = updateSchedule(id, parsed.data);
   if (!row) return void res.status(404).json({ error: 'not_found' });
   res.json(row);
 });

@@ -42,13 +42,36 @@ export function createSchedule(params: {
   business_type: string;
   interval_minutes: number;
   enabled: number;
+  kind?: string;
+  language?: string | null;
+  grid_cell_km?: number | null;
+  keyword_query?: string | null;
+  geo_lat?: string | null;
+  geo_lng?: string | null;
+  geo_radius?: number | null;
+  depth?: number | null;
 }): ScrapeScheduleRow {
   const id = randomBytes(12).toString('base64url');
   const now = new Date().toISOString();
   sqlite.prepare(`
-    INSERT INTO scrape_schedules (id, name, polygon_json, business_type, interval_minutes, enabled, next_run_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, params.name, params.polygon_json, params.business_type, params.interval_minutes, params.enabled, now, now, now);
+    INSERT INTO scrape_schedules
+      (id, name, polygon_json, business_type, interval_minutes, enabled,
+       next_run_at, created_at, updated_at,
+       kind, language, grid_cell_km, keyword_query,
+       geo_lat, geo_lng, geo_radius, depth)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, params.name, params.polygon_json, params.business_type,
+    params.interval_minutes, params.enabled, now, now, now,
+    params.kind ?? 'polygon',
+    params.language ?? null,
+    params.grid_cell_km ?? null,
+    params.keyword_query ?? null,
+    params.geo_lat ?? null,
+    params.geo_lng ?? null,
+    params.geo_radius ?? null,
+    params.depth ?? null,
+  );
   return getSchedule(id)!;
 }
 
@@ -67,6 +90,12 @@ export function updateSchedule(id: string, patch: Partial<{
   interval_minutes: number;
   enabled: number;
   next_run_at: string;
+  language: string | null;
+  grid_cell_km: number | null;
+  geo_lat: string | null;
+  geo_lng: string | null;
+  geo_radius: number | null;
+  depth: number | null;
 }>): ScrapeScheduleRow | null {
   const row = getSchedule(id);
   if (!row) return null;
@@ -79,9 +108,21 @@ export function updateSchedule(id: string, patch: Partial<{
   }
   sqlite.prepare(`
     UPDATE scrape_schedules
-    SET name=?, polygon_json=?, business_type=?, interval_minutes=?, enabled=?, next_run_at=?, updated_at=?
+    SET name=?, polygon_json=?, business_type=?, interval_minutes=?, enabled=?,
+        next_run_at=?, updated_at=?,
+        language=?, grid_cell_km=?, geo_lat=?, geo_lng=?, geo_radius=?, depth=?
     WHERE id=?
-  `).run(merged.name, merged.polygon_json, merged.business_type, merged.interval_minutes, merged.enabled, merged.next_run_at, now, id);
+  `).run(
+    merged.name, merged.polygon_json, merged.business_type,
+    merged.interval_minutes, merged.enabled, merged.next_run_at, now,
+    merged.language ?? null,
+    merged.grid_cell_km ?? null,
+    merged.geo_lat ?? null,
+    merged.geo_lng ?? null,
+    merged.geo_radius ?? null,
+    merged.depth ?? null,
+    id,
+  );
   return getSchedule(id);
 }
 
@@ -140,12 +181,23 @@ export function updateScheduleAfterRun(
   const now = new Date().toISOString();
   const row = getSchedule(id);
   if (!row) return;
-  const nextRunAt = new Date(Date.now() + row.interval_minutes * 60_000).toISOString();
-  sqlite.prepare(`
-    UPDATE scrape_schedules
-    SET last_run_at=?, last_run_status=?, last_run_added_count=?, last_run_error=?, next_run_at=?, updated_at=?
-    WHERE id=?
-  `).run(now, status, addedCount, error ?? null, nextRunAt, now, id);
+  if (row.interval_minutes === 0) {
+    // one-shot: disable after first run
+    sqlite.prepare(`
+      UPDATE scrape_schedules
+      SET last_run_at=?, last_run_status=?, last_run_added_count=?, last_run_error=?,
+          enabled=0, updated_at=?
+      WHERE id=?
+    `).run(now, status, addedCount, error ?? null, now, id);
+  } else {
+    const nextRunAt = new Date(Date.now() + row.interval_minutes * 60_000).toISOString();
+    sqlite.prepare(`
+      UPDATE scrape_schedules
+      SET last_run_at=?, last_run_status=?, last_run_added_count=?, last_run_error=?,
+          next_run_at=?, updated_at=?
+      WHERE id=?
+    `).run(now, status, addedCount, error ?? null, nextRunAt, now, id);
+  }
 }
 
 export function getRecentRuns(opts: { scheduleId?: string; limit?: number } = {}): ScrapeScheduleRunRow[] {

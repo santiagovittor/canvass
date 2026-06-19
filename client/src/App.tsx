@@ -209,7 +209,7 @@ export default function App() {
             onResume={resume}
             geometry={geometry}
           />
-          <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+          <div className="scraper-center-col">
             <div className="scraper-mode-bar">
               <div className="scraper-mode-toggle">
                 <button

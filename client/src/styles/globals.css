@@ -327,7 +327,9 @@ select option {
 .pill--error .pill-dot { background: var(--error); }
 .pill--pending   { background: var(--bg-elevated); color: var(--text-muted); }
 .pill--pending .pill-dot { background: var(--text-muted); }
-.pill--keyword   { background: var(--accent-dim); color: var(--accent); padding: 2px 7px; border-radius: 100px; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.pill--keyword { background: var(--accent-dim); color: var(--accent); padding: 2px 7px; font-size: 10px; font-weight: 600; }
+
+.scraper-center-col { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 
 /* Bento grid */
 .bento-grid {

@@ -89,8 +89,8 @@ async function tick(): Promise<void> {
               query: schedule.keyword_query,
               lang: schedule.language ?? 'en',
               depth: schedule.depth ?? undefined,
-              geoBias: schedule.geo_lat
-                ? { lat: schedule.geo_lat, lon: schedule.geo_lng!, radius: schedule.geo_radius! }
+              geoBias: (schedule.geo_lat && schedule.geo_lng && schedule.geo_radius != null)
+                ? { lat: schedule.geo_lat, lon: schedule.geo_lng, radius: schedule.geo_radius }
                 : undefined,
             });
             finishScheduleRun(runId, 'ok', added, deduped);

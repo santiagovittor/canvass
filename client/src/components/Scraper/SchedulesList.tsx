@@ -91,7 +91,7 @@ export function SchedulesList({ geometry }: Props) {
                 {s.name}
               </span>
               {s.kind === 'keyword' && (
-                <span className="pill pill--keyword" style={{ marginLeft: 6, fontSize: 10 }}>keyword</span>
+                <span className="pill pill--keyword">keyword</span>
               )}
               {s.last_run_status && (
                 <span style={{ ...mono, fontSize: 10, color: statusColor }}>

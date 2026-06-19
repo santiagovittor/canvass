@@ -18,6 +18,7 @@ export function KeywordPanel() {
   const [result, setResult] = useState<InstantScrapeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [enqueued, setEnqueued] = useState(false);
+  const [bulkRunning, setBulkRunning] = useState(false);
 
   const geoBias =
     geoLat && geoLng
@@ -46,22 +47,26 @@ export function KeywordPanel() {
 
   async function handleAddToBacklog() {
     if (!query.trim()) return;
-    await createScrapeSchedule({
-      name: query.trim().slice(0, 60),
-      kind: 'keyword',
-      keyword_query: query.trim(),
-      language: lang,
-      geo_lat: geoLat || null,
-      geo_lng: geoLng || null,
-      geo_radius: geoLat ? parseInt(geoRadius) || 2000 : null,
-      depth: parseInt(depth) || null,
-      polygon_json: '{}',
-      business_type: query.trim(),
-      interval_minutes: 0,
-      enabled: 1,
-    });
-    setEnqueued(true);
-    setTimeout(() => setEnqueued(false), 3000);
+    try {
+      await createScrapeSchedule({
+        name: query.trim().slice(0, 60),
+        kind: 'keyword',
+        keyword_query: query.trim(),
+        language: lang,
+        geo_lat: geoLat || null,
+        geo_lng: geoLng || null,
+        geo_radius: geoLat ? parseInt(geoRadius) || 2000 : null,
+        depth: parseInt(depth) || null,
+        polygon_json: '{}',
+        business_type: query.trim(),
+        interval_minutes: 0,
+        enabled: 1,
+      });
+      setEnqueued(true);
+      setTimeout(() => setEnqueued(false), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   async function handleBulkEnqueue() {
@@ -69,24 +74,31 @@ export function KeywordPanel() {
       .split('\n')
       .map((l) => l.trim())
       .filter(Boolean);
-    if (!lines.length) return;
-    await Promise.all(
-      lines.map((q) =>
-        createScrapeSchedule({
-          name: q.slice(0, 60),
-          kind: 'keyword',
-          keyword_query: q,
-          language: lang,
-          polygon_json: '{}',
-          business_type: q,
-          interval_minutes: 0,
-          enabled: 1,
-        })
-      )
-    );
-    setBulkText('');
-    setEnqueued(true);
-    setTimeout(() => setEnqueued(false), 3000);
+    if (!lines.length || bulkRunning) return;
+    setBulkRunning(true);
+    try {
+      await Promise.all(
+        lines.map((q) =>
+          createScrapeSchedule({
+            name: q.slice(0, 60),
+            kind: 'keyword',
+            keyword_query: q,
+            language: lang,
+            polygon_json: '{}',
+            business_type: q,
+            interval_minutes: 0,
+            enabled: 1,
+          })
+        )
+      );
+      setBulkText('');
+      setEnqueued(true);
+      setTimeout(() => setEnqueued(false), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBulkRunning(false);
+    }
   }
 
   const bulkLines = bulkText.split('\n').filter((l) => l.trim()).length;
@@ -228,9 +240,9 @@ export function KeywordPanel() {
             <button
               className="btn-primary kp-btn"
               onClick={handleBulkEnqueue}
-              disabled={bulkLines === 0}
+              disabled={bulkLines === 0 || bulkRunning}
             >
-              {enqueued ? 'Added ✓' : `Add ${bulkLines || ''} to Backlog`}
+              {enqueued ? 'Added ✓' : bulkRunning ? 'Adding…' : `Add ${bulkLines || ''} to Backlog`}
             </button>
           </div>
         </div>

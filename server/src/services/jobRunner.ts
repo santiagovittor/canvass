@@ -102,6 +102,51 @@ export async function runJobSync(params: StartJobParams): Promise<{ jobId: strin
   return { jobId, businessesFound: job?.businessesFound ?? 0 };
 }
 
+export interface KeywordJobParams {
+  query: string;
+  lang: string;
+  depth?: number;
+  geoBias?: { lat: string; lon: string; radius: number };
+}
+
+export async function runKeywordJobSync(
+  params: KeywordJobParams,
+): Promise<{ added: number; deduped: number; businessIds: string[] }> {
+  const jobId = randomBytes(16).toString('base64url');
+  const ac = new AbortController();
+
+  const gosomId = await createGosomJobWithRetry({
+    jobId,
+    keywords: [params.query.trim()],
+    lang: params.lang,
+    latitude: params.geoBias ? parseFloat(params.geoBias.lat) : undefined,
+    longitude: params.geoBias ? parseFloat(params.geoBias.lon) : undefined,
+    radiusMeters: params.geoBias?.radius,
+    email: false,
+    depth: params.depth,
+  }, ac.signal);
+
+  const polledResults = await pollUntilDone(gosomId, ac.signal);
+  const rawResults = polledResults ?? await gosom.downloadResults(gosomId);
+
+  const scrapedAt = new Date().toISOString();
+  // upsertRawResults handles lat/lng guard internally — no polygon filter needed
+  const { inserted } = upsertRawResults(rawResults as Record<string, unknown>[], jobId, scrapedAt);
+
+  // job_id is written on INSERT only (not on conflict-update) so this query
+  // accurately counts genuinely new rows from this run.
+  const addedRows = db.select({ id: businesses.id })
+    .from(businesses)
+    .where(eq(businesses.jobId, jobId))
+    .all();
+  const added = addedRows.length;
+  const businessIds = addedRows.map(r => r.id);
+  const deduped = Math.max(0, inserted - added);
+
+  kickEnrichment();
+  return { added, deduped, businessIds };
+}
+
 // On boot, re-enter jobs interrupted by a server restart instead of failing them.
 // computeGrid order is deterministic, so cellsDone identifies the first unfinished
 // cell; the in-flight cell is redone and the place_id upsert makes that idempotent.

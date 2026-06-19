@@ -4,7 +4,7 @@ import {
   reapStaleRuns, updateScheduleAfterRun,
 } from '../db/scrapeSchedules';
 import { getBool, setSetting } from './appSettings';
-import { runJobSync } from './jobRunner';
+import { runJobSync, runKeywordJobSync } from './jobRunner';
 
 const TICK_INTERVAL_MS = 60_000;
 const FIRST_TICK_DELAY_MS = 15_000;
@@ -82,23 +82,41 @@ async function tick(): Promise<void> {
           break;
         }
         try {
-          // language + gridCellKm are hardcoded for now — parked for a future slice
-          const params = {
-            geometry: JSON.parse(schedule.polygon_json),
-            searchTerm: schedule.business_type,
-            language: 'es',
-            gridCellKm: 0.4,
-            extractEmails: true,
-          };
-          const { jobId, businessesFound } = await runJobSync(params);
-          const addedRow = sqlite.prepare('SELECT COUNT(*) as n FROM businesses WHERE job_id = ?').get(jobId) as { n: number };
-          const addedCount = addedRow.n;
-          const dedupedCount = Math.max(0, businessesFound - addedCount);
-          finishScheduleRun(runId, 'ok', addedCount, dedupedCount);
-          updateScheduleAfterRun(schedule.id, 'ok', addedCount);
-          counts.ran++;
-          counts.added += addedCount;
-          counts.deduped += dedupedCount;
+          const kind = (schedule.kind ?? 'polygon') as 'polygon' | 'keyword';
+          if (kind === 'keyword') {
+            if (!schedule.keyword_query) throw new Error('keyword_query is null for keyword schedule');
+            const { added, deduped } = await runKeywordJobSync({
+              query: schedule.keyword_query,
+              lang: schedule.language ?? 'en',
+              depth: schedule.depth ?? undefined,
+              geoBias: schedule.geo_lat
+                ? { lat: schedule.geo_lat, lon: schedule.geo_lng!, radius: schedule.geo_radius! }
+                : undefined,
+            });
+            finishScheduleRun(runId, 'ok', added, deduped);
+            updateScheduleAfterRun(schedule.id, 'ok', added);
+            counts.ran++;
+            counts.added += added;
+            counts.deduped += deduped;
+          } else {
+            // polygon mode — language + gridCellKm now come from the schedule row
+            const params = {
+              geometry: JSON.parse(schedule.polygon_json),
+              searchTerm: schedule.business_type,
+              language: schedule.language ?? 'es',
+              gridCellKm: schedule.grid_cell_km ?? 0.4,
+              extractEmails: true,
+            };
+            const { jobId, businessesFound } = await runJobSync(params);
+            const addedRow = sqlite.prepare('SELECT COUNT(*) as n FROM businesses WHERE job_id = ?').get(jobId) as { n: number };
+            const addedCount = addedRow.n;
+            const dedupedCount = Math.max(0, businessesFound - addedCount);
+            finishScheduleRun(runId, 'ok', addedCount, dedupedCount);
+            updateScheduleAfterRun(schedule.id, 'ok', addedCount);
+            counts.ran++;
+            counts.added += addedCount;
+            counts.deduped += dedupedCount;
+          }
         } catch (err) {
           counts.errored++;
           const msg = err instanceof Error ? err.message : String(err);

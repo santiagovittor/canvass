@@ -330,3 +330,51 @@ export function countryFlag(country: string | null): string {
   if (country.includes('United States')) return '🇺🇸';
   return '🌐';
 }
+
+// Full server-side scheduled_sends row — per-lead status endpoint returns this.
+export interface ScheduledSendRow {
+  id: string;
+  business_id: string;
+  scheduled_at: string;    // true UTC ISO
+  status: string;          // scheduled|claimed|sent|failed|canceled|skipped|deferred|held|superseded
+  claimed_at: string | null;
+  attempt_count: number;
+  last_error: string | null;
+  business_type: string | null;
+  window_label: string | null;
+  disposition: string | null;
+  created_at: string;
+  updated_at: string;
+  dry_run: number;         // 0|1
+}
+
+export interface SchedulerTickCounts {
+  claimed: number; sent: number; deferred: number;
+  held: number; errored: number; elapsedMs: number;
+}
+
+export interface SchedulerHealth {
+  lastTickAt: string | null;
+  ticksTotal: number;
+  lastTickCounts: SchedulerTickCounts;
+  intervalMs: number;
+  nextTickEtaMs: number;
+}
+
+export interface ScheduledQueueStatus {
+  health: SchedulerHealth;
+  counts: {
+    scheduled: number; sending: number; sent_today: number;
+    deferred: number; held_now: number; superseded_today: number; failed_today: number;
+  };
+  next: ScheduledSend[];
+}
+
+export function getLeadScheduleStatus(businessId: string): Promise<ScheduledSendRow | null> {
+  return request<{ row: ScheduledSendRow | null }>(`/outreach/schedule/status/${businessId}`)
+    .then(d => d.row);
+}
+
+export function getScheduledQueueStatus(): Promise<ScheduledQueueStatus> {
+  return request<ScheduledQueueStatus>('/scheduled/status');
+}

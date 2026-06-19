@@ -818,6 +818,73 @@ export function rescheduleScheduledSend(id: string, newScheduledAtUtc: string): 
   return stmtRescheduleScheduled.run(newScheduledAtUtc, nowUtcMinus3(), id).changes === 1;
 }
 
+// ── Scheduler helpers ─────────────────────────────────────────────────────────
+
+// 'superseded' is NOT in the uq_ss_business_active partial unique index
+// (which covers scheduled/claimed/deferred only), so after superseding, a new
+// scheduled row can immediately be created for the same business.
+const stmtSupersedePending = sqlite.prepare<[string, string], void>(`
+  UPDATE scheduled_sends SET status = 'superseded', updated_at = ?
+  WHERE business_id = ? AND status = 'scheduled'
+`);
+export function supersedeScheduledSendsForBusiness(businessId: string): number {
+  return stmtSupersedePending.run(nowUtcMinus3(), businessId).changes;
+}
+
+// Most recent scheduled_sends row for a business (any status) — drives the per-lead button.
+const stmtMostRecentScheduled = sqlite.prepare<[string], ScheduledSendRow>(`
+  SELECT * FROM scheduled_sends WHERE business_id = ? ORDER BY created_at DESC LIMIT 1
+`);
+export function getMostRecentScheduledSend(businessId: string): ScheduledSendRow | null {
+  return stmtMostRecentScheduled.get(businessId) ?? null;
+}
+
+// Aggregate counts for the health panel.
+// deferScheduledSend() keeps status='scheduled'; detect deferred rows via last_error prefix.
+// updated_at is stored as nowUtcMinus3(), so LIKE (todayUtcMinus3() || '%') is a correct
+// prefix match for "today in UTC-3" — same offset used for both columns and comparison.
+const stmtScheduledCounts = sqlite.prepare<[string, string, string], {
+  scheduled: number; sending: number; sent_today: number;
+  deferred: number; failed_today: number; superseded_today: number;
+}>(`
+  SELECT
+    SUM(CASE WHEN status = 'scheduled' AND (last_error IS NULL OR last_error NOT LIKE 'deferred:%') THEN 1 ELSE 0 END) AS scheduled,
+    SUM(CASE WHEN status = 'claimed'   THEN 1 ELSE 0 END) AS sending,
+    SUM(CASE WHEN status = 'sent'      AND updated_at LIKE (? || '%') THEN 1 ELSE 0 END) AS sent_today,
+    SUM(CASE WHEN status = 'scheduled' AND last_error LIKE 'deferred:%' THEN 1 ELSE 0 END) AS deferred,
+    SUM(CASE WHEN status = 'failed'    AND updated_at LIKE (? || '%') THEN 1 ELSE 0 END) AS failed_today,
+    SUM(CASE WHEN status = 'superseded' AND updated_at LIKE (? || '%') THEN 1 ELSE 0 END) AS superseded_today
+  FROM scheduled_sends
+`);
+export function getScheduledCounts(): {
+  scheduled: number; sending: number; sent_today: number;
+  deferred: number; failed_today: number; superseded_today: number;
+} {
+  const today = todayUtcMinus3();
+  const row = stmtScheduledCounts.get(today, today, today);
+  return {
+    scheduled: row?.scheduled ?? 0,
+    sending: row?.sending ?? 0,
+    sent_today: row?.sent_today ?? 0,
+    deferred: row?.deferred ?? 0,
+    failed_today: row?.failed_today ?? 0,
+    superseded_today: row?.superseded_today ?? 0,
+  };
+}
+
+// Top N upcoming rows (status='scheduled' or 'held') for the queue panel.
+// Reuses the existing UpcomingScheduledSend interface (defined above in this file).
+const stmtNextScheduled = sqlite.prepare<[number], UpcomingScheduledSend>(`
+  SELECT s.id, s.business_id, b.name AS business_name, s.scheduled_at, s.status, s.window_label
+  FROM scheduled_sends s JOIN businesses b ON b.id = s.business_id
+  WHERE s.status IN ('scheduled', 'held')
+  ORDER BY s.scheduled_at ASC
+  LIMIT ?
+`);
+export function getNextScheduledRows(limit: number): UpcomingScheduledSend[] {
+  return stmtNextScheduled.all(limit);
+}
+
 // Governor counters. A 'dryrun' row counts toward cap/pacing ONLY when the process
 // is globally dry (env.OUTREACH_DRY_RUN) — then the last slice's gate exercises
 // cap/pacing exactly as a real run would. On a LIVE process (env=false), a per-batch

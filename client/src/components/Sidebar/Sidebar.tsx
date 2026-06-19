@@ -1,6 +1,8 @@
 import { AreaStats } from './AreaStats';
 import { SearchPanel } from './SearchPanel';
 import { JobProgress } from './JobProgress';
+import { ScrapeSchedulerStatus } from '../Scraper/ScrapeSchedulerStatus';
+import { SchedulesList } from '../Scraper/SchedulesList';
 import type { JobStatus } from '../../types';
 import type { SweepActivity } from './JobProgress';
 
@@ -21,6 +23,7 @@ interface SidebarProps {
   onStart: (searchTerm: string, language: string, extractEmails: boolean) => void;
   onCancel: () => void;
   onResume: () => void;
+  geometry: { type: string; coordinates: number[][][] } | null;
 }
 
 export function Sidebar({
@@ -40,27 +43,24 @@ export function Sidebar({
   onStart,
   onCancel,
   onResume,
+  geometry,
 }: SidebarProps) {
   if (!visible) {
     return (
-      <div style={{
-        height: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--bg-panel)',
-        borderRight: '1px solid var(--border)',
-      }}>
-        <span style={{
-          fontFamily: 'var(--font-ui)',
-          fontSize: '12px',
-          color: 'var(--text-muted)',
-          textAlign: 'center',
-          padding: '0 24px',
-          letterSpacing: '0.03em',
-        }}>
-          Draw an area to begin
-        </span>
+      <div style={{ height: '100vh', overflowY: 'auto', background: 'var(--bg-panel)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontFamily: 'var(--font-ui)', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', padding: '0 24px', letterSpacing: '0.03em' }}>
+            Draw an area to begin
+          </span>
+        </div>
+        <div className="sidebar-section">
+          <div className="sidebar-section-label">Scheduler</div>
+          <ScrapeSchedulerStatus />
+        </div>
+        <div className="sidebar-section">
+          <div className="sidebar-section-label">Schedules</div>
+          <SchedulesList geometry={geometry} />
+        </div>
       </div>
     );
   }
@@ -115,6 +115,15 @@ export function Sidebar({
           />
         </div>
       )}
+
+      <div className="sidebar-section">
+        <div className="sidebar-section-label">Scheduler</div>
+        <ScrapeSchedulerStatus />
+      </div>
+      <div className="sidebar-section">
+        <div className="sidebar-section-label">Schedules</div>
+        <SchedulesList geometry={geometry} />
+      </div>
     </div>
   );
 }

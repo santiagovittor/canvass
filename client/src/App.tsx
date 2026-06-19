@@ -205,6 +205,7 @@ export default function App() {
             onStart={handleStart}
             onCancel={cancel}
             onResume={resume}
+            geometry={geometry}
           />
           <MapView
             onPolygonChange={handlePolygonChange}

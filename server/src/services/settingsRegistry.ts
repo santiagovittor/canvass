@@ -194,6 +194,11 @@ export const FIELDS: SettingField[] = [
     help: 'When enabled, the scheduler ticks but claims no new rows. In-flight claimed rows finish naturally.',
   },
   {
+    key: 'SCRAPE_SCHEDULES_PAUSED', group: 'Batch & Automation', label: 'Pause scrape scheduler',
+    type: 'boolean', default: false,
+    help: 'When enabled, the scrape scheduler ticks but claims no new schedules. In-flight runs finish naturally.',
+  },
+  {
     key: 'BATCH_PREPARE_CONCURRENCY', group: 'Batch & Automation', label: 'Batch prepare concurrency',
     type: 'number', min: 1, max: 32, default: 3, envVar: 'BATCH_PREPARE_CONCURRENCY',
   },

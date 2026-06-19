@@ -15,6 +15,14 @@ export interface ScrapeScheduleRow {
   last_run_error: string | null;
   created_at: string;
   updated_at: string;
+  kind: string;
+  language: string | null;
+  grid_cell_km: number | null;
+  keyword_query: string | null;
+  geo_lat: string | null;
+  geo_lng: string | null;
+  geo_radius: number | null;
+  depth: number | null;
 }
 
 export interface ScrapeScheduleRunRow {

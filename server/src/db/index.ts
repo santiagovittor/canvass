@@ -163,12 +163,44 @@ sqlite.exec(`
     ON scrape_schedule_runs(status);
 `);
 
+const scheduleCols = (sqlite.prepare('PRAGMA table_info(scrape_schedules)').all() as { name: string }[]).map(r => r.name);
+if (!scheduleCols.includes('kind')) {
+  sqlite.exec(`ALTER TABLE scrape_schedules ADD COLUMN kind TEXT NOT NULL DEFAULT 'polygon'`);
+}
+if (!scheduleCols.includes('language')) {
+  sqlite.exec('ALTER TABLE scrape_schedules ADD COLUMN language TEXT');
+}
+if (!scheduleCols.includes('grid_cell_km')) {
+  sqlite.exec('ALTER TABLE scrape_schedules ADD COLUMN grid_cell_km REAL');
+}
+if (!scheduleCols.includes('keyword_query')) {
+  sqlite.exec('ALTER TABLE scrape_schedules ADD COLUMN keyword_query TEXT');
+}
+if (!scheduleCols.includes('geo_lat')) {
+  sqlite.exec('ALTER TABLE scrape_schedules ADD COLUMN geo_lat TEXT');
+}
+if (!scheduleCols.includes('geo_lng')) {
+  sqlite.exec('ALTER TABLE scrape_schedules ADD COLUMN geo_lng TEXT');
+}
+if (!scheduleCols.includes('geo_radius')) {
+  sqlite.exec('ALTER TABLE scrape_schedules ADD COLUMN geo_radius INTEGER');
+}
+if (!scheduleCols.includes('depth')) {
+  sqlite.exec('ALTER TABLE scrape_schedules ADD COLUMN depth INTEGER');
+}
+
 // Per-batch dry-run flag threaded into the durable queue. DEFAULT 0 keeps existing
 // and manually-scheduled rows REAL; only a dry-run batch sets it. The worker ORs it
 // with env.OUTREACH_DRY_RUN (a row may add dry-safety, never remove it).
 const scheduledCols = (sqlite.prepare('PRAGMA table_info(scheduled_sends)').all() as { name: string }[]).map(r => r.name);
 if (!scheduledCols.includes('dry_run')) {
   sqlite.exec('ALTER TABLE scheduled_sends ADD COLUMN dry_run INTEGER NOT NULL DEFAULT 0');
+}
+// Convention: 'manual' = user-initiated via /schedule route; window-defer is skipped.
+// 'auto' = batch orchestrator; full window/cap/pacing gates apply.
+// ALL call sites must pass origin explicitly — never rely on this default.
+if (!scheduledCols.includes('origin')) {
+  sqlite.exec("ALTER TABLE scheduled_sends ADD COLUMN origin TEXT NOT NULL DEFAULT 'auto'");
 }
 
 // Must run before any prepared statement references top_gap or verification_json
@@ -715,13 +747,14 @@ export interface ScheduledSendRow {
   window_label: string | null;
   disposition: string | null;
   dry_run: number;            // 0|1 — per-batch dry-run; ORed with env.OUTREACH_DRY_RUN by the worker
+  origin: string;             // 'manual' | 'auto' — manual rows bypass window-defer; auto rows do not
   created_at: string;
   updated_at: string;
 }
 
-const stmtCreateScheduled = sqlite.prepare<[string, string, string, string | null, string | null, number, string, string], void>(`
-  INSERT INTO scheduled_sends (id, business_id, scheduled_at, business_type, window_label, dry_run, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+const stmtCreateScheduled = sqlite.prepare<[string, string, string, string | null, string | null, number, string, string, string], void>(`
+  INSERT INTO scheduled_sends (id, business_id, scheduled_at, business_type, window_label, dry_run, origin, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 export function createScheduledSend(input: {
@@ -730,10 +763,11 @@ export function createScheduledSend(input: {
   businessType: string | null;
   windowLabel: string | null;
   dryRun?: boolean;
+  origin: 'manual' | 'auto';
 }): ScheduledSendRow {
   const id = crypto.randomUUID();
   const now = nowUtcMinus3();
-  stmtCreateScheduled.run(id, input.businessId, input.scheduledAtUtc, input.businessType, input.windowLabel, input.dryRun ? 1 : 0, now, now);
+  stmtCreateScheduled.run(id, input.businessId, input.scheduledAtUtc, input.businessType, input.windowLabel, input.dryRun ? 1 : 0, input.origin, now, now);
   return getScheduledSendById(id)!;
 }
 

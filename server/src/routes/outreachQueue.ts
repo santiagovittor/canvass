@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db';
 import { businesses } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
-import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens, getOutreachSendRow, createScheduledSend, listUpcomingScheduledSends, cancelScheduledSend, rescheduleScheduledSend, saveOutreachAnalysis } from '../db';
+import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens, getOutreachSendRow, createScheduledSend, listUpcomingScheduledSends, cancelScheduledSend, rescheduleScheduledSend, saveOutreachAnalysis, supersedeScheduledSendsForBusiness, getMostRecentScheduledSend } from '../db';
 import { resolveBusinessType, describeWindow } from '../services/outreachSchedulingConfig';
 import { nextOptimalWindowUtc } from '../services/outreachGovernor';
 import { composeFollowUp } from '../services/geminiComposer';
@@ -284,6 +284,10 @@ router.post('/send', async (req, res) => {
     console.error('[outreach/send] saveEmailExample failed:', err);
   }
   deleteDraft(businessId);
+  const supersededCount = supersedeScheduledSendsForBusiness(businessId);
+  if (supersededCount > 0) {
+    console.log(`[scheduler] superseded ${supersededCount} rows business=${businessId} reason=manual-send`);
+  }
   res.json(result);
 });
 
@@ -386,6 +390,11 @@ router.patch('/schedule/:id', (req, res) => {
   const ok = rescheduleScheduledSend(req.params.id, new Date(t).toISOString());
   if (!ok) return res.status(404).json({ error: 'not found or not reschedulable' });
   res.json({ rescheduled: true });
+});
+
+router.get('/schedule/status/:businessId', (req, res) => {
+  const row = getMostRecentScheduledSend(req.params.businessId);
+  res.json({ row: row ?? null });
 });
 
 export default router;

@@ -453,6 +453,36 @@ select option {
   .sidebar-reveal { animation: none; }
 }
 
+/* ── Keyword Panel ──────────────────────────────────────────────────────────── */
+
+.keyword-panel { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+
+.kp-mode-toggle { display: flex; gap: 2px; background: var(--bg-base); border-radius: 8px; padding: 3px; width: fit-content; }
+.kp-mode-btn { padding: 5px 16px; border-radius: 6px; border: none; background: transparent; color: var(--text-muted); font-family: var(--font-ui); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 120ms; }
+.kp-mode-btn--active { background: var(--bg-elevated); color: var(--text-primary); }
+
+.kp-single, .kp-bulk { display: flex; flex-direction: column; gap: 8px; }
+.kp-query { width: 100%; }
+.kp-textarea { width: 100%; resize: vertical; font-family: var(--font-mono); font-size: 13px; }
+.kp-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.kp-lang { width: 70px; }
+.kp-btn { flex-shrink: 0; }
+
+.kp-advanced-toggle { background: none; border: none; color: var(--text-secondary); font-family: var(--font-ui); font-size: 12px; font-weight: 500; cursor: pointer; padding: 2px 0; text-align: left; letter-spacing: 0.04em; }
+.kp-advanced-toggle:hover { color: var(--text-primary); }
+.kp-advanced { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--bg-base); border-radius: 8px; border: 1px solid var(--border); }
+.kp-advanced-row { display: flex; align-items: center; gap: 8px; }
+.kp-advanced-label { margin-bottom: 0; flex-shrink: 0; width: 56px; }
+.kp-mono { font-family: var(--font-mono) !important; font-variant-numeric: tabular-nums; }
+.kp-radius { width: 80px; }
+.kp-depth { width: 60px; }
+.kp-unit { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+
+.kp-result { display: flex; gap: 16px; padding: 8px 14px; background: var(--bg-base); border-radius: 8px; border: 1px solid var(--border); }
+.kp-result-stat { font-family: var(--font-ui); font-size: 13px; color: var(--text-secondary); }
+.kp-result-num { font-family: var(--font-mono); color: var(--accent); }
+.kp-error { font-size: 12px; color: var(--error); margin: 0; }
+
 /* ── Analytics tab ──────────────────────────────────────────────────────────── */
 
 .an-page {

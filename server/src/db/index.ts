@@ -132,6 +132,35 @@ sqlite.exec(`
     value_json TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS scrape_schedules (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    polygon_json TEXT NOT NULL,
+    business_type TEXT NOT NULL,
+    interval_minutes INTEGER NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_run_at TEXT,
+    next_run_at TEXT NOT NULL,
+    last_run_status TEXT,
+    last_run_added_count INTEGER,
+    last_run_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS scrape_schedule_runs (
+    id TEXT PRIMARY KEY,
+    schedule_id TEXT NOT NULL REFERENCES scrape_schedules(id) ON DELETE CASCADE,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL DEFAULT 'running',
+    added_count INTEGER NOT NULL DEFAULT 0,
+    deduped_count INTEGER NOT NULL DEFAULT 0,
+    error TEXT
+  );
+  CREATE INDEX IF NOT EXISTS scrape_schedule_runs_schedule_id_idx
+    ON scrape_schedule_runs(schedule_id);
+  CREATE INDEX IF NOT EXISTS scrape_schedule_runs_status_idx
+    ON scrape_schedule_runs(status);
 `);
 
 // Per-batch dry-run flag threaded into the durable queue. DEFAULT 0 keeps existing

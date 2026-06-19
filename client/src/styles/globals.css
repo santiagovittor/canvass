@@ -327,6 +327,7 @@ select option {
 .pill--error .pill-dot { background: var(--error); }
 .pill--pending   { background: var(--bg-elevated); color: var(--text-muted); }
 .pill--pending .pill-dot { background: var(--text-muted); }
+.pill--keyword   { background: var(--accent-dim); color: var(--accent); padding: 2px 7px; border-radius: 100px; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
 
 /* Bento grid */
 .bento-grid {
@@ -482,6 +483,13 @@ select option {
 .kp-result-stat { font-family: var(--font-ui); font-size: 13px; color: var(--text-secondary); }
 .kp-result-num { font-family: var(--font-mono); color: var(--accent); }
 .kp-error { font-size: 12px; color: var(--error); margin: 0; }
+
+/* ── Scraper mode segmented control ─────────────────────────────────────────── */
+
+.scraper-mode-bar { padding: 8px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.scraper-mode-toggle { display: flex; gap: 2px; background: var(--bg-base); border-radius: 8px; padding: 3px; width: fit-content; }
+.scraper-mode-btn { padding: 5px 18px; border-radius: 6px; border: none; background: transparent; color: var(--text-muted); font-family: var(--font-ui); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 120ms; }
+.scraper-mode-btn--active { background: var(--bg-elevated); color: var(--accent); }
 
 /* ── Analytics tab ──────────────────────────────────────────────────────────── */
 

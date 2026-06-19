@@ -90,6 +90,9 @@ export function SchedulesList({ geometry }: Props) {
               <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {s.name}
               </span>
+              {s.kind === 'keyword' && (
+                <span className="pill pill--keyword" style={{ marginLeft: 6, fontSize: 10 }}>keyword</span>
+              )}
               {s.last_run_status && (
                 <span style={{ ...mono, fontSize: 10, color: statusColor }}>
                   {s.last_run_status === 'ok' ? `+${s.last_run_added_count ?? 0}` : s.last_run_status}
@@ -105,9 +108,11 @@ export function SchedulesList({ geometry }: Props) {
               </button>
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ ...label }}>{s.business_type}</span>
+              <span style={{ ...label }}>
+                {s.kind === 'keyword' ? (s.keyword_query ?? '—') : s.business_type}
+              </span>
               <span style={{ ...mono, fontSize: 10, color: 'var(--text-muted)' }}>
-                every {s.interval_minutes < 60 ? `${s.interval_minutes}m` : `${s.interval_minutes / 60}h`}
+                {s.interval_minutes === 0 ? 'one-shot' : `every ${s.interval_minutes < 60 ? `${s.interval_minutes}m` : `${s.interval_minutes / 60}h`}`}
               </span>
               {s.last_run_at && (
                 <span style={{ ...mono, fontSize: 10, color: 'var(--text-muted)' }}>

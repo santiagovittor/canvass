@@ -6,6 +6,7 @@ import { BusinessExplorer } from './components/Explorer/BusinessExplorer';
 import { Outreach } from './pages/Outreach';
 import { Analytics } from './pages/Analytics';
 import { Settings } from './pages/Settings';
+import { KeywordPanel } from './components/Scraper/KeywordPanel';
 import { useSSE } from './hooks/useSSE';
 import { useScrape } from './hooks/useScrape';
 import { useResults } from './hooks/useResults';
@@ -127,6 +128,7 @@ export default function App() {
 
   const [view, setView] = useState<'scraper' | 'explorer' | 'outreach' | 'analytics' | 'settings'>('scraper');
   const [outreachSentAt, setOutreachSentAt] = useState(0);
+  const [scraperMode, setScraperMode] = useState<'map' | 'keyword'>('map');
 
   return (
     <div className="app-root">
@@ -207,11 +209,29 @@ export default function App() {
             onResume={resume}
             geometry={geometry}
           />
-          <MapView
-            onPolygonChange={handlePolygonChange}
-            cells={cells}
-            cellCount={count}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+            <div className="scraper-mode-bar">
+              <div className="scraper-mode-toggle">
+                <button
+                  className={`scraper-mode-btn${scraperMode === 'map' ? ' scraper-mode-btn--active' : ''}`}
+                  onClick={() => setScraperMode('map')}
+                >Map</button>
+                <button
+                  className={`scraper-mode-btn${scraperMode === 'keyword' ? ' scraper-mode-btn--active' : ''}`}
+                  onClick={() => setScraperMode('keyword')}
+                >Keywords</button>
+              </div>
+            </div>
+            {scraperMode === 'map' ? (
+              <MapView
+                onPolygonChange={handlePolygonChange}
+                cells={cells}
+                cellCount={count}
+              />
+            ) : (
+              <KeywordPanel />
+            )}
+          </div>
           <ResultsPanel jobId={jobId} results={results} status={status} cellsDone={cellsDone} totalCells={displayCellCount} />
         </div>
       ) : view === 'explorer' ? (

@@ -12,6 +12,14 @@ export interface ScrapeScheduleRow {
   last_run_error: string | null;
   created_at: string;
   updated_at: string;
+  kind: 'polygon' | 'keyword';
+  language: string | null;
+  grid_cell_km: number | null;
+  keyword_query: string | null;
+  geo_lat: string | null;
+  geo_lng: string | null;
+  geo_radius: number | null;
+  depth: number | null;
   recentRuns?: ScrapeScheduleRunRow[];
 }
 
@@ -64,10 +72,18 @@ export const listScrapeSchedules = () => req<ScrapeScheduleRow[]>('/');
 
 export const createScrapeSchedule = (body: {
   name: string;
-  polygon_json: string;
-  business_type: string;
+  polygon_json?: string;
+  business_type?: string;
   interval_minutes: number;
   enabled?: number;
+  kind?: 'polygon' | 'keyword';
+  language?: string | null;
+  grid_cell_km?: number | null;
+  keyword_query?: string | null;
+  geo_lat?: string | null;
+  geo_lng?: string | null;
+  geo_radius?: number | null;
+  depth?: number | null;
 }) => req<ScrapeScheduleRow>('/', { method: 'POST', body: JSON.stringify(body) });
 
 export const updateScrapeSchedule = (id: string, patch: Partial<ScrapeScheduleRow>) =>

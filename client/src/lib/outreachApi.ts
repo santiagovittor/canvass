@@ -359,13 +359,17 @@ export interface SchedulerHealth {
   lastTickCounts: SchedulerTickCounts;
   intervalMs: number;
   nextTickEtaMs: number;
+  paused: boolean;
+  pausedAt: string | null;
+  pausedReason: string | null;
 }
 
 export interface ScheduledQueueStatus {
   health: SchedulerHealth;
   counts: {
     scheduled: number; sending: number; sent_today: number;
-    deferred: number; held_now: number; superseded_today: number; failed_today: number;
+    deferred: number; held_now: number; superseded_today: number;
+    canceled_today: number; failed_today: number;
   };
   next: ScheduledSend[];
 }
@@ -377,4 +381,27 @@ export function getLeadScheduleStatus(businessId: string): Promise<ScheduledSend
 
 export function getScheduledQueueStatus(): Promise<ScheduledQueueStatus> {
   return request<ScheduledQueueStatus>('/scheduled/status');
+}
+
+export function pauseScheduler(reason?: string): Promise<{ paused: true; pausedAt: string }> {
+  return request('/scheduled/pause', {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function resumeScheduler(): Promise<{ paused: false }> {
+  return request('/scheduled/resume', { method: 'POST' });
+}
+
+export function cancelScheduledById(id: string): Promise<{ canceled: true; id: string }> {
+  return request(`/scheduled/cancel/${id}`, { method: 'POST' });
+}
+
+export function cancelScheduledByBusiness(businessId: string): Promise<{ canceledCount: number }> {
+  return request(`/scheduled/cancel-business/${businessId}`, { method: 'POST' });
+}
+
+export function cancelAllPending(): Promise<{ canceledCount: number }> {
+  return request('/scheduled/cancel-all-pending', { method: 'POST' });
 }

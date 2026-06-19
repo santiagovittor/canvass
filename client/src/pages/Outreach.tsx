@@ -6,7 +6,7 @@ import { BusinessContext } from '../components/Outreach/BusinessContext';
 import { BatchRunner } from '../components/Outreach/BatchRunner';
 import { startBatch, pauseBatch, resumeBatch, cancelBatch } from '../lib/batchApi';
 import type { BatchProgress } from '../lib/batchApi';
-import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis, scheduleDraft, listScheduled, cancelScheduled, rescheduleScheduled, getLeadScheduleStatus, getScheduledQueueStatus } from '../lib/outreachApi';
+import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis, scheduleDraft, listScheduled, cancelScheduled, rescheduleScheduled, getLeadScheduleStatus, getScheduledQueueStatus, pauseScheduler, resumeScheduler, cancelScheduledById, cancelScheduledByBusiness, cancelAllPending } from '../lib/outreachApi';
 import { patchOutreach, getConfig } from '../lib/api';
 import { useSSE } from '../hooks/useSSE';
 import type { OutreachLead, OutreachStats, WebsiteAnalysis, DetectedSig, PsiMetrics, VisionResult, PremiumSignal, ScheduledSend, ScheduledSendRow, ScheduledQueueStatus } from '../lib/outreachApi';
@@ -86,6 +86,26 @@ export function Outreach({ onEmailSent }: OutreachProps) {
   const fetchQueueStatus = useCallback(async () => {
     try { setQueueStatus(await getScheduledQueueStatus()); } catch { /* non-fatal */ }
   }, []);
+
+  const handlePauseScheduler = useCallback(async (reason?: string) => {
+    await pauseScheduler(reason);
+    await fetchQueueStatus();
+  }, [fetchQueueStatus]);
+
+  const handleResumeScheduler = useCallback(async () => {
+    await resumeScheduler();
+    await fetchQueueStatus();
+  }, [fetchQueueStatus]);
+
+  const handleCancelScheduledById = useCallback(async (id: string) => {
+    await cancelScheduledById(id);
+    await fetchQueueStatus();
+  }, [fetchQueueStatus]);
+
+  const handleCancelAllPending = useCallback(async () => {
+    await cancelAllPending();
+    await fetchQueueStatus();
+  }, [fetchQueueStatus]);
 
   const handleLeadsChange = useCallback((rows: OutreachLead[]) => {
     queueLeadsRef.current = rows;
@@ -535,6 +555,10 @@ export function Outreach({ onEmailSent }: OutreachProps) {
         onCancelScheduled={handleCancelScheduled}
         onRescheduleScheduled={handleRescheduleScheduled}
         queueStatus={queueStatus}
+        onPauseScheduler={handlePauseScheduler}
+        onResumeScheduler={handleResumeScheduler}
+        onCancelScheduledById={handleCancelScheduledById}
+        onCancelAllPending={handleCancelAllPending}
       />
     </div>
   );

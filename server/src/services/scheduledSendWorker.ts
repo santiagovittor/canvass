@@ -5,6 +5,7 @@ import {
   parseEmails, validateEmail, isSuppressed, sentRowExistsForScheduledSend,
   saveEmailExample, deleteDraft, type ScheduledSendRow,
 } from '../db';
+import { getBool, setSetting } from './appSettings';
 import { sendEmail } from './emailSender';
 import { evaluateSendGate, parseVerdict } from './sendGate';
 import { governSend } from './outreachGovernor';
@@ -33,6 +34,9 @@ export interface SchedulerHealth {
   lastTickCounts: TickCounts;
   intervalMs: number;
   nextTickEtaMs: number;
+  paused: boolean;
+  pausedAt: string | null;
+  pausedReason: string | null;
 }
 
 let _lastTickAt: string | null = null;
@@ -40,6 +44,8 @@ let _ticksTotal = 0;
 let _lastTickCounts: TickCounts = { claimed: 0, sent: 0, deferred: 0, held: 0, errored: 0, elapsedMs: 0 };
 let _lastTickEndedAt = 0;
 let _tickStartedAt = 0;        // for watchdog
+let _pausedAt: string | null = null;
+let _pausedReason: string | null = null;
 
 const TICK_STUCK_MS = 5 * 60_000; // watchdog threshold: 5 min
 
@@ -53,7 +59,21 @@ export function getSchedulerHealth(): SchedulerHealth {
     lastTickCounts: { ..._lastTickCounts },
     intervalMs: TICK_INTERVAL_MS,
     nextTickEtaMs,
+    paused: getBool('SCHEDULER_PAUSED'),
+    pausedAt: _pausedAt,
+    pausedReason: _pausedReason,
   };
+}
+
+export function setPaused(paused: boolean, reason?: string): void {
+  setSetting('SCHEDULER_PAUSED', paused);
+  if (paused) {
+    _pausedAt = new Date().toISOString();
+    _pausedReason = reason ?? null;
+  } else {
+    _pausedAt = null;
+    _pausedReason = null;
+  }
 }
 
 // nowMs is injectable for tests so the live gate can exercise a real send inside a
@@ -193,15 +213,17 @@ export async function tick(nowMs: number = Date.now()): Promise<void> {
 
   try {
     reapStaleClaims(new Date(Date.now() - LEASE_MS).toISOString());
-    const due = getDueScheduledSends(new Date().toISOString());
-    for (const job of due) {
-      try {
-        await processJob(job, nowMs, counts);
-      } catch (err) {
-        counts.errored++;
-        console.error(`[scheduler] uncaught error id=${job.id}:`, err instanceof Error ? err.message : err);
-        // Attempt to mark failed; may be no-op if row is not in claimed state.
-        try { finishScheduledSend(job.id, 'failed', 'failed', err instanceof Error ? err.message : String(err)); } catch { /* safe */ }
+    if (!getBool('SCHEDULER_PAUSED')) {
+      const due = getDueScheduledSends(new Date().toISOString());
+      for (const job of due) {
+        try {
+          await processJob(job, nowMs, counts);
+        } catch (err) {
+          counts.errored++;
+          console.error(`[scheduler] uncaught error id=${job.id}:`, err instanceof Error ? err.message : err);
+          // Attempt to mark failed; may be no-op if row is not in claimed state.
+          try { finishScheduledSend(job.id, 'failed', 'failed', err instanceof Error ? err.message : String(err)); } catch { /* safe */ }
+        }
       }
     }
   } catch (err) {
@@ -212,8 +234,9 @@ export async function tick(nowMs: number = Date.now()): Promise<void> {
     _lastTickEndedAt = Date.now();
     _ticksTotal++;
     _lastTickCounts = { ...counts };
+    const paused = getBool('SCHEDULER_PAUSED');
     console.log(
-      `[scheduler] tick claimed=${counts.claimed} sent=${counts.sent} deferred=${counts.deferred} held=${counts.held} errored=${counts.errored} elapsedMs=${counts.elapsedMs}`,
+      `[scheduler] tick claimed=${counts.claimed} sent=${counts.sent} deferred=${counts.deferred} held=${counts.held} errored=${counts.errored} paused=${paused} elapsedMs=${counts.elapsedMs}`,
     );
     running = false;
   }

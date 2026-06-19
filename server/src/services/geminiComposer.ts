@@ -614,6 +614,37 @@ export async function composeFollowUp(
   });
 }
 
+// In-process quarantine for the primary compose model. After QUARANTINE_STRIKES
+// consecutive 5xx within QUARANTINE_WINDOW_MS, skip primary entirely and route
+// directly to the fallback for COMPOSE_503_QUARANTINE_MINUTES minutes.
+const QUARANTINE_STRIKES = 2;
+const QUARANTINE_WINDOW_MS = 5 * 60_000;
+let primaryStrikes: { modelId: string; at: number }[] = [];
+let primaryQuarantinedUntil = 0;
+
+function recordPrimary5xx(modelId: string): void {
+  const now = Date.now();
+  primaryStrikes.push({ modelId, at: now });
+  primaryStrikes = primaryStrikes.filter(s => now - s.at < QUARANTINE_WINDOW_MS);
+  const recent = primaryStrikes.filter(s => s.modelId === modelId);
+  if (recent.length >= QUARANTINE_STRIKES) {
+    const quarantineMs = getNumber('COMPOSE_503_QUARANTINE_MINUTES') * 60_000;
+    primaryQuarantinedUntil = now + quarantineMs;
+    console.warn(
+      `[gemini] composer primary quarantined model=${modelId} until=${new Date(primaryQuarantinedUntil).toISOString()} reason=${recent.length}x 5xx in ${QUARANTINE_WINDOW_MS / 60_000}m`,
+    );
+  }
+}
+
+function recordPrimarySuccess(): void {
+  if (primaryQuarantinedUntil > 0) {
+    const modelId = getString('GEMINI_MODEL');
+    console.warn(`[gemini] composer primary quarantine cleared model=${modelId}`);
+  }
+  primaryStrikes = [];
+  primaryQuarantinedUntil = 0;
+}
+
 // Structured composer call: enforces the JSON shape via responseSchema, validates
 // with zod, bounded retry on parse failure. Composer keeps its own Gemini client.
 async function callGeminiStructured(systemPrompt: string, userPayload: Record<string, unknown>): Promise<ComposedEmail> {
@@ -621,47 +652,10 @@ async function callGeminiStructured(systemPrompt: string, userPayload: Record<st
 
   const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
   const composeModel = getString('GEMINI_MODEL');
-  const model = genAI.getGenerativeModel({
-    model: composeModel,
-    systemInstruction: systemPrompt,
-    generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: COMPOSED_RESPONSE_SCHEMA,
-    },
-  });
-
   const timeoutMs = getNumber('GEMINI_TIMEOUT_MS');
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const result = await withGeminiRate(
-        signal => model.generateContent(JSON.stringify(userPayload), { signal, timeout: timeoutMs }),
-        'compose',
-        { timeoutMs, model: composeModel },
-      );
-      const text = result.response.text().trim();
-      const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-      return ComposedEmailSchema.parse(JSON.parse(cleaned));
-    } catch (err) {
-      // RPD exhaustion is a run-pause control signal, not a parse failure — don't
-      // burn the retry budget on it; propagate so the batch pauses resumably.
-      if (err instanceof GeminiRpdExhausted) throw err;
-      lastErr = err;
-    }
-  }
-  const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
-  const errDesc = describeGeminiError(lastErr);
   const fallbackModelId = getString('GEMINI_COMPOSER_FALLBACK_MODEL');
-  const shouldFallback =
-    errDesc.status !== null &&
-    errDesc.status >= 500 &&
-    !!fallbackModelId &&
-    fallbackModelId !== composeModel;
-  if (shouldFallback) {
-    console.warn(
-      `[gemini] composer 503 fallback: primary=${composeModel} exhausted ` +
-      `(status=${errDesc.status}), trying fallback=${fallbackModelId}`,
-    );
+
+  const runFallback = async (): Promise<ComposedEmail> => {
     const fallbackModel = genAI.getGenerativeModel({
       model: fallbackModelId,
       systemInstruction: systemPrompt,
@@ -678,6 +672,65 @@ async function callGeminiStructured(systemPrompt: string, userPayload: Record<st
     const fallbackText = fallbackResult.response.text().trim();
     const fallbackCleaned = fallbackText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
     return ComposedEmailSchema.parse(JSON.parse(fallbackCleaned));
+  };
+
+  if (Date.now() < primaryQuarantinedUntil && !!fallbackModelId && fallbackModelId !== composeModel) {
+    console.warn(`[gemini] composer primary quarantined, routing direct to fallback=${fallbackModelId}`);
+    return await runFallback();
+  }
+
+  const model = genAI.getGenerativeModel({
+    model: composeModel,
+    systemInstruction: systemPrompt,
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: COMPOSED_RESPONSE_SCHEMA,
+    },
+  });
+
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      // GATE 2 TEST INJECTION — remove after verifying quarantine behavior
+      if (process.env.FORCE_COMPOSE_5XX_STRIKES) {
+        const n = parseInt(process.env.FORCE_COMPOSE_5XX_STRIKES, 10);
+        if (n > 0) {
+          process.env.FORCE_COMPOSE_5XX_STRIKES = String(n - 1);
+          throw Object.assign(new Error('synthetic 503'), { status: 503 });
+        }
+      }
+      const result = await withGeminiRate(
+        signal => model.generateContent(JSON.stringify(userPayload), { signal, timeout: timeoutMs }),
+        'compose',
+        { timeoutMs, model: composeModel },
+      );
+      const text = result.response.text().trim();
+      const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+      const parsed = ComposedEmailSchema.parse(JSON.parse(cleaned));
+      recordPrimarySuccess();
+      return parsed;
+    } catch (err) {
+      // RPD exhaustion is a run-pause control signal, not a parse failure — don't
+      // burn the retry budget on it; propagate so the batch pauses resumably.
+      if (err instanceof GeminiRpdExhausted) throw err;
+      const errInfo = describeGeminiError(err);
+      if (errInfo.status !== null && errInfo.status >= 500) recordPrimary5xx(composeModel);
+      lastErr = err;
+    }
+  }
+  const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
+  const errDesc = describeGeminiError(lastErr);
+  const shouldFallback =
+    errDesc.status !== null &&
+    errDesc.status >= 500 &&
+    !!fallbackModelId &&
+    fallbackModelId !== composeModel;
+  if (shouldFallback) {
+    console.warn(
+      `[gemini] composer 503 fallback: primary=${composeModel} exhausted ` +
+      `(status=${errDesc.status}), trying fallback=${fallbackModelId}`,
+    );
+    return await runFallback();
   }
   throw new Error(`Composer structured output failed after retries: ${msg}`);
 }

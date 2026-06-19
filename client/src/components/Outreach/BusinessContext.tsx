@@ -15,6 +15,10 @@ interface BusinessContextProps {
   onCancelScheduled?: (id: string) => void;
   onRescheduleScheduled?: (id: string, sendAt: string) => void;
   queueStatus?: ScheduledQueueStatus | null;
+  onPauseScheduler?: (reason?: string) => Promise<void>;
+  onResumeScheduler?: () => Promise<void>;
+  onCancelScheduledById?: (id: string) => Promise<void>;
+  onCancelAllPending?: () => Promise<void>;
 }
 
 // Global (not lead-scoped) list of upcoming scheduled sends. Distinct elevated
@@ -271,7 +275,7 @@ function LeadResearch({ analysis, category }: { analysis: WebsiteAnalysis; categ
   );
 }
 
-export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCancelScheduled, onRescheduleScheduled, queueStatus }: BusinessContextProps) {
+export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCancelScheduled, onRescheduleScheduled, queueStatus, onPauseScheduler, onResumeScheduler, onCancelScheduledById, onCancelAllPending }: BusinessContextProps) {
   if (!lead) {
     return (
       <div style={{
@@ -283,7 +287,7 @@ export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCa
         flexDirection: 'column' as const,
         gap: 12,
       }}>
-        {queueStatus && <SchedulerStatus status={queueStatus} />}
+        {queueStatus && <SchedulerStatus status={queueStatus} onPause={onPauseScheduler ?? (() => Promise.resolve())} onResume={onResumeScheduler ?? (() => Promise.resolve())} onCancelRow={onCancelScheduledById ?? (() => Promise.resolve())} onCancelAllPending={onCancelAllPending ?? (() => Promise.resolve())} />}
         {scheduled && (
           <ScheduledSection items={scheduled} onCancel={onCancelScheduled} onReschedule={onRescheduleScheduled} />
         )}
@@ -316,7 +320,7 @@ export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCa
       gap: 12,
     }}>
       {/* Scheduler health panel + global scheduled-sends list (not lead-scoped) */}
-      {queueStatus && <SchedulerStatus status={queueStatus} />}
+      {queueStatus && <SchedulerStatus status={queueStatus} onPause={onPauseScheduler ?? (() => Promise.resolve())} onResume={onResumeScheduler ?? (() => Promise.resolve())} onCancelRow={onCancelScheduledById ?? (() => Promise.resolve())} onCancelAllPending={onCancelAllPending ?? (() => Promise.resolve())} />}
       {scheduled && (
         <ScheduledSection items={scheduled} onCancel={onCancelScheduled} onReschedule={onRescheduleScheduled} />
       )}

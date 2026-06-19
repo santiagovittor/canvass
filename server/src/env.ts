@@ -43,7 +43,7 @@ const schema = z.object({
   // Gemini daily request budget — persisted, Pacific-date keyed. Conservative default;
   // tune to the account tier. Retries are absorbed by the margin below the real ceiling.
   GEMINI_RPD: z.coerce.number().int().positive().default(1000),
-  GEMINI_COMPOSER_FALLBACK_MODEL: z.string().default('gemini-2.5-flash'),
+  GEMINI_COMPOSER_FALLBACK_MODEL: z.string().default('gemini-3-flash'),
 }).refine(
   d => (d.APP_AUTH_USER == null) === (d.APP_AUTH_PASS == null),
   { message: 'AUTH_USER and AUTH_PASS must both be set or both be unset' },

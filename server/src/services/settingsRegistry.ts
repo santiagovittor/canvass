@@ -119,7 +119,7 @@ export const FIELDS: SettingField[] = [
   // ── Gemini & Rate Limits ──
   {
     key: 'GEMINI_MODEL', group: 'Gemini & Rate Limits', label: 'Gemini model (compose)',
-    type: 'string', default: 'gemini-3.5-flash',
+    type: 'string', default: 'gemini-2.5-flash',
   },
   {
     key: 'GEMINI_VERIFIER_MODEL', group: 'Gemini & Rate Limits', label: 'Gemini model (verify)',
@@ -142,9 +142,20 @@ export const FIELDS: SettingField[] = [
     group: 'Gemini & Rate Limits',
     label: 'Gemini model (compose fallback)',
     type: 'string',
-    default: 'gemini-2.5-flash',
+    default: 'gemini-3-flash',
     envVar: 'GEMINI_COMPOSER_FALLBACK_MODEL',
     help: 'Used once if the primary compose model returns 5xx after all retries. Must differ from GEMINI_MODEL to avoid a no-op fallback.',
+  },
+  {
+    key: 'COMPOSE_503_QUARANTINE_MINUTES',
+    group: 'Gemini & Rate Limits',
+    label: 'Composer primary 5xx quarantine (minutes)',
+    type: 'number',
+    unit: 'minutes',
+    min: 0,
+    max: 120,
+    default: 10,
+    help: 'After 2 consecutive 5xx from the primary compose model within 5 minutes, skip it and route directly to the fallback for this many minutes. 0 = disabled.',
   },
   {
     key: 'GEMINI_RPM', group: 'Gemini & Rate Limits', label: 'Gemini requests/min',
@@ -177,6 +188,11 @@ export const FIELDS: SettingField[] = [
   },
 
   // ── Batch & Automation ──
+  {
+    key: 'SCHEDULER_PAUSED', group: 'Batch & Automation', label: 'Pause scheduler',
+    type: 'boolean', default: false,
+    help: 'When enabled, the scheduler ticks but claims no new rows. In-flight claimed rows finish naturally.',
+  },
   {
     key: 'BATCH_PREPARE_CONCURRENCY', group: 'Batch & Automation', label: 'Batch prepare concurrency',
     type: 'number', min: 1, max: 32, default: 3, envVar: 'BATCH_PREPARE_CONCURRENCY',

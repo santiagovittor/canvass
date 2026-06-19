@@ -831,6 +831,22 @@ export function supersedeScheduledSendsForBusiness(businessId: string): number {
   return stmtSupersedePending.run(nowUtcMinus3(), businessId).changes;
 }
 
+const stmtCancelByBusiness = sqlite.prepare<[string, string], void>(`
+  UPDATE scheduled_sends SET status = 'canceled', updated_at = ?
+  WHERE business_id = ? AND status IN ('scheduled', 'deferred')
+`);
+export function cancelScheduledSendsByBusiness(businessId: string): number {
+  return stmtCancelByBusiness.run(nowUtcMinus3(), businessId).changes;
+}
+
+const stmtCancelAllPending = sqlite.prepare<[string], void>(`
+  UPDATE scheduled_sends SET status = 'canceled', updated_at = ?
+  WHERE status IN ('scheduled', 'deferred')
+`);
+export function cancelAllPendingScheduledSends(): number {
+  return stmtCancelAllPending.run(nowUtcMinus3()).changes;
+}
+
 // Most recent scheduled_sends row for a business (any status) — drives the per-lead button.
 const stmtMostRecentScheduled = sqlite.prepare<[string], ScheduledSendRow>(`
   SELECT * FROM scheduled_sends WHERE business_id = ? ORDER BY created_at DESC LIMIT 1
@@ -843,9 +859,9 @@ export function getMostRecentScheduledSend(businessId: string): ScheduledSendRow
 // deferScheduledSend() keeps status='scheduled'; detect deferred rows via last_error prefix.
 // updated_at is stored as nowUtcMinus3(), so LIKE (todayUtcMinus3() || '%') is a correct
 // prefix match for "today in UTC-3" — same offset used for both columns and comparison.
-const stmtScheduledCounts = sqlite.prepare<[string, string, string], {
+const stmtScheduledCounts = sqlite.prepare<[string, string, string, string], {
   scheduled: number; sending: number; sent_today: number;
-  deferred: number; failed_today: number; superseded_today: number;
+  deferred: number; failed_today: number; superseded_today: number; canceled_today: number;
 }>(`
   SELECT
     SUM(CASE WHEN status = 'scheduled' AND (last_error IS NULL OR last_error NOT LIKE 'deferred:%') THEN 1 ELSE 0 END) AS scheduled,
@@ -853,15 +869,16 @@ const stmtScheduledCounts = sqlite.prepare<[string, string, string], {
     SUM(CASE WHEN status = 'sent'      AND updated_at LIKE (? || '%') THEN 1 ELSE 0 END) AS sent_today,
     SUM(CASE WHEN status = 'scheduled' AND last_error LIKE 'deferred:%' THEN 1 ELSE 0 END) AS deferred,
     SUM(CASE WHEN status = 'failed'    AND updated_at LIKE (? || '%') THEN 1 ELSE 0 END) AS failed_today,
-    SUM(CASE WHEN status = 'superseded' AND updated_at LIKE (? || '%') THEN 1 ELSE 0 END) AS superseded_today
+    SUM(CASE WHEN status = 'superseded' AND updated_at LIKE (? || '%') THEN 1 ELSE 0 END) AS superseded_today,
+    SUM(CASE WHEN status = 'canceled'   AND updated_at LIKE (? || '%') THEN 1 ELSE 0 END) AS canceled_today
   FROM scheduled_sends
 `);
 export function getScheduledCounts(): {
   scheduled: number; sending: number; sent_today: number;
-  deferred: number; failed_today: number; superseded_today: number;
+  deferred: number; failed_today: number; superseded_today: number; canceled_today: number;
 } {
   const today = todayUtcMinus3();
-  const row = stmtScheduledCounts.get(today, today, today);
+  const row = stmtScheduledCounts.get(today, today, today, today);
   return {
     scheduled: row?.scheduled ?? 0,
     sending: row?.sending ?? 0,
@@ -869,6 +886,7 @@ export function getScheduledCounts(): {
     deferred: row?.deferred ?? 0,
     failed_today: row?.failed_today ?? 0,
     superseded_today: row?.superseded_today ?? 0,
+    canceled_today: row?.canceled_today ?? 0,
   };
 }
 

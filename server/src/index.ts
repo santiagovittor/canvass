@@ -19,8 +19,10 @@ import trackRouter from './routes/track';
 import batchRouter from './routes/batch';
 import settingsRouter from './routes/settings';
 import schedulerStatusRouter from './routes/schedulerStatus';
+import scrapeSchedulesRouter from './routes/scrapeSchedules';
 import { startReplyChecker } from './services/replyChecker';
 import { startScheduledSendWorker } from './services/scheduledSendWorker';
+import { startScrapeSchedulerWorker } from './services/scrapeSchedulerWorker';
 import { resumeOrphanedJobs } from './services/jobRunner';
 import { kickEnrichment } from './services/enrichmentQueue';
 import { kickPremiumAnalysis } from './services/premiumAnalysisQueue';
@@ -66,6 +68,7 @@ app.use('/api/admin', adminRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/batch', batchRouter);
 app.use('/api/settings', settingsRouter);
+app.use('/api/scrape-schedules', scrapeSchedulesRouter);
 app.use('/api/scheduled', schedulerStatusRouter);
 app.use('/events', eventsRouter);
 
@@ -81,6 +84,7 @@ app.listen(env.PORT, () => {
 
 startReplyChecker();
 startScheduledSendWorker();
+startScrapeSchedulerWorker();
 
 function shutdown() {
   sqlite.pragma('wal_checkpoint(FULL)');

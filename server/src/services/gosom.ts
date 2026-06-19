@@ -5,10 +5,11 @@ export interface GosomJobParams {
   jobId: string;
   keywords: string[];
   lang: string;
-  latitude: number;
-  longitude: number;
-  radiusMeters: number;
+  latitude?: number;     // omit for global keyword jobs
+  longitude?: number;
+  radiusMeters?: number;
   email: boolean;
+  depth?: number;        // default 5
 }
 
 export interface GosomJobStatus {
@@ -47,18 +48,20 @@ async function gosomRequest<T>(method: string, path: string, body?: unknown): Pr
 }
 
 export async function createJob(params: GosomJobParams): Promise<string> {
-  const body = {
+  const body: Record<string, unknown> = {
     name: params.jobId,
     keywords: params.keywords,
     lang: params.lang,
-    lat: String(params.latitude),
-    lon: String(params.longitude),
-    radius: Math.round(params.radiusMeters),
     zoom: 15,
-    depth: 5,
+    depth: params.depth ?? 5,
     email: params.email,
-    max_time: 900, // bounds a stuck job well under the 30-min poll timeout; normal jobs finish in ~90s
+    max_time: 900,
   };
+  if (params.latitude != null && params.longitude != null && params.radiusMeters != null) {
+    body.lat = String(params.latitude);
+    body.lon = String(params.longitude);
+    body.radius = Math.round(params.radiusMeters);
+  }
   const result = await gosomRequest<{ id: string }>('POST', '/api/v1/jobs', body);
   return result.id;
 }

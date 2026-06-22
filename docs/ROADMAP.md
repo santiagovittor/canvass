@@ -8,7 +8,7 @@ Status legend: `planned` · `in-progress` · `done`.
 
 | Rank | ID | Intent | Status | Slice file |
 |---|---|---|---|---|
-| 1 | `0001-auto-enrich-analyze-pipeline` | Auto-run enrich + analyze after every scrape — no manual trigger | planned | _(not created)_ |
+| 1 | `0001-auto-enrich-analyze-pipeline` | Auto-run enrich + analyze after every scrape — no manual trigger | planned | [0001](SLICES/0001-auto-enrich-analyze-pipeline.md) |
 | 2 | `0002-daily-operational-digest` | Daily summary of sends / replies / queue health | planned | _(not created)_ |
 | 3 | `0003-auto-compose-schedule-high-confidence` | Auto compose + schedule leads above a confidence bar | planned | _(not created)_ |
 | 4 | `0004-new-lead-sources-meta-ad-library` | Add Meta Ad Library as a new lead source | planned | _(not created)_ |
@@ -31,3 +31,4 @@ promote to the table above when picked up.
 - Edit `keyword_query` after creation.
 - Cancel a scrape run in-flight.
 - `extra_reviews` / fast-mode gosom flags.
+- instant-scrape progress UI — surface elapsed time + gosom wedge state so a 5-minute scrape doesn't look dead.

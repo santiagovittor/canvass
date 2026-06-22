@@ -199,6 +199,11 @@ export const FIELDS: SettingField[] = [
     help: 'When enabled, the scrape scheduler ticks but claims no new schedules. In-flight runs finish naturally.',
   },
   {
+    key: 'AUTO_ANALYZE_PAUSED', group: 'Batch & Automation', label: 'Pause auto-analyze',
+    type: 'boolean', default: false,
+    help: 'When enabled, the auto-analyze worker claims no new leads; in-flight analysis finishes and new scrapes still enqueue pending rows that drain on resume. Independent of the scrape scheduler.',
+  },
+  {
     key: 'BATCH_PREPARE_CONCURRENCY', group: 'Batch & Automation', label: 'Batch prepare concurrency',
     type: 'number', min: 1, max: 32, default: 3, envVar: 'BATCH_PREPARE_CONCURRENCY',
   },

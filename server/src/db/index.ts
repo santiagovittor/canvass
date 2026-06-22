@@ -336,6 +336,18 @@ export function updateOutreach(id: string, status: string | null, note?: string 
     .get() ?? null;
 }
 
+// website-bearing leads for a finished scrape job. Empty-string websites are
+// stored as '' (not NULL), so filter both — `isNotNull` alone would let '' through.
+export function getAnalyzableBusinessIdsForJob(jobId: string): string[] {
+  return db.select({ id: businesses.id }).from(businesses)
+    .where(and(
+      eq(businesses.jobId, jobId),
+      isNotNull(businesses.website),
+      sql`${businesses.website} != ''`,
+    ))
+    .all().map(r => r.id);
+}
+
 export function getDistinctCategories(): string[] {
   return db
     .select({ category: businesses.category })

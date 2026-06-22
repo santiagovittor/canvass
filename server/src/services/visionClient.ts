@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { Part } from '@google/generative-ai';
 import { env } from '../env';
-import { withGeminiRate, describeGeminiError } from './geminiRateLimiter';
+import { withGeminiRate, describeGeminiError, GeminiRpdExhausted } from './geminiRateLimiter';
 import { getNumber } from './appSettings';
 
 const VISION_MODEL = 'gemini-2.5-flash';
@@ -142,6 +142,7 @@ export async function runVision(
       mobileResponsive: toTristate(v.mobileResponsive),
     };
   } catch (err) {
+    if (err instanceof GeminiRpdExhausted) throw err; // budget cap: propagate, don't degrade
     const d = describeGeminiError(err);
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[vision] API error, degrading to null: ${msg} (status=${d.status ?? '?'}${d.quotaLimitValue ? ` limit=${d.quotaLimitValue}` : ''}${d.retryDelayMs != null ? ` retryDelay=${(d.retryDelayMs / 1000).toFixed(1)}s` : ''})`);

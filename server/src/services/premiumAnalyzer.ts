@@ -16,6 +16,7 @@ import {
   type WebsiteAnalysis,
 } from './websiteAnalyzer';
 import { env } from '../env';
+import { GeminiRpdExhausted } from './geminiRateLimiter';
 import { fetchPsi } from './psiClient';
 import { getCachedPsi, upsertPsiCache, type PsiData } from '../db/psiCache';
 import { runVision, type VisionResult } from './visionClient';
@@ -449,6 +450,7 @@ async function runPremiumAnalysisInner(row: PremiumAnalysisRow): Promise<void> {
         console.log(`[vision] ok for ${biz.website ?? row.businessId}`);
       }
     } catch (err) {
+      if (err instanceof GeminiRpdExhausted) throw err; // budget cap: propagate to queue/batch, leave lead resumable
       console.error('[vision] unexpected error, skipping:', err);
     }
   }

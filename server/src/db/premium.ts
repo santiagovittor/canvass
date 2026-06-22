@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from './index';
 import { businesses, premiumAnalyses } from './schema';
 
@@ -79,6 +79,12 @@ export function createPremiumAnalysisRunning(businessId: string): PremiumAnalysi
   return db.select().from(premiumAnalyses).where(eq(premiumAnalyses.id, id)).get()!;
 }
 
+export function countPendingAnalyses(): number {
+  const row = db.select({ n: sql<number>`count(*)` }).from(premiumAnalyses)
+    .where(eq(premiumAnalyses.status, 'pending')).get();
+  return row?.n ?? 0;
+}
+
 export function claimNextPending(): PremiumAnalysisRow | null {
   const row = db.select().from(premiumAnalyses)
     .where(eq(premiumAnalyses.status, 'pending'))
@@ -93,6 +99,12 @@ export function claimNextPending(): PremiumAnalysisRow | null {
 // Boot: rows orphaned mid-run by a restart go back to pending
 export function resetOrphanedRunning(): void {
   db.update(premiumAnalyses).set({ status: 'pending' }).where(eq(premiumAnalyses.status, 'running')).run();
+}
+
+// RPD cap during analysis: return this one running row to pending so a later
+// kick re-claims it (vs. resetOrphanedRunning which is a boot-wide sweep).
+export function resetAnalysisToPending(id: string): void {
+  db.update(premiumAnalyses).set({ status: 'pending' }).where(eq(premiumAnalyses.id, id)).run();
 }
 
 export function completePremiumAnalysis(id: string, r: {
@@ -140,4 +152,18 @@ export function getLatestPremiumAnalysis(businessId: string): PremiumAnalysisRow
     .orderBy(desc(premiumAnalyses.createdAt))
     .limit(1)
     .get() ?? null;
+}
+
+// Reuse gate: true when the latest analysis is fresh + complete enough to skip
+// re-running. The negation of batchOrchestrator's historic `isStale` predicate,
+// minus forceRefresh (a batch-only override that stays in the caller).
+export function isAnalysisFresh(businessId: string, ttlDays: number): boolean {
+  const premium = getLatestPremiumAnalysis(businessId);
+  return !!premium
+    && premium.status === 'done'
+    && !!premium.completedAt
+    && ttlDays !== 0
+    && Date.now() - new Date(premium.completedAt).getTime() <= ttlDays * 86400000
+    && !!premium.detectedSigsJson && !!premium.psiJson
+    && !!premium.visionJson && !!premium.signalsJson;
 }

@@ -1,11 +1,12 @@
 import { randomBytes } from 'crypto';
 import { eq, or, sql } from 'drizzle-orm';
-import { db } from '../db';
+import { db, getAnalyzableBusinessIdsForJob } from '../db';
 import { scrapeJobs, businesses } from '../db/schema';
 import { broadcast } from '../sse';
 import { bboxFromGeoJSON, cellCount as computeCellCount, computeGrid } from './grid';
 import * as gosom from './gosom';
 import { kickEnrichment } from './enrichmentQueue';
+import { autoEnqueueForAnalysis } from './autoAnalyzeEnqueue';
 
 const cancellers = new Map<string, AbortController>();
 
@@ -144,6 +145,12 @@ export async function runKeywordJobSync(
   const deduped = Math.max(0, inserted - added);
 
   kickEnrichment();
+  // Auto-analyze: enqueue this run's website-bearing leads (Q7 filter at db layer,
+  // consistent with the polygon path). Covers both the keyword scheduler branch
+  // and POST /api/keyword-scrape/instant — no route change needed.
+  const analyzable = getAnalyzableBusinessIdsForJob(jobId);
+  const { enqueued, skipped } = autoEnqueueForAnalysis(analyzable);
+  console.log(`[jobRunner] auto-analyze keyword job=${jobId} enqueued=${enqueued} skipped=${skipped}`);
   return { added, deduped, businessIds };
 }
 

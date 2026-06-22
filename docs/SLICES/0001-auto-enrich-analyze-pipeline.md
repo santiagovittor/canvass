@@ -389,32 +389,77 @@ feature on; phase 6 adds observability; phase 7 is the live gate.
 ## Verification gate
 
 _Filled in DURING execution with live evidence — not after, not assertions._
-Proposed shape:
+Live run: 2026-06-22, instant keyword scrape `dentist Recoleta Buenos Aires`
+(depth 1) → 20 leads. Baseline `premium_analyses` = 162 done / 0 pending / 0 running.
 
-- [ ] **Auto-enqueue fires on scrape.** Run an instant keyword scrape (or trip a
-  due schedule) against a few real businesses with websites; observe new
-  `premium_analyses` rows appear without any manual analyze call:
-  `SELECT business_id, status, created_at FROM premium_analyses ORDER BY created_at DESC LIMIT 10;`
-- [ ] **Overlap.** Server log shows analyze `[<id>] ▶ render …` / `[gemini]`
-  lines interleaved with `[jobRunner]`/scheduler scrape lines for the same run —
-  analysis of early leads starts before scraping finishes.
-- [ ] **Leads reach `done`.** After the worker drains:
-  `SELECT status, count(*) FROM premium_analyses GROUP BY status;` shows the new
-  leads `done` (or `no_website` outcome), none stuck `running`.
-- [ ] **TTL reuse honored.** Re-scrape the same `place_id`s within
-  `REUSE_ANALYSIS_TTL_DAYS`; confirm NO new analysis runs (no second
-  `[gemini]` vision call, no new `running` row) — the fresh row is reused.
-- [ ] **Pause honored independently.** Set `AUTO_ANALYZE_PAUSED` true, scrape;
-  confirm scraping + enrichment still run but the analyze worker claims nothing
-  (no new `[gemini]`/render lines); unset and confirm the backlog drains.
-- [ ] **Cost guardrail.** Rolling `[gemini][cost]` log lines show the expected
-  ~$ per analyzed lead (vision call only at this slice); RPD reservation
-  (`rpd N/1000`) advances; if RPD is forced low, the worker degrades per the
-  decision in open question #3 rather than crashing or silently dropping leads.
-- [ ] `npx tsc --noEmit` clean (server in container).
+- [x] **Auto-enqueue fires on scrape.** `POST /api/keyword-scrape/instant` →
+  `{"added":20,...}`; log: `[jobRunner] auto-analyze keyword job=g2b9Mdd-PnuTVwlnEPBaXg enqueued=20 skipped=0`.
+  No manual analyze call. Immediately after: status = `done 162 / pending 19 /
+  running 1`, the 20 new rows' `business_id`s = the scraped `place_id`s.
+- [~] **Overlap — NOT satisfied as worded (approved-design tradeoff, see follow-up).**
+  With the approved query-after-run (Q6a) for polygon and enqueue-after-upsert for
+  keyword/instant, a single run's gosom scrape fully completes *before*
+  `autoEnqueueForAnalysis` runs — so "analysis of early leads starts before [the
+  same run's] scraping finishes" cannot happen. Overlap that DOES occur: the
+  analyze worker drained the dentist leads concurrently with an unrelated active
+  compose batch, and run N's analysis overlaps the scheduler's run N+1 scrape.
+  Cell-N-while-N+1 intra-run overlap would require per-cell enqueue inside
+  `upsertRawResults`, which Q6a deliberately rejected. Flagged below.
+- [x] **Leads reach `done`.** After drain: `SELECT status,count(*) … GROUP BY
+  status` → `[{"done":182}]` (162 baseline + 20), `0` pending/running, `0` failed.
+  Mix of `render_outcome` `ok`/`http_error`; no row stuck.
+- [x] **TTL reuse honored.** Re-scrape same query → `{"added":2,"deduped":18}`,
+  log `enqueued=2 skipped=0`. The 18 re-scraped `place_id`s were NOT re-analyzed
+  (each still has exactly 1 `premium_analyses` row, no new `running`) — `job_id`
+  is written on INSERT only, so `getAnalyzableBusinessIdsForJob(newJobId)` never
+  returns deduped leads; `isAnalysisFresh` is the secondary backstop. Only the 2
+  genuinely-new leads enqueued.
+- [x] **Pause honored independently.** `POST /auto-analyze/pause` mid-drain →
+  `{"backlog":19,"paused":true,...}`; scraping/enrichment unaffected. In-flight
+  `[4e6e50]` finished (done 162→163), then worker claimed **nothing** — pending
+  held at 19 across a 170s wait. `POST /auto-analyze/resume` →
+  `{"backlog":18,"paused":false}` and `[ae9470] ▶ render …` fired immediately
+  (kick-on-resume), backlog drained to 0.
+- [x] **Cost guardrail.** Vision Gemini calls on the auto-analyzed leads:
+  `[gemini] vision call #52 … (rpd 72/1000)` → `[gemini][cost] vision
+  gemini-2.5-flash in=1054 out=448 ~$0.0014` → `[vision] ok for
+  http://www.prodentalclinica.com/`; rpd advanced 72→74. RPD-forced-low (set
+  `GEMINI_RPD=1`, triggered analysis): log `[premiumAnalysisQueue] RPD exhausted;
+  914f8925-… → pending, pausing drain` — row returned to `pending` (NOT `failed`/
+  `done`); after `GEMINI_RPD` reset it resumed to `done` in ~10s. No crash, no
+  dropped lead (open-question #3 semantics).
+- [x] `npx tsc --noEmit` clean (server in container) — verified after every phase
+  (1–6), rc=0 each.
 
 ## Completion record
 
-- Commit SHAs: …
-- What changed: …
-- Follow-ups / new parked items: …
+- Commit SHAs: _uncommitted_ (working tree; no commit requested).
+- What changed:
+  - **Phase 1** `db/premium.ts` `isAnalysisFresh(businessId, ttlDays)` (inverse of
+    batch `isStale`, minus `forceRefresh`); `batchOrchestrator.ts` calls it —
+    behavior identical.
+  - **Phase 2** narrow re-throw of `GeminiRpdExhausted` past the vision swallow
+    sites (`visionClient.ts`, `premiumAnalyzer.ts`); `db/premium.ts`
+    `resetAnalysisToPending(id)`; `premiumAnalysisQueue.ts` catches it first →
+    row→`pending`, stops drain (never `failed` on a budget cap).
+  - **Phase 3** registry `AUTO_ANALYZE_PAUSED` (default false);
+    `premiumAnalysisQueue` claim-time pause check.
+  - **Phase 4** `db/index.ts` `getAnalyzableBusinessIdsForJob` (website
+    `IS NOT NULL AND != ''`); new `services/autoAnalyzeEnqueue.ts`
+    (`autoEnqueueForAnalysis`: per-id TTL skip + enqueue + single kick);
+    polygon branch in `scrapeSchedulerWorker.ts` wired.
+  - **Phase 5** `jobRunner.runKeywordJobSync` auto-enqueues via
+    `getAnalyzableBusinessIdsForJob(jobId)` — covers keyword schedule + instant.
+  - **Phase 6** `db/premium.countPendingAnalyses`; `premiumAnalysisQueue`
+    `getAutoAnalyzeHealth` + `setAutoAnalyzePaused` (kicks on resume);
+    `routes/scrapeSchedules.ts` `/status` `autoAnalyze` field + `/auto-analyze/
+    pause|resume`.
+- Follow-ups / new parked items:
+  - **Intra-run overlap not achieved** (Gate 2). The intent's cell-N-while-N+1
+    overlap needs per-cell enqueue during scrape (inside `upsertRawResults` or a
+    streaming hook), which conflicts with the approved Q6a query-after-run. Park
+    as a separate enhancement if intra-run latency overlap is wanted.
+  - **Auto-analyze never refreshes stale dedup leads.** Because `job_id` is
+    INSERT-only, a re-scraped lead with a *stale* analysis is not re-queued by the
+    auto path (only the TTL backstop would catch a freshly-inserted dup). Refresh
+    of aging leads remains the separate backfill concern noted in Out-of-scope.

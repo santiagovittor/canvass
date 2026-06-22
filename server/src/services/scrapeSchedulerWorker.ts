@@ -1,10 +1,11 @@
-import { sqlite } from '../db';
+import { sqlite, getAnalyzableBusinessIdsForJob } from '../db';
 import {
   getDueSchedules, claimScheduleRun, finishScheduleRun,
   reapStaleRuns, updateScheduleAfterRun,
 } from '../db/scrapeSchedules';
 import { getBool, setSetting } from './appSettings';
 import { runJobSync, runKeywordJobSync } from './jobRunner';
+import { autoEnqueueForAnalysis } from './autoAnalyzeEnqueue';
 
 const TICK_INTERVAL_MS = 60_000;
 const FIRST_TICK_DELAY_MS = 15_000;
@@ -116,6 +117,9 @@ async function tick(): Promise<void> {
             counts.ran++;
             counts.added += addedCount;
             counts.deduped += dedupedCount;
+            const analyzable = getAnalyzableBusinessIdsForJob(jobId);
+            const { enqueued, skipped } = autoEnqueueForAnalysis(analyzable);
+            console.log(`[scrape-scheduler] auto-analyze polygon job=${jobId} enqueued=${enqueued} skipped=${skipped}`);
           }
         } catch (err) {
           counts.errored++;

@@ -7,7 +7,7 @@ import {
   listResumableItems, listRunsByStatus, enqueueForSend, type BatchItemRow,
 } from '../db/batch';
 import {
-  getLatestPremiumAnalysis, createPremiumAnalysisRunning,
+  getLatestPremiumAnalysis, createPremiumAnalysisRunning, isAnalysisFresh,
   type DetectedSig, type SignalMap,
 } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
@@ -93,14 +93,7 @@ async function processItem(runId: string, item: BatchItemRow, dryRun: boolean): 
   let premium = getLatestPremiumAnalysis(businessId);
   const ttlDays = getNumber('REUSE_ANALYSIS_TTL_DAYS');
   const forceRefresh = forceRefreshRuns.has(runId);
-  const isStale =
-    !premium
-    || premium.status !== 'done'
-    || !premium.completedAt
-    || ttlDays === 0
-    || forceRefresh
-    || Date.now() - new Date(premium.completedAt).getTime() > ttlDays * 86400000
-    || !premium.detectedSigsJson || !premium.psiJson || !premium.visionJson || !premium.signalsJson;
+  const isStale = forceRefresh || !isAnalysisFresh(businessId, ttlDays);
 
   if (isStale) {
     const fresh = createPremiumAnalysisRunning(businessId);

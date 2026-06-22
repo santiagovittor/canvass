@@ -5,6 +5,7 @@ import {
   deleteSchedule, getRecentRuns,
 } from '../db/scrapeSchedules';
 import { getScrapeSchedulerHealth, setScrapeSchedulerPaused } from '../services/scrapeSchedulerWorker';
+import { getAutoAnalyzeHealth, setAutoAnalyzePaused } from '../services/premiumAnalysisQueue';
 
 const createScheduleSchema = z.object({
   name: z.string().min(1),
@@ -55,11 +56,11 @@ const patchScheduleSchema = z.object({
 
 const router = Router();
 
-// GET /status — health + recent runs
+// GET /status — health + recent runs + auto-analyze backlog/pause
 router.get('/status', (_req, res) => {
   const health = getScrapeSchedulerHealth();
   const recentRuns = getRecentRuns({ limit: 20 });
-  res.json({ health, recentRuns });
+  res.json({ health, recentRuns, autoAnalyze: getAutoAnalyzeHealth() });
 });
 
 // POST /pause
@@ -74,6 +75,18 @@ router.post('/pause', (req, res) => {
 router.post('/resume', (_req, res) => {
   setScrapeSchedulerPaused(false);
   res.json({ paused: false });
+});
+
+// POST /auto-analyze/pause — pause auto-analyze independently of scraping
+router.post('/auto-analyze/pause', (_req, res) => {
+  setAutoAnalyzePaused(true);
+  res.json(getAutoAnalyzeHealth());
+});
+
+// POST /auto-analyze/resume — resume + kick the drain
+router.post('/auto-analyze/resume', (_req, res) => {
+  setAutoAnalyzePaused(false);
+  res.json(getAutoAnalyzeHealth());
 });
 
 // GET / — list schedules with last 5 runs each

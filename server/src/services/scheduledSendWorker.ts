@@ -3,9 +3,11 @@ import {
   reapStaleClaims, getDueScheduledSends, claimScheduledSend, finishScheduledSend,
   deferScheduledSend, resolveScheduledFromScheduled, getOutreachSendRow, getDraft,
   parseEmails, validateEmail, isSuppressed, sentRowExistsForScheduledSend,
-  saveEmailExample, deleteDraft, type ScheduledSendRow,
+  saveEmailExample, deleteDraft, getScheduledCounts, getNextScheduledRows,
+  type ScheduledSendRow,
 } from '../db';
 import { getBool, setSetting } from './appSettings';
+import { broadcast } from '../sse';
 import { sendEmail } from './emailSender';
 import { evaluateSendGate, parseVerdict } from './sendGate';
 import { governSend } from './outreachGovernor';
@@ -74,6 +76,31 @@ export function setPaused(paused: boolean, reason?: string): void {
     _pausedAt = null;
     _pausedReason = null;
   }
+  broadcastSchedulerStatus();
+}
+
+// health + counts + next queue — the payload the status route serves and the tick pushes.
+export function buildScheduledQueueStatus() {
+  const health = getSchedulerHealth();
+  const counts = getScheduledCounts();
+  return {
+    health,
+    counts: {
+      scheduled: counts.scheduled,
+      sending: counts.sending,
+      sent_today: counts.sent_today,
+      deferred: counts.deferred,
+      held_now: health.lastTickCounts.held,  // in-memory, not DB
+      superseded_today: counts.superseded_today,
+      canceled_today: counts.canceled_today,
+      failed_today: counts.failed_today,
+    },
+    next: getNextScheduledRows(20),
+  };
+}
+
+function broadcastSchedulerStatus(): void {
+  broadcast('send-scheduler:tick', buildScheduledQueueStatus());
 }
 
 // nowMs is injectable for tests so the live gate can exercise a real send inside a
@@ -140,7 +167,7 @@ export async function processJob(job: ScheduledSendRow, nowMs: number = Date.now
   }
 
   // Governor: cap / window / pacing. Defer keeps the row 'scheduled' at a new time.
-  const decision = governSend(resolveBusinessType(row.category), nowMs);
+  const decision = governSend(resolveBusinessType(row.category), nowMs, job.origin === 'manual');
   if (decision.action === 'defer') {
     console.log(`[scheduler] deferred id=${job.id} business=${bid} from=${job.scheduled_at} to=${decision.untilUtc} reason=${decision.reason}`);
     if (counts) counts.deferred++;
@@ -238,6 +265,7 @@ export async function tick(nowMs: number = Date.now()): Promise<void> {
     console.log(
       `[scheduler] tick claimed=${counts.claimed} sent=${counts.sent} deferred=${counts.deferred} held=${counts.held} errored=${counts.errored} paused=${paused} elapsedMs=${counts.elapsedMs}`,
     );
+    broadcastSchedulerStatus();
     running = false;
   }
 }

@@ -1,11 +1,12 @@
 import { sqlite, getAnalyzableBusinessIdsForJob } from '../db';
 import {
   getDueSchedules, claimScheduleRun, finishScheduleRun,
-  reapStaleRuns, updateScheduleAfterRun,
+  reapStaleRuns, updateScheduleAfterRun, getRecentRuns,
 } from '../db/scrapeSchedules';
 import { getBool, setSetting } from './appSettings';
 import { runJobSync, runKeywordJobSync } from './jobRunner';
 import { autoEnqueueForAnalysis } from './autoAnalyzeEnqueue';
+import { broadcast } from '../sse';
 
 const TICK_INTERVAL_MS = 60_000;
 const FIRST_TICK_DELAY_MS = 15_000;
@@ -59,6 +60,19 @@ export function setScrapeSchedulerPaused(paused: boolean, reason?: string): void
     _pausedAt = null;
     _pausedReason = null;
   }
+  broadcastScrapeSchedulerStatus();
+}
+
+// Health + recent runs, the payload the status route serves and the tick pushes.
+export function getScrapeSchedulerStatusPayload(): {
+  health: ScrapeSchedulerHealth;
+  recentRuns: ReturnType<typeof getRecentRuns>;
+} {
+  return { health: getScrapeSchedulerHealth(), recentRuns: getRecentRuns({ limit: 20 }) };
+}
+
+function broadcastScrapeSchedulerStatus(): void {
+  broadcast('scrape-scheduler:tick', getScrapeSchedulerStatusPayload());
 }
 
 async function tick(): Promise<void> {
@@ -144,6 +158,7 @@ async function tick(): Promise<void> {
     console.log(
       `[scrape-scheduler] tick due=${counts.due} ran=${counts.ran} added=${counts.added} deduped=${counts.deduped} errored=${counts.errored} paused=${paused} elapsedMs=${counts.elapsedMs}`,
     );
+    broadcastScrapeSchedulerStatus();
     running = false;
   }
 }

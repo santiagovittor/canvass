@@ -1,7 +1,6 @@
 import { Router } from 'express';
-import { getSchedulerHealth, setPaused } from '../services/scheduledSendWorker';
+import { getSchedulerHealth, setPaused, buildScheduledQueueStatus } from '../services/scheduledSendWorker';
 import {
-  getScheduledCounts, getNextScheduledRows,
   getScheduledSendById, cancelScheduledSend,
   cancelScheduledSendsByBusiness, cancelAllPendingScheduledSends,
 } from '../db';
@@ -9,23 +8,7 @@ import {
 const router = Router();
 
 router.get('/status', (_req, res) => {
-  const health = getSchedulerHealth();
-  const counts = getScheduledCounts();
-  const next = getNextScheduledRows(20);
-  res.json({
-    health,
-    counts: {
-      scheduled: counts.scheduled,
-      sending: counts.sending,
-      sent_today: counts.sent_today,
-      deferred: counts.deferred,
-      held_now: health.lastTickCounts.held,  // in-memory, not DB
-      superseded_today: counts.superseded_today,
-      canceled_today: counts.canceled_today,
-      failed_today: counts.failed_today,
-    },
-    next,
-  });
+  res.json(buildScheduledQueueStatus());
 });
 
 router.post('/pause', (req, res) => {

@@ -4,7 +4,7 @@ import {
   createSchedule, listSchedules, getSchedule, updateSchedule,
   deleteSchedule, getRecentRuns,
 } from '../db/scrapeSchedules';
-import { getScrapeSchedulerHealth, setScrapeSchedulerPaused } from '../services/scrapeSchedulerWorker';
+import { getScrapeSchedulerHealth, setScrapeSchedulerPaused, getScrapeSchedulerStatusPayload } from '../services/scrapeSchedulerWorker';
 import { getAutoAnalyzeHealth, setAutoAnalyzePaused } from '../services/premiumAnalysisQueue';
 
 const createScheduleSchema = z.object({
@@ -58,9 +58,7 @@ const router = Router();
 
 // GET /status — health + recent runs + auto-analyze backlog/pause
 router.get('/status', (_req, res) => {
-  const health = getScrapeSchedulerHealth();
-  const recentRuns = getRecentRuns({ limit: 20 });
-  res.json({ health, recentRuns, autoAnalyze: getAutoAnalyzeHealth() });
+  res.json({ ...getScrapeSchedulerStatusPayload(), autoAnalyze: getAutoAnalyzeHealth() });
 });
 
 // POST /pause

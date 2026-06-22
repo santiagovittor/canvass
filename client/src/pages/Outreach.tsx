@@ -162,15 +162,8 @@ export function Outreach({ onEmailSent }: OutreachProps) {
       setSenderName(cfg.senderName);
       setSenderEmail(cfg.senderEmail);
     }).catch(() => {});
-    const pollInterval = setInterval(() => {
-      fetchQueueStatus().catch(() => {});
-      if (activeLeadRef.current) {
-        getLeadScheduleStatus(activeLeadRef.current.id)
-          .then(row => setLeadScheduleRow(row))
-          .catch(() => {});
-      }
-    }, 15_000);
-    return () => clearInterval(pollInterval);
+    // Queue status + active-lead schedule update live via the send-scheduler:tick
+    // SSE event (see useSSE below) — no polling loop.
   }, [fetchStats, fetchScheduled, fetchQueueStatus]);
 
   const handleGenerate = useCallback(async () => {
@@ -358,6 +351,14 @@ export function Outreach({ onEmailSent }: OutreachProps) {
 
   // Live updates from open tracking + reply detection + premium analysis progress
   useSSE({
+    'send-scheduler:tick': (data) => {
+      setQueueStatus(data as ScheduledQueueStatus);
+      if (activeLeadRef.current) {
+        getLeadScheduleStatus(activeLeadRef.current.id)
+          .then(row => setLeadScheduleRow(row))
+          .catch(() => {});
+      }
+    },
     'email:opened': () => {
       if (modeRef.current === 'followup') setLeadRefreshTrigger(n => n + 1);
     },

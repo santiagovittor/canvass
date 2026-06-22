@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import type { ScrapeSchedulerHealth, ScrapeScheduleRunRow } from '../../lib/scrapeSchedulesApi';
 import { getScrapeSchedulerStatus, pauseScrapeScheduler, resumeScrapeScheduler } from '../../lib/scrapeSchedulesApi';
+import { useSSE } from '../../hooks/useSSE';
 
 export function ScrapeSchedulerStatus() {
   const [health, setHealth] = useState<ScrapeSchedulerHealth | null>(null);
@@ -13,11 +14,16 @@ export function ScrapeSchedulerStatus() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    refresh();
-    const id = setInterval(refresh, 15_000);
-    return () => clearInterval(id);
-  }, [refresh]);
+  // One snapshot on mount; live thereafter via SSE (no polling loop).
+  useEffect(() => { refresh(); }, [refresh]);
+
+  useSSE({
+    'scrape-scheduler:tick': (data) => {
+      const d = data as { health: ScrapeSchedulerHealth; recentRuns: ScrapeScheduleRunRow[] };
+      setHealth(d.health);
+      setRecentRuns(d.recentRuns);
+    },
+  });
 
   const handlePause = async () => {
     await pauseScrapeScheduler();

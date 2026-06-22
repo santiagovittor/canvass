@@ -108,13 +108,41 @@ export interface KeywordJobParams {
   lang: string;
   depth?: number;
   geoBias?: { lat: string; lon: string; radius: number };
+  // Client-generated correlation id (slice 0003). The route is synchronous so
+  // the client has no jobId until the run finishes; it mints a runId, sends it
+  // in the POST body, and matches the keyword:* stage events back to its run.
+  // Optional: the scrape scheduler calls this with no client listening.
+  runId?: string;
 }
 
 export async function runKeywordJobSync(
   params: KeywordJobParams,
 ): Promise<{ added: number; deduped: number; businessIds: string[] }> {
   const jobId = randomBytes(16).toString('base64url');
+  const runId = params.runId ?? randomBytes(8).toString('base64url');
   const ac = new AbortController();
+  const query = params.query.trim();
+  broadcast('keyword:started', { runId, query });
+  try {
+
+  // Minimal scrape_jobs row so the enrichmentQueue left-join (enrichmentQueue.ts)
+  // resolves extractEmails=1 and emails get scraped for website-bearing keyword
+  // leads — exactly like polygon leads (slice 0004). status='done' keeps it out
+  // of the SSE active-job snapshot (sse.ts) and polygon-oriented views; keyword
+  // runs are synchronous and have no bbox/geometry, so those columns are benign
+  // placeholders / null.
+  db.insert(scrapeJobs).values({
+    id: jobId,
+    searchTerm: params.query.trim(),
+    language: params.lang,
+    bboxJson: '[]',
+    gridCellKm: 0,
+    cellCount: 0,
+    status: 'done',
+    geometryJson: null,
+    extractEmails: 1,
+    createdAt: new Date().toISOString(),
+  }).run();
 
   const gosomId = await createGosomJobWithRetry({
     jobId,
@@ -126,11 +154,15 @@ export async function runKeywordJobSync(
     email: false,
     depth: params.depth,
   }, ac.signal);
+  console.log(`[jobRunner] broadcast keyword:stage scraping run=${runId}`);
+  broadcast('keyword:stage', { runId, stage: 'scraping' });
 
   const polledResults = await pollUntilDone(gosomId, ac.signal);
   const rawResults = polledResults ?? await gosom.downloadResults(gosomId);
 
   const scrapedAt = new Date().toISOString();
+  console.log(`[jobRunner] broadcast keyword:stage saving run=${runId}`);
+  broadcast('keyword:stage', { runId, stage: 'saving' });
   // upsertRawResults handles lat/lng guard internally — no polygon filter needed
   const { inserted } = upsertRawResults(rawResults as Record<string, unknown>[], jobId, scrapedAt);
 
@@ -145,13 +177,21 @@ export async function runKeywordJobSync(
   const deduped = Math.max(0, inserted - added);
 
   kickEnrichment();
+  console.log(`[jobRunner] broadcast keyword:stage enriching run=${runId}`);
+  broadcast('keyword:stage', { runId, stage: 'enriching' });
   // Auto-analyze: enqueue this run's website-bearing leads (Q7 filter at db layer,
   // consistent with the polygon path). Covers both the keyword scheduler branch
   // and POST /api/keyword-scrape/instant — no route change needed.
   const analyzable = getAnalyzableBusinessIdsForJob(jobId);
   const { enqueued, skipped } = autoEnqueueForAnalysis(analyzable);
   console.log(`[jobRunner] auto-analyze keyword job=${jobId} enqueued=${enqueued} skipped=${skipped}`);
+  broadcast('keyword:done', { runId, added, deduped });
   return { added, deduped, businessIds };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    broadcast('keyword:error', { runId, message });
+    throw err;
+  }
 }
 
 // On boot, re-enter jobs interrupted by a server restart instead of failing them.

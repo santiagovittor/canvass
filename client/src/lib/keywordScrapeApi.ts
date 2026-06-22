@@ -17,6 +17,8 @@ export interface InstantScrapeParams {
   lang?: string;
   depth?: number;
   geoBias?: { lat: string; lon: string; radius: number };
+  // Correlation id echoed in keyword:* SSE stage events (slice 0003).
+  runId?: string;
 }
 
 export interface InstantScrapeResult {

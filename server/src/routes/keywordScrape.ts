@@ -8,6 +8,8 @@ const instantSchema = z.object({
   query: z.string().min(1).max(500).trim(),
   lang: z.string().min(2).max(10).optional().default('en'),
   depth: z.number().int().min(1).max(20).optional(),
+  // Client-generated correlation id for keyword:* SSE stage events (slice 0003).
+  runId: z.string().min(1).max(100).optional(),
   // geoBias is all-or-nothing by design (nested object) — no superRefine needed
   geoBias: z.object({
     lat: z.string(),
@@ -21,9 +23,9 @@ router.post('/instant', async (req, res) => {
   if (!parsed.success) {
     return void res.status(400).json({ error: parsed.error.flatten() });
   }
-  const { query, lang, depth, geoBias } = parsed.data;
+  const { query, lang, depth, geoBias, runId } = parsed.data;
   try {
-    const result = await runKeywordJobSync({ query, lang, depth, geoBias });
+    const result = await runKeywordJobSync({ query, lang, depth, geoBias, runId });
     res.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

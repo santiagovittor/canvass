@@ -1,8 +1,27 @@
 import { useState } from 'react';
 import { instantKeywordScrape, type InstantScrapeResult } from '../../lib/keywordScrapeApi';
 import { createScrapeSchedule } from '../../lib/scrapeSchedulesApi';
+import { useKeywordRun, type KeywordStage } from '../../hooks/useKeywordRun';
 
 const LANGS = ['en', 'es', 'pt', 'de', 'fr', 'it'];
+
+// Stage tracker steps for an instant keyword run (slice 0003). Each step's rank
+// marks where it sits in the run lifecycle; 'submitting' shares rank 1 with
+// 'scraping' so the first step lights up the moment the request is dispatched.
+const STAGE_RANK: Record<KeywordStage, number> = {
+  idle: 0, submitting: 1, scraping: 1, saving: 2, enriching: 3, done: 4, error: -1,
+};
+const STAGE_STEPS: { label: string; rank: number }[] = [
+  { label: 'Scraping', rank: 1 },
+  { label: 'Saving', rank: 2 },
+  { label: 'Enriching', rank: 3 },
+  { label: 'Done', rank: 4 },
+];
+
+function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+}
 
 export function KeywordPanel() {
   const [mode, setMode] = useState<'single' | 'bulk'>('single');
@@ -19,6 +38,7 @@ export function KeywordPanel() {
   const [error, setError] = useState<string | null>(null);
   const [enqueued, setEnqueued] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
+  const run = useKeywordRun();
 
   const geoBias =
     geoLat && geoLng
@@ -30,16 +50,22 @@ export function KeywordPanel() {
     setRunning(true);
     setResult(null);
     setError(null);
+    const runId = crypto.randomUUID();
+    run.start(runId);
     try {
       const r = await instantKeywordScrape({
         query: query.trim(),
         lang,
         depth: parseInt(depth) || 5,
         geoBias,
+        runId,
       });
       setResult(r);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      // Request failed before/around the server's keyword:error (e.g. 400/network)
+      // — clear the tracker so the inline error is the single source of truth.
+      run.reset();
     } finally {
       setRunning(false);
     }
@@ -201,6 +227,30 @@ export function KeywordPanel() {
                   onChange={(e) => setDepth(e.target.value)}
                 />
               </div>
+            </div>
+          )}
+
+          {run.stage !== 'idle' && run.stage !== 'error' && (
+            <div className="kp-stages">
+              <div className="kp-stages-row">
+                {STAGE_STEPS.map(({ label, rank }) => {
+                  const current = STAGE_RANK[run.stage];
+                  const cls =
+                    current > rank ? ' kp-stage--done'
+                    : current === rank ? ' kp-stage--active'
+                    : '';
+                  return (
+                    <span key={label} className={`kp-stage${cls}`}>
+                      <span className="kp-stage-dot" />
+                      {label}
+                    </span>
+                  );
+                })}
+              </div>
+              <span className="kp-elapsed">{formatElapsed(run.elapsedMs)}</span>
+              {run.stage !== 'done' && (
+                <span className="kp-stage-hint">~90s typical</span>
+              )}
             </div>
           )}
 

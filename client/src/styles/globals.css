@@ -67,6 +67,7 @@ html, body, #root {
 .app-grid {
   display: grid;
   grid-template-columns: 320px 1fr 380px;
+  grid-template-rows: 1fr;
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -485,6 +486,23 @@ select option {
 .kp-result-stat { font-family: var(--font-ui); font-size: 13px; color: var(--text-secondary); }
 .kp-result-num { font-family: var(--font-mono); color: var(--accent); }
 .kp-error { font-size: 12px; color: var(--error); margin: 0; }
+
+/* Keyword run stage tracker (slice 0003) */
+.kp-stages { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; background: var(--bg-base); border: 1px solid var(--border); border-radius: 8px; }
+.kp-stages-row { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; flex-wrap: wrap; }
+.kp-stage { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-ui); font-size: 11px; font-weight: 500; letter-spacing: 0.04em; color: var(--text-muted); }
+.kp-stage-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
+.kp-stage--done { color: var(--text-secondary); }
+.kp-stage--done .kp-stage-dot { background: var(--success); }
+.kp-stage--active { color: var(--accent); }
+.kp-stage--active .kp-stage-dot { background: var(--accent); animation: kpStageGlow 1.4s ease-in-out infinite; }
+.kp-elapsed { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--accent); flex-shrink: 0; }
+.kp-stage-hint { font-family: var(--font-ui); font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+
+@keyframes kpStageGlow {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); opacity: 0.6; }
+  50%       { box-shadow: 0 0 10px 1px var(--accent-glow); opacity: 1; }
+}
 
 /* ── Scraper mode segmented control ─────────────────────────────────────────── */
 

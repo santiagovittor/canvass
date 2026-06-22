@@ -157,7 +157,7 @@ export async function runKeywordJobSync(
   console.log(`[jobRunner] broadcast keyword:stage scraping run=${runId}`);
   broadcast('keyword:stage', { runId, stage: 'scraping' });
 
-  const polledResults = await pollUntilDone(gosomId, ac.signal);
+  const polledResults = await pollUntilDone(gosomId, ac.signal, KEYWORD_WEDGE_PROBE_AFTER_MS);
   const rawResults = polledResults ?? await gosom.downloadResults(gosomId);
 
   const scrapedAt = new Date().toISOString();
@@ -416,7 +416,13 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
 
 const POLL_INTERVAL_MS = 5000;
 const MAX_POLL_MS = 17 * 60 * 1000; // gosom max_time (15 min) + grace
-const WEDGE_PROBE_AFTER_MS = 3 * 60 * 1000; // normal 1-keyword batches finish in ~90s
+const WEDGE_PROBE_AFTER_MS = 3 * 60 * 1000; // polygon: per-cell scrapes can run long, stay conservative
+// Keyword runs are a single ~90s batch; gosom often wedges with the scrape done
+// but status stuck on "working" (upstream #143). Probe for stable results right
+// after the typical finish so recovery is ~3min, not ~4.6min, and the worker's
+// single-run lock frees sooner. The 2×WEDGE_PROBE_EVERY_MS stability guard still
+// prevents cutting a scrape that's genuinely still producing rows.
+const KEYWORD_WEDGE_PROBE_AFTER_MS = 90 * 1000;
 const WEDGE_PROBE_EVERY_MS = 45 * 1000;
 const PENDING_RESTART_AFTER_MS = 2 * 60 * 1000; // healthy runner picks pending jobs in seconds
 
@@ -430,7 +436,11 @@ const PENDING_RESTART_AFTER_MS = 2 * 60 * 1000; // healthy runner picks pending 
 //   - status stuck "pending": the runner died before picking the job; restart
 //     gosom (re-picks pending jobs on boot) and keep polling.
 // Returns null when the status flipped normally (caller downloads as usual).
-async function pollUntilDone(gosomId: string, signal: AbortSignal): Promise<Record<string, unknown>[] | null> {
+async function pollUntilDone(
+  gosomId: string,
+  signal: AbortSignal,
+  wedgeProbeAfterMs: number = WEDGE_PROBE_AFTER_MS,
+): Promise<Record<string, unknown>[] | null> {
   let seenWorking = false;
   let lastProbeAt = 0;
   let lastRowCount = -1;
@@ -466,7 +476,7 @@ async function pollUntilDone(gosomId: string, signal: AbortSignal): Promise<Reco
       await gosom.restartContainer();
     }
 
-    if (seenWorking && now - startedAt > WEDGE_PROBE_AFTER_MS && now - lastProbeAt >= WEDGE_PROBE_EVERY_MS) {
+    if (seenWorking && now - startedAt > wedgeProbeAfterMs && now - lastProbeAt >= WEDGE_PROBE_EVERY_MS) {
       lastProbeAt = now;
       try {
         const rows = await gosom.downloadResults(gosomId);

@@ -9,6 +9,8 @@ Behavioral guidelines + project context for Claude Code. Read this before touchi
 - Architecture rules (folder boundaries, banned packages, service layering) in `.claude/rules/architecture.md`.
 - Verification steps for bug fixes live in the `fix-bug` skill.
 
+**Spec-driven workflow.** Before any task, read `docs/SPEC.md` for invariants and the reuse-only registry. For feature work, the active slice spec lives at `docs/SLICES/<id>-<name>.md`. `docs/ROADMAP.md` ranks pending slices.
+
 ---
 
 ## 0. Dev Commands

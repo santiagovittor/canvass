@@ -461,11 +461,7 @@ select option {
 
 .keyword-panel { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 
-.kp-mode-toggle { display: flex; gap: 2px; background: var(--bg-base); border-radius: 8px; padding: 3px; width: fit-content; }
-.kp-mode-btn { padding: 5px 16px; border-radius: 6px; border: none; background: transparent; color: var(--text-muted); font-family: var(--font-ui); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 120ms; }
-.kp-mode-btn--active { background: var(--bg-elevated); color: var(--text-primary); }
-
-.kp-single, .kp-bulk { display: flex; flex-direction: column; gap: 8px; }
+.kp-single { display: flex; flex-direction: column; gap: 8px; }
 .kp-query { width: 100%; }
 .kp-textarea { width: 100%; resize: vertical; font-family: var(--font-mono); font-size: 13px; }
 .kp-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -481,6 +477,18 @@ select option {
 .kp-radius { width: 80px; }
 .kp-depth { width: 60px; }
 .kp-unit { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+
+/* Email-provenance microcopy (slice 0005) */
+.kp-hint { margin: 0; font-family: var(--font-ui); font-size: 11px; line-height: 1.5; color: var(--text-secondary); max-width: 52ch; }
+
+/* Queue subsection inside Advanced / Queue (slice 0005) */
+.kp-queue { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; margin-top: 2px; border-top: 1px solid var(--border); }
+.kp-queue-label { margin-bottom: 0; }
+.kp-queue-btn { width: 100%; }
+.kp-queue-div { font-family: var(--font-ui); font-size: 11px; color: var(--text-muted); text-align: center; letter-spacing: 0.04em; }
+.kp-btn-count { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.kp-queued { margin: 0; font-family: var(--font-ui); font-size: 12px; line-height: 1.5; color: var(--success); }
+.kp-queued-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 .kp-result { display: flex; gap: 16px; padding: 8px 14px; background: var(--bg-base); border-radius: 8px; border: 1px solid var(--border); }
 .kp-result-stat { font-family: var(--font-ui); font-size: 13px; color: var(--text-secondary); }

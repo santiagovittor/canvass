@@ -24,7 +24,6 @@ function formatElapsed(ms: number): string {
 }
 
 export function KeywordPanel() {
-  const [mode, setMode] = useState<'single' | 'bulk'>('single');
   const [query, setQuery] = useState('');
   const [lang, setLang] = useState('en');
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -131,172 +130,159 @@ export function KeywordPanel() {
 
   return (
     <div className="keyword-panel">
-      {/* Single / Bulk toggle */}
-      <div className="kp-mode-toggle">
-        <button
-          className={`kp-mode-btn${mode === 'single' ? ' kp-mode-btn--active' : ''}`}
-          onClick={() => setMode('single')}
-        >
-          Single
-        </button>
-        <button
-          className={`kp-mode-btn${mode === 'bulk' ? ' kp-mode-btn--active' : ''}`}
-          onClick={() => setMode('bulk')}
-        >
-          Bulk
-        </button>
-      </div>
-
-      {mode === 'single' ? (
-        <div className="kp-single">
-          <input
-            autoFocus
-            className="input-field kp-query"
-            placeholder="e.g. lawyers in new york city"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !running && handleRunNow()}
-          />
-          <div className="kp-row">
-            <select
-              className="input-field kp-lang"
-              value={lang}
-              onChange={(e) => setLang(e.target.value)}
-            >
-              {LANGS.map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                </option>
-              ))}
-            </select>
-            <button
-              className="btn-primary kp-btn"
-              onClick={handleRunNow}
-              disabled={running || !query.trim()}
-            >
-              {running ? 'Running…' : 'Run Now'}
-            </button>
-            <button
-              className="btn-secondary kp-btn"
-              onClick={handleAddToBacklog}
-              disabled={running || !query.trim()}
-            >
-              {enqueued ? 'Added ✓' : '+ Backlog'}
-            </button>
-          </div>
-
-          <button
-            className="kp-advanced-toggle"
-            onClick={() => setShowAdvanced((v) => !v)}
+      <div className="kp-single">
+        <input
+          autoFocus
+          className="input-field kp-query"
+          placeholder="e.g. lawyers in new york city"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && !running && handleRunNow()}
+        />
+        <div className="kp-row">
+          <select
+            className="input-field kp-lang"
+            value={lang}
+            onChange={(e) => setLang(e.target.value)}
           >
-            {showAdvanced ? '▴ Advanced' : '▾ Advanced'}
+            {LANGS.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </select>
+          <button
+            className="btn-primary kp-btn"
+            onClick={handleRunNow}
+            disabled={running || !query.trim()}
+          >
+            {running ? 'Running…' : 'Run Now'}
           </button>
+        </div>
 
-          {showAdvanced && (
-            <div className="kp-advanced">
-              <div className="kp-advanced-row">
-                <span className="sidebar-section-label kp-advanced-label">Geo bias</span>
-                <input
-                  className="input-field kp-mono"
-                  placeholder="-34.6037"
-                  value={geoLat}
-                  onChange={(e) => setGeoLat(e.target.value)}
-                />
-                <input
-                  className="input-field kp-mono"
-                  placeholder="-58.3816"
-                  value={geoLng}
-                  onChange={(e) => setGeoLng(e.target.value)}
-                />
-                <input
-                  className="input-field kp-mono kp-radius"
-                  placeholder="2000"
-                  value={geoRadius}
-                  onChange={(e) => setGeoRadius(e.target.value)}
-                />
-                <span className="kp-unit">m</span>
-              </div>
-              <div className="kp-advanced-row">
-                <span className="sidebar-section-label kp-advanced-label">Depth</span>
-                <input
-                  className="input-field kp-mono kp-depth"
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={depth}
-                  onChange={(e) => setDepth(e.target.value)}
-                />
-              </div>
+        <p className="kp-hint">
+          Emails are found by visiting each business's website after scraping.
+          Leads without a website won't have one.
+        </p>
+
+        <button
+          className="kp-advanced-toggle"
+          onClick={() => setShowAdvanced((v) => !v)}
+        >
+          {showAdvanced ? '▴ Advanced / Queue' : '▾ Advanced / Queue'}
+        </button>
+
+        {showAdvanced && (
+          <div className="kp-advanced">
+            <div className="kp-advanced-row">
+              <span className="sidebar-section-label kp-advanced-label">Geo bias</span>
+              <input
+                className="input-field kp-mono"
+                placeholder="-34.6037"
+                value={geoLat}
+                onChange={(e) => setGeoLat(e.target.value)}
+              />
+              <input
+                className="input-field kp-mono"
+                placeholder="-58.3816"
+                value={geoLng}
+                onChange={(e) => setGeoLng(e.target.value)}
+              />
+              <input
+                className="input-field kp-mono kp-radius"
+                placeholder="2000"
+                value={geoRadius}
+                onChange={(e) => setGeoRadius(e.target.value)}
+              />
+              <span className="kp-unit">m</span>
             </div>
-          )}
+            <div className="kp-advanced-row">
+              <span className="sidebar-section-label kp-advanced-label">Depth</span>
+              <input
+                className="input-field kp-mono kp-depth"
+                type="number"
+                min={1}
+                max={20}
+                value={depth}
+                onChange={(e) => setDepth(e.target.value)}
+              />
+            </div>
 
-          {run.stage !== 'idle' && run.stage !== 'error' && (
-            <div className="kp-stages">
-              <div className="kp-stages-row">
-                {STAGE_STEPS.map(({ label, rank }) => {
-                  const current = STAGE_RANK[run.stage];
-                  const cls =
-                    current > rank ? ' kp-stage--done'
-                    : current === rank ? ' kp-stage--active'
-                    : '';
-                  return (
-                    <span key={label} className={`kp-stage${cls}`}>
-                      <span className="kp-stage-dot" />
-                      {label}
-                    </span>
-                  );
-                })}
-              </div>
-              <span className="kp-elapsed">{formatElapsed(run.elapsedMs)}</span>
-              {run.stage !== 'done' && (
-                <span className="kp-stage-hint">~90s typical</span>
+            {/* Queue (run later via the scheduler) */}
+            <div className="kp-queue">
+              <span className="sidebar-section-label kp-queue-label">Queue for later</span>
+              <button
+                className="btn-secondary kp-queue-btn"
+                onClick={handleAddToBacklog}
+                disabled={running || !query.trim()}
+              >
+                + Add current query to backlog
+              </button>
+
+              <div className="kp-queue-div">or queue a batch</div>
+
+              <textarea
+                className="input-field kp-textarea"
+                rows={5}
+                placeholder={'one query per line\ndentists in miami\nkioskos in palermo'}
+                value={bulkText}
+                onChange={(e) => setBulkText(e.target.value)}
+              />
+              <button
+                className="btn-secondary kp-queue-btn"
+                onClick={handleBulkEnqueue}
+                disabled={bulkLines === 0 || bulkRunning}
+              >
+                {bulkRunning ? 'Adding…' : (
+                  <>Add {bulkLines > 0 && <span className="kp-btn-count">{bulkLines}</span>} to backlog</>
+                )}
+              </button>
+
+              {enqueued && (
+                <p className="kp-queued">
+                  Queued ✓ — runs in ~<span className="kp-queued-num">60s</span>, results appear in the Explorer tab.
+                </p>
               )}
             </div>
-          )}
-
-          {error && <p className="kp-error">{error}</p>}
-          {result && (
-            <div className="kp-result">
-              <span className="kp-result-stat">
-                Added <span className="kp-result-num">{result.added}</span>
-              </span>
-              <span className="kp-result-stat">
-                Deduped <span className="kp-result-num">{result.deduped}</span>
-              </span>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="kp-bulk">
-          <textarea
-            className="input-field kp-textarea"
-            rows={7}
-            placeholder={'one query per line\ndentists in miami\nkioskos in palermo'}
-            value={bulkText}
-            onChange={(e) => setBulkText(e.target.value)}
-          />
-          <div className="kp-row">
-            <select
-              className="input-field kp-lang"
-              value={lang}
-              onChange={(e) => setLang(e.target.value)}
-            >
-              {LANGS.map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                </option>
-              ))}
-            </select>
-            <button
-              className="btn-primary kp-btn"
-              onClick={handleBulkEnqueue}
-              disabled={bulkLines === 0 || bulkRunning}
-            >
-              {enqueued ? 'Added ✓' : bulkRunning ? 'Adding…' : `Add ${bulkLines || ''} to Backlog`}
-            </button>
           </div>
-        </div>
-      )}
+        )}
+
+        {run.stage !== 'idle' && run.stage !== 'error' && (
+          <div className="kp-stages">
+            <div className="kp-stages-row">
+              {STAGE_STEPS.map(({ label, rank }) => {
+                const current = STAGE_RANK[run.stage];
+                const cls =
+                  current > rank ? ' kp-stage--done'
+                  : current === rank ? ' kp-stage--active'
+                  : '';
+                return (
+                  <span key={label} className={`kp-stage${cls}`}>
+                    <span className="kp-stage-dot" />
+                    {label}
+                  </span>
+                );
+              })}
+            </div>
+            <span className="kp-elapsed">{formatElapsed(run.elapsedMs)}</span>
+            {run.stage !== 'done' && (
+              <span className="kp-stage-hint">~90s typical</span>
+            )}
+          </div>
+        )}
+
+        {error && <p className="kp-error">{error}</p>}
+        {result && (
+          <div className="kp-result">
+            <span className="kp-result-stat">
+              Added <span className="kp-result-num">{result.added}</span>
+            </span>
+            <span className="kp-result-stat">
+              Deduped <span className="kp-result-num">{result.deduped}</span>
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

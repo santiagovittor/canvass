@@ -570,12 +570,15 @@ async function callGemini(systemPrompt: string, userPayload: Record<string, unkn
     { timeoutMs, model: composeModel },
   );
   const text = result.response.text().trim();
+  // Some models wrap JSON in ```json fences despite the prompt — strip them, as
+  // the structured composer path already does.
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(cleaned);
   } catch {
-    throw new Error(`Gemini returned non-JSON: ${text.slice(0, 200)}`);
+    throw new Error(`Gemini returned non-JSON: ${cleaned.slice(0, 200)}`);
   }
 
   if (
@@ -612,6 +615,72 @@ export async function composeFollowUp(
     originalBody: original?.body ?? null,
     wasOpened,
   });
+}
+
+// ── WhatsApp cheap-site offer (slice 0007) ─────────────────────────────────────
+// No-website leads have no email/social — only a phone. This composes a short,
+// first-contact WhatsApp message offering to build a cheap site, anchored on the
+// only evidence we have (category + barrio + rating + "no website"). No anchor
+// ranker, no verifier gate — there's no website to make claims about. Reuses
+// callGemini's transport: the prompt emits { subject: "", body: <message> }.
+
+const WHATSAPP_ES = `Sos un copywriter de mensajes de WhatsApp B2B para negocios en Argentina. Escribís un PRIMER mensaje en frío, breve y humano, para ofrecer crear un sitio web simple y económico a un negocio que NO tiene página web.
+
+Reglas:
+- Tratá de usted. Nunca vos.
+- Largo de WhatsApp: 2 a 4 oraciones, máximo ~45 palabras. Sin asunto, sin firma, sin enlaces.
+- Empezá con el saludo "{{GREETING}}" y, si corresponde por el rubro, el título "{{PROFESSIONAL_TITLE}}".
+- Decí que los encontraste en Google Maps y que notaste que no tienen sitio web. Es el gancho; NO digas que eso esté "mal" ni los hagas sentir en falta.
+- Ofrecé armarles un sitio web simple, rápido y económico, pensado para su rubro y zona. UN solo beneficio concreto, no una lista.
+- Cerrá con una pregunta de bajo compromiso (por ejemplo, si les interesa que les pase una idea).
+- Natural, no robótico. Nada de "estimado", nada de mayúsculas gritadas. No inventes datos que no estén en el payload.
+
+Devolvé SOLO JSON: { "subject": "", "body": "<el mensaje de WhatsApp>" }. El campo subject SIEMPRE vacío.`;
+
+const WHATSAPP_ES_ES = `Eres un copywriter de mensajes de WhatsApp B2B para negocios en España. Escribes un PRIMER mensaje en frío, breve y humano, para ofrecer crear una web sencilla y económica a un negocio que NO tiene página web.
+
+Reglas:
+- Trata de usted.
+- Longitud de WhatsApp: 2 a 4 frases, máximo ~45 palabras. Sin asunto, sin firma, sin enlaces.
+- Empieza con el saludo "{{GREETING}}" y, si procede por el sector, el título "{{PROFESSIONAL_TITLE}}".
+- Di que los encontraste en Google Maps y que viste que no tienen web. Es el gancho; NO digas que eso esté "mal".
+- Ofrece hacerles una web sencilla, rápida y económica, pensada para su sector y zona. UN solo beneficio concreto, no una lista.
+- Cierra con una pregunta de bajo compromiso (por ejemplo, si les interesa que les pases una idea).
+- Natural, no robótico. No inventes datos que no estén en el payload.
+
+Devuelve SOLO JSON: { "subject": "", "body": "<el mensaje de WhatsApp>" }. El campo subject SIEMPRE vacío.`;
+
+const WHATSAPP_EN = `You are a B2B WhatsApp copywriter. You write a FIRST cold message, short and human, offering to build a simple, affordable website for a business that has NO website.
+
+Rules:
+- Plain, direct, friendly American English.
+- WhatsApp length: 2 to 4 sentences, max ~45 words. No subject, no signature, no links.
+- Mention you found them on Google Maps and noticed they don't have a website. That's the hook; do NOT say that's "bad" or make them feel behind.
+- Offer to build a simple, fast, affordable site tailored to their category and area. ONE concrete benefit, not a list.
+- Close with a low-commitment question (e.g. whether they'd like you to share an idea).
+- Natural, not robotic. Don't invent facts not in the payload.
+
+Return ONLY JSON: { "subject": "", "body": "<the WhatsApp message>" }. The subject field is ALWAYS empty.`;
+
+// Compose a first-contact WhatsApp cheap-site offer for a no-website lead.
+export async function composeWhatsApp(
+  business: BusinessForEmail,
+): Promise<{ message: string }> {
+  const locale = resolveLocale(business.locCountry);
+  const waPrompt =
+    locale === 'es-AR' ? WHATSAPP_ES : locale === 'es-ES' ? WHATSAPP_ES_ES : WHATSAPP_EN;
+  const systemPrompt = waPrompt
+    .replaceAll('{{GREETING}}', getGreeting())
+    .replaceAll('{{PROFESSIONAL_TITLE}}', getProfessionalTitle(business.category));
+
+  const { body } = await callGemini(systemPrompt, {
+    name: business.name,
+    category: business.category,
+    neighbourhood: business.locNeighbourhood,
+    rating: business.rating,
+    reviewCount: business.reviewCount,
+  });
+  return { message: body };
 }
 
 // In-process quarantine for the primary compose model. After QUARANTINE_STRIKES

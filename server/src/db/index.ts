@@ -574,6 +574,70 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
   return { rows, total };
 }
 
+// No-website lane (slice 0007): leads with no website but a phone, untouched.
+// These are structurally excluded from getOutreachLeads (which requires an email),
+// so they need their own query. Same row shape — the WhatsApp lane reuses the
+// outreach_drafts join (has_draft) and the OutreachLead type; email fields are
+// empty for these rows by definition.
+export function getNoSiteLeads(page = 1, pageSize = 25, filters: { search?: string } = {}): { rows: OutreachLead[]; total: number } {
+  const offset = (page - 1) * pageSize;
+  const conditions = [
+    `(b.website IS NULL OR trim(b.website) = '')`,
+    `b.phone IS NOT NULL AND trim(b.phone) != ''`,
+    `b.outreach_status IS NULL`,
+  ];
+  const params: (string | number)[] = [];
+  if (filters.search) {
+    conditions.push(`b.name LIKE ?`);
+    params.push(`%${filters.search}%`);
+  }
+  const clause = conditions.join(' AND ');
+
+  const leadsSQL = `
+    SELECT b.id, b.name, b.address, b.phone, b.website, b.emails_json, b.category, b.rating, b.review_count,
+           b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status, b.outreach_analysis_json,
+           b.latitude, b.longitude, b.instagram, b.facebook, b.twitter, b.tiktok, b.linkedin, b.youtube,
+           CASE WHEN d.business_id IS NOT NULL THEN 1 ELSE 0 END AS has_draft
+    FROM businesses b
+    LEFT JOIN outreach_drafts d ON b.id = d.business_id
+    WHERE ${clause}
+    ORDER BY b.scraped_at DESC
+    LIMIT ? OFFSET ?
+  `;
+  const countSQL = `SELECT COUNT(*) AS n FROM businesses b WHERE ${clause}`;
+
+  const raw = sqlite.prepare<(string | number)[], RawLeadRow>(leadsSQL).all(...params, pageSize, offset);
+  const total = sqlite.prepare<(string | number)[], { n: number }>(countSQL).get(...params)?.n ?? 0;
+
+  const rows: OutreachLead[] = raw.map(r => {
+    const emails = parseEmails(r.emails_json);
+    const first = emails[0] ?? null;
+    return {
+      id: r.id, name: r.name, address: r.address, phone: r.phone,
+      website: r.website, emailsJson: r.emails_json, category: r.category,
+      rating: r.rating, reviewCount: r.review_count,
+      locCountry: r.loc_country, locNeighbourhood: r.loc_neighbourhood,
+      locCity: r.loc_city, outreachStatus: r.outreach_status,
+      valid_email: first !== null && validateEmail(first),
+      first_email: first,
+      latitude: r.latitude, longitude: r.longitude,
+      instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
+      tiktok: r.tiktok, linkedin: r.linkedin, youtube: r.youtube,
+      has_draft: r.has_draft === 1,
+      outreachAnalysisJson: r.outreach_analysis_json,
+    };
+  });
+
+  return { rows, total };
+}
+
+// Mark a no-site lead handled: flip to 'contacted' (drops it from getNoSiteLeads,
+// like the email path) and clear its WhatsApp draft.
+export function markNoSiteContacted(businessId: string): void {
+  markContacted(businessId);
+  deleteDraft(businessId);
+}
+
 export function getDistinctOutreachCategories(): string[] {
   return (sqlite.prepare(`
     SELECT DISTINCT category FROM businesses

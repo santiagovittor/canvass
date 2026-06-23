@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { LeadQueue } from '../components/Outreach/LeadQueue';
 import type { QueueMode } from '../components/Outreach/LeadQueue';
 import { EmailComposer } from '../components/Outreach/EmailComposer';
+import { WhatsAppComposer } from '../components/Outreach/WhatsAppComposer';
 import { BusinessContext } from '../components/Outreach/BusinessContext';
 import { BatchRunner } from '../components/Outreach/BatchRunner';
 import { startBatch, pauseBatch, resumeBatch, cancelBatch } from '../lib/batchApi';
 import type { BatchProgress } from '../lib/batchApi';
-import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis, scheduleDraft, listScheduled, cancelScheduled, rescheduleScheduled, getLeadScheduleStatus, getScheduledQueueStatus, pauseScheduler, resumeScheduler, cancelScheduledById, cancelScheduledByBusiness, cancelAllPending } from '../lib/outreachApi';
+import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis, scheduleDraft, listScheduled, cancelScheduled, rescheduleScheduled, getLeadScheduleStatus, getScheduledQueueStatus, pauseScheduler, resumeScheduler, cancelScheduledById, cancelScheduledByBusiness, cancelAllPending, generateWaMessage, markWaContacted } from '../lib/outreachApi';
 import { patchOutreach, getConfig } from '../lib/api';
 import { useSSE } from '../hooks/useSSE';
 import type { OutreachLead, OutreachStats, WebsiteAnalysis, DetectedSig, PsiMetrics, VisionResult, PremiumSignal, ScheduledSend, ScheduledSendRow, ScheduledQueueStatus } from '../lib/outreachApi';
@@ -194,6 +195,42 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     } finally {
       setIsGenerating(false);
     }
+  }, []);
+
+  // No-site lane (slice 0007): AI-draft the WhatsApp offer (server persists it via
+  // upsertDraft) and surface it in the editor. Reuses the draft.body channel.
+  const handleGenerateWa = useCallback(async () => {
+    const lead = activeLeadRef.current;
+    if (!lead || isGeneratingRef.current) return;
+    setIsGenerating(true);
+    setError(null);
+    try {
+      const { message } = await generateWaMessage(lead.id);
+      setDraft({ subject: '', body: message });
+      setIsAiDraft(true);
+      setSavingState('saved');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Generation failed');
+    } finally {
+      setIsGenerating(false);
+    }
+  }, []);
+
+  // Manual-send model: operator sends via wa.me/tel: externally, then marks the
+  // lead contacted — which flips outreach_status and drops it from the queue.
+  const handleMarkContacted = useCallback(async () => {
+    const lead = activeLeadRef.current;
+    if (!lead) return;
+    setError(null);
+    const rows = queueLeadsRef.current;
+    const idx = rows.findIndex(r => r.id === lead.id);
+    setActiveLead(rows[idx + 1] ?? rows[idx - 1] ?? null);
+    setDraft({ subject: '', body: '' });
+    setIsAiDraft(false);
+    try {
+      await markWaContacted(lead.id);
+      setLeadRefreshTrigger(n => n + 1);
+    } catch (err) { console.error('[Outreach]', err); }
   }, []);
 
   const handleAnalyzeAndGenerate = useCallback(async () => {
@@ -405,6 +442,8 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     function handler(e: KeyboardEvent) {
       const tag = (document.activeElement as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      // No-site lane uses its own buttons, not the email send/skip/generate keys.
+      if (modeRef.current === 'no-site') return;
       if (!activeLeadRef.current || isAnalyzingRef.current || isGeneratingRef.current || isSendingRef.current) return;
       if (e.key === 's' || e.key === 'S') handleSend();
       if (e.key === 'x' || e.key === 'X') handleSkip();
@@ -519,6 +558,18 @@ export function Outreach({ onEmailSent }: OutreachProps) {
           style={{ flex: 1, minHeight: 0, borderRight: 'none' }}
         />
       </div>
+      {mode === 'no-site' ? (
+        <WhatsAppComposer
+          lead={activeLead}
+          message={draft.body}
+          isGenerating={isGenerating}
+          error={error}
+          savingState={savingState}
+          onMessageChange={msg => handleDraftChange({ subject: '', body: msg })}
+          onGenerate={handleGenerateWa}
+          onMarkContacted={handleMarkContacted}
+        />
+      ) : (
       <EmailComposer
         mode={mode === 'followup' ? 'followup' : 'new'}
         lead={mode === 'replied' ? null : activeLead}
@@ -548,6 +599,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
         onCancelSwitch={handleCancelSwitch}
         leadScheduleRow={leadScheduleRow}
       />
+      )}
       <BusinessContext
         lead={activeLead}
         analysis={analysis}

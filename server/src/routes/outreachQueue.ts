@@ -2,10 +2,10 @@ import { Router } from 'express';
 import { db } from '../db';
 import { businesses } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
-import { getOutreachLeads, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens, getOutreachSendRow, createScheduledSend, listUpcomingScheduledSends, cancelScheduledSend, rescheduleScheduledSend, saveOutreachAnalysis, supersedeScheduledSendsForBusiness, getMostRecentScheduledSend } from '../db';
+import { getOutreachLeads, getNoSiteLeads, markNoSiteContacted, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens, getOutreachSendRow, createScheduledSend, listUpcomingScheduledSends, cancelScheduledSend, rescheduleScheduledSend, saveOutreachAnalysis, supersedeScheduledSendsForBusiness, getMostRecentScheduledSend } from '../db';
 import { resolveBusinessType, describeWindow } from '../services/outreachSchedulingConfig';
 import { nextOptimalWindowUtc } from '../services/outreachGovernor';
-import { composeFollowUp } from '../services/geminiComposer';
+import { composeFollowUp, composeWhatsApp } from '../services/geminiComposer';
 import { type VerificationResult } from '../services/geminiVerifier';
 import { composeVerifiedEmail } from '../services/outreachComposePipeline';
 import { evaluateSendGate, parseVerdict } from '../services/sendGate';
@@ -44,6 +44,56 @@ router.get('/leads', (req, res) => {
 
 router.get('/categories', (_req, res) => {
   res.json(getDistinctOutreachCategories());
+});
+
+// ── No-website lane (slice 0007) ────────────────────────────────────────────────
+// Leads with no website but a phone — structurally absent from /leads (which
+// requires an email). A separate WhatsApp cheap-site offer track: manual send via
+// wa.me/tel: on the client; the message is AI-drafted and reuses outreach_drafts.
+
+router.get('/no-site-leads', (req, res) => {
+  const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
+  const search = typeof req.query.search === 'string' && req.query.search ? req.query.search : undefined;
+  res.json(getNoSiteLeads(page, 25, { search }));
+});
+
+router.post('/wa-generate', async (req, res) => {
+  const { businessId } = req.body as { businessId?: unknown };
+  if (typeof businessId !== 'string') {
+    return res.status(400).json({ error: 'businessId required' });
+  }
+
+  const row = db.select().from(businesses).where(eq(businesses.id, businessId)).get();
+  if (!row) return res.status(404).json({ error: 'Business not found' });
+
+  try {
+    const { message } = await composeWhatsApp({
+      name: row.name,
+      category: row.category ?? null,
+      website: row.website ?? null,
+      locCountry: row.locCountry ?? null,
+      locNeighbourhood: row.locNeighbourhood ?? null,
+      rating: row.rating ?? null,
+      reviewCount: row.reviewCount ?? null,
+    });
+    // Reuse outreach_drafts: WhatsApp message lives in body, subject unused.
+    upsertDraft(businessId, '', message, true);
+    res.json({ message });
+  } catch (err) {
+    const errMessage = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ error: errMessage });
+  }
+});
+
+router.post('/wa-contacted', (req, res) => {
+  const { businessId } = req.body as { businessId?: unknown };
+  if (typeof businessId !== 'string') {
+    return res.status(400).json({ error: 'businessId required' });
+  }
+  const row = db.select().from(businesses).where(eq(businesses.id, businessId)).get();
+  if (!row) return res.status(404).json({ error: 'Business not found' });
+  markNoSiteContacted(businessId);
+  res.json({ ok: true });
 });
 
 router.get('/follow-ups', (req, res) => {

@@ -157,6 +157,27 @@ export function getOutreachCategories(): Promise<string[]> {
   return request('/outreach/categories');
 }
 
+// No-website lane (slice 0007): phone-only leads, WhatsApp cheap-site offer.
+export function getNoSiteLeads(page: number, search?: string): Promise<{ rows: OutreachLead[]; total: number }> {
+  const params = new URLSearchParams({ page: String(page) });
+  if (search) params.set('search', search);
+  return request(`/outreach/no-site-leads?${params}`);
+}
+
+export function generateWaMessage(businessId: string): Promise<{ message: string }> {
+  return request('/outreach/wa-generate', {
+    method: 'POST',
+    body: JSON.stringify({ businessId }),
+  });
+}
+
+export function markWaContacted(businessId: string): Promise<{ ok: boolean }> {
+  return request('/outreach/wa-contacted', {
+    method: 'POST',
+    body: JSON.stringify({ businessId }),
+  });
+}
+
 export function getFollowUpLeads(page: number, days: number): Promise<{ rows: FollowUpLead[]; total: number }> {
   return request(`/outreach/follow-ups?page=${page}&days=${days}`);
 }

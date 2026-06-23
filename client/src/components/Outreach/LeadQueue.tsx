@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { OutreachLead, FollowUpLead, RepliedLead, OutreachLeadFilters } from '../../lib/outreachApi';
-import { getOutreachLeads, getFollowUpLeads, getRepliedLeads, getOutreachCategories, countryFlag } from '../../lib/outreachApi';
+import { getOutreachLeads, getNoSiteLeads, getFollowUpLeads, getRepliedLeads, getOutreachCategories, countryFlag } from '../../lib/outreachApi';
 
-export type QueueMode = 'new' | 'followup' | 'replied';
+export type QueueMode = 'new' | 'followup' | 'replied' | 'no-site';
 
 interface LeadQueueProps {
   activeLead: OutreachLead | null;
@@ -117,7 +117,9 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
       ? getFollowUpLeads(page, followUpDays)
       : mode === 'replied'
         ? getRepliedLeads(page)
-        : getOutreachLeads(page, filters);
+        : mode === 'no-site'
+          ? getNoSiteLeads(page, debouncedSearch || undefined)
+          : getOutreachLeads(page, filters);
     fetchPromise
       .then(result => {
         if (!cancelled) {
@@ -190,7 +192,9 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
             ? 'Follow-ups'
             : mode === 'replied'
               ? 'Respuestas'
-              : `Lead Queue${activeFilterCount > 0 ? ` · ${activeFilterCount} filtro${activeFilterCount !== 1 ? 's' : ''}` : ''}`}
+              : mode === 'no-site'
+                ? 'Sin sitio · WhatsApp'
+                : `Lead Queue${activeFilterCount > 0 ? ` · ${activeFilterCount} filtro${activeFilterCount !== 1 ? 's' : ''}` : ''}`}
         </span>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
           {total}
@@ -218,7 +222,30 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
           <button style={mode === 'replied' ? PILL_ACTIVE : PILL_BASE} onClick={() => onModeChange('replied')}>
             Respondieron
           </button>
+          <button style={mode === 'no-site' ? PILL_ACTIVE : PILL_BASE} onClick={() => onModeChange('no-site')}>
+            Sin sitio
+          </button>
         </div>
+
+        {mode === 'no-site' && (
+          <input
+            type="text"
+            placeholder="Buscar negocio…"
+            aria-label="Search no-website leads"
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
+            style={{
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: '4px 8px',
+              fontFamily: 'var(--font-ui)',
+              fontSize: 12,
+              color: 'var(--text-primary)',
+              outline: 'none',
+            }}
+          />
+        )}
 
         {mode === 'followup' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -329,12 +356,14 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
             fontSize: 13,
             color: 'var(--text-muted)',
           }}>
-            {mode === 'followup' ? 'Sin follow-ups pendientes' : mode === 'replied' ? 'Sin respuestas todavía' : 'No leads in queue'}
+            {mode === 'followup' ? 'Sin follow-ups pendientes' : mode === 'replied' ? 'Sin respuestas todavía' : mode === 'no-site' ? 'Sin leads sin sitio' : 'No leads in queue'}
           </div>
         )}
         {displayLeads.map(lead => {
           const isActive = activeLead?.id === lead.id;
-          const invalid = !lead.valid_email;
+          // No-site leads have no email by definition — they're contacted by phone,
+          // so they are never "invalid" here; the email gate only applies elsewhere.
+          const invalid = mode !== 'no-site' && !lead.valid_email;
           return (
             <div
               key={lead.id}
@@ -379,7 +408,17 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                 }}>
-                  {lead.valid_email && lead.first_email
+                  {mode === 'no-site'
+                    ? (
+                      <span style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 10,
+                        color: 'var(--text-muted)',
+                      }}>
+                        {lead.phone ?? 'sin teléfono'}
+                      </span>
+                    )
+                  : lead.valid_email && lead.first_email
                     ? (
                       <span style={{
                         fontFamily: 'var(--font-mono)',
@@ -404,7 +443,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                     )
                   }
                 </div>
-                {mode === 'new' && lead.category && (
+                {(mode === 'new' || mode === 'no-site') && lead.category && (
                   <div style={{
                     fontFamily: 'var(--font-ui)',
                     fontSize: 11,
@@ -417,7 +456,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                     {lead.category}
                   </div>
                 )}
-                {mode === 'new' && lead.locNeighbourhood && (
+                {(mode === 'new' || mode === 'no-site') && lead.locNeighbourhood && (
                   <div style={{
                     fontFamily: 'var(--font-ui)',
                     fontSize: 11,

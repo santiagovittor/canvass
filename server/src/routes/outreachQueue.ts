@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { db } from '../db';
 import { businesses } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
-import { getOutreachLeads, getNoSiteLeads, markNoSiteContacted, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens, getOutreachSendRow, createScheduledSend, listUpcomingScheduledSends, cancelScheduledSend, rescheduleScheduledSend, saveOutreachAnalysis, supersedeScheduledSendsForBusiness, getMostRecentScheduledSend } from '../db';
+import { getOutreachLeads, getNoSiteLeads, markNoSiteContacted, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, reclassifyReply, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens, getOutreachSendRow, createScheduledSend, listUpcomingScheduledSends, cancelScheduledSend, rescheduleScheduledSend, saveOutreachAnalysis, supersedeScheduledSendsForBusiness, getMostRecentScheduledSend } from '../db';
+import { broadcast } from '../sse';
 import { resolveBusinessType, describeWindow } from '../services/outreachSchedulingConfig';
 import { nextOptimalWindowUtc } from '../services/outreachGovernor';
 import { composeFollowUp, composeWhatsApp } from '../services/geminiComposer';
@@ -105,6 +106,26 @@ router.get('/follow-ups', (req, res) => {
 router.get('/replied', (req, res) => {
   const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
   res.json(getRepliedLeads(page, 25));
+});
+
+// Operator reclassification (slice 0014): flip a reply auto↔real. 'unknown' is the
+// classifier's verdict only — the operator picks a definitive side. auto→real makes
+// it count as real engagement (analytics.replied()); real→auto dismisses noise.
+router.post('/reply-type', (req, res) => {
+  const { businessId, replyType } = req.body as { businessId?: unknown; replyType?: unknown };
+  if (typeof businessId !== 'string') {
+    return res.status(400).json({ error: 'businessId required' });
+  }
+  if (replyType !== 'auto' && replyType !== 'real') {
+    return res.status(400).json({ error: "replyType must be 'auto' or 'real'" });
+  }
+  const row = db.select().from(businesses).where(eq(businesses.id, businessId)).get();
+  if (!row) return res.status(404).json({ error: 'Business not found' });
+  if (!reclassifyReply(businessId, replyType)) {
+    return res.status(409).json({ error: 'not a replied lead' });
+  }
+  broadcast('email:replied', { businessId, name: row.name, replyType });
+  res.json({ ok: true });
 });
 
 router.post('/generate-follow-up', async (req, res) => {
@@ -418,6 +439,7 @@ router.post('/schedule', (req, res) => {
     scheduledAtUtc,
     businessType: type,
     windowLabel: describeWindow(type),
+    origin: 'manual',
   });
   res.json({ scheduled: created });
 });

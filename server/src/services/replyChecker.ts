@@ -2,7 +2,6 @@ import { ImapFlow, FetchMessageObject } from 'imapflow';
 import { env } from '../env';
 import { getMeta, setMeta, getReplyCheckTargets, markReplied, setReplyType, markEmailSendBounced, upsertEmailValidity, ReplyType } from '../db';
 import { broadcast } from '../sse';
-import { UTC_MINUS_3_OFFSET_MS } from '../util/time';
 
 const LAST_CHECK_KEY = 'replyChecker.lastCheck';
 const CHECK_INTERVAL_MS = 10 * 60_000;
@@ -46,7 +45,11 @@ export function parseDsnRecipients(source: string): string[] {
   return [...out];
 }
 
-export function classifyReply(msg: FetchMessageObject, lastSentAt: string | null): ReplyType {
+// Auto-reply detection by headers + subject only (slice 0014). The earlier
+// reply-velocity window (<3 min → auto, 3–8 min → unknown) was dropped: it
+// false-positived fast human replies (e.g. Aurora Estudio). Header/subject
+// signals are reliable; anything without them is a real reply.
+export function classifyReply(msg: FetchMessageObject): ReplyType {
   const headers = parseHeaders(msg.headers);
 
   const autoSubmitted = headers.get('auto-submitted');
@@ -56,14 +59,6 @@ export function classifyReply(msg: FetchMessageObject, lastSentAt: string | null
   if (headers.has('x-auto-response-suppress') || headers.has('x-autoreply') || headers.has('x-autorespond')) return 'auto';
 
   if (msg.envelope?.subject && AUTO_SUBJECT_RE.test(msg.envelope.subject)) return 'auto';
-
-  if (lastSentAt && msg.envelope?.date) {
-    const sentMs = Date.parse(lastSentAt) + UTC_MINUS_3_OFFSET_MS;
-    const deltaMin = (msg.envelope.date.getTime() - sentMs) / 60_000;
-    if (deltaMin >= 0 && deltaMin < 3) return 'auto';      // machine speed
-    if (deltaMin >= 3 && deltaMin < 8) return 'unknown';   // suspicious, fast human possible
-    // negative delta = inbox mail predating our send — not a usable velocity signal
-  }
 
   return 'real';
 }
@@ -119,7 +114,7 @@ export async function checkReplies(): Promise<{ checked: number; matched: number
             if (!addr || addr === ownAddress) continue;
             const hit = byEmail.get(addr);
             if (!hit) continue;
-            const type = classifyReply(msg, hit.lastSentAt);
+            const type = classifyReply(msg);
             if (hit.retro) {
               if (setReplyType(hit.id, type)) {
                 console.log(`[replyChecker] retro-classified ${hit.name} as '${type}'`);

@@ -1447,7 +1447,8 @@ export interface RepliedLead extends FollowUpLead {
   replied_at: string | null;
 }
 
-// Real/unknown replies — auto-replies stay in the follow-up queue instead.
+// All replied leads, including auto-replies (slice 0014) — autos render muted and
+// the operator can reclassify. Auto-replies still owe a follow-up via getFollowUpLeads.
 // LEFT JOIN on email_sends: manually marked "Respondió" rows may predate send
 // tracking and must still appear.
 export function getRepliedLeads(page = 1, pageSize = 25): { rows: RepliedLead[]; total: number } {
@@ -1459,9 +1460,10 @@ export function getRepliedLeads(page = 1, pageSize = 25): { rows: RepliedLead[];
       FROM email_sends WHERE status = 'sent' GROUP BY business_id
     ) ls ON ls.business_id = b.id
   `;
+  // Slice 0014: autos are visible here too (muted in UI, operator can reclassify).
+  // The response *rate* stays honest — it's a separate query (analytics.replied()).
   const whereClause = `
     WHERE b.outreach_status = 'replied'
-      AND (b.reply_type IS NULL OR b.reply_type != 'auto')
   `;
 
   const leadsSQL = `
@@ -1620,6 +1622,16 @@ export function setReplyType(businessId: string, replyType: ReplyType): boolean 
   const result = sqlite.prepare(`
     UPDATE businesses SET reply_type = ?
     WHERE id = ? AND outreach_status = 'replied' AND reply_type IS NULL
+  `).run(replyType, businessId);
+  return result.changes > 0;
+}
+
+export function reclassifyReply(businessId: string, replyType: ReplyType): boolean {
+  // Operator reclassification (slice 0014) — overwrites the auto-guess in either
+  // direction (auto↔real). Unlike setReplyType, no IS NULL guard. Status untouched.
+  const result = sqlite.prepare(`
+    UPDATE businesses SET reply_type = ?
+    WHERE id = ? AND outreach_status = 'replied'
   `).run(replyType, businessId);
   return result.changes > 0;
 }

@@ -12,6 +12,7 @@ interface LeadQueueProps {
   mode: QueueMode;
   onModeChange: (mode: QueueMode) => void;
   onMarkReplied: (lead: OutreachLead) => void;
+  onReclassify: (lead: RepliedLead, to: 'auto' | 'real') => void;
   style?: React.CSSProperties;
 }
 
@@ -45,7 +46,7 @@ const PILL_ACTIVE: React.CSSProperties = {
   fontWeight: 500,
 };
 
-export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger, mode, onModeChange, onMarkReplied, style }: LeadQueueProps) {
+export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger, mode, onModeChange, onMarkReplied, onReclassify, style }: LeadQueueProps) {
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [country, setCountry] = useState('');
@@ -535,6 +536,11 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                 })()}
                 {mode === 'replied' && (() => {
                   const rl = lead as RepliedLead;
+                  const isReal = rl.reply_type === 'real';
+                  // auto/unknown/null are non-primary: muted tag + a primary action to
+                  // promote to real. A real reply gets a quiet action to dismiss as auto.
+                  const tagLabel = isReal ? 'respuesta real'
+                    : rl.reply_type === 'auto' ? 'auto-reply' : 'sin clasificar';
                   return (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' as const }}>
                       {rl.replied_at && (
@@ -548,12 +554,29 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                         fontWeight: 500,
                         padding: '1px 5px',
                         borderRadius: 3,
-                        ...(rl.reply_type === 'real'
+                        ...(isReal
                           ? { color: 'var(--success)', background: 'rgba(74,222,128,0.12)' }
                           : { color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)' }),
                       }}>
-                        {rl.reply_type === 'real' ? 'respuesta real' : 'sin clasificar'}
+                        {tagLabel}
                       </span>
+                      <button
+                        onClick={e => { e.stopPropagation(); onReclassify(rl, isReal ? 'auto' : 'real'); }}
+                        title={isReal ? 'Reclasificar como auto-respuesta' : 'Marcar como respuesta real'}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          padding: 0,
+                          fontFamily: 'var(--font-ui)',
+                          fontSize: 10,
+                          fontWeight: 500,
+                          color: isReal ? 'var(--text-muted)' : 'var(--success)',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        {isReal ? 'Marcar como auto' : 'Es respuesta real'}
+                      </button>
                     </div>
                   );
                 })()}

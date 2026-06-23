@@ -7,10 +7,11 @@ import { BusinessContext } from '../components/Outreach/BusinessContext';
 import { BatchRunner } from '../components/Outreach/BatchRunner';
 import { startBatch, pauseBatch, resumeBatch, cancelBatch } from '../lib/batchApi';
 import type { BatchProgress } from '../lib/batchApi';
-import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis, scheduleDraft, listScheduled, cancelScheduled, rescheduleScheduled, getLeadScheduleStatus, getScheduledQueueStatus, pauseScheduler, resumeScheduler, cancelScheduledById, cancelScheduledByBusiness, cancelAllPending, generateWaMessage, markWaContacted } from '../lib/outreachApi';
+import { getActiveRuns } from '../lib/activeRunsApi';
+import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis, scheduleDraft, listScheduled, cancelScheduled, rescheduleScheduled, getLeadScheduleStatus, getScheduledQueueStatus, pauseScheduler, resumeScheduler, cancelScheduledById, cancelScheduledByBusiness, cancelAllPending, generateWaMessage, markWaContacted, setReplyType } from '../lib/outreachApi';
 import { patchOutreach, getConfig } from '../lib/api';
 import { useSSE } from '../hooks/useSSE';
-import type { OutreachLead, OutreachStats, WebsiteAnalysis, DetectedSig, PsiMetrics, VisionResult, PremiumSignal, ScheduledSend, ScheduledSendRow, ScheduledQueueStatus } from '../lib/outreachApi';
+import type { OutreachLead, RepliedLead, OutreachStats, WebsiteAnalysis, DetectedSig, PsiMetrics, VisionResult, PremiumSignal, ScheduledSend, ScheduledSendRow, ScheduledQueueStatus } from '../lib/outreachApi';
 
 interface Draft {
   subject: string;
@@ -155,6 +156,20 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     fetchStats();
     fetchScheduled();
     fetchQueueStatus();
+    // Rehydrate an in-flight batch run (slice 0012) so returning to Outreach shows
+    // live counts instead of an empty BatchRunner. Live updates continue via SSE.
+    getActiveRuns().then(runs => {
+      const batch = runs.find(r => r.type === 'batch');
+      if (batch && batch.type === 'batch') {
+        batchRunIdRef.current = batch.runId;
+        setBatchProgress({
+          runId: batch.runId, status: batch.status as BatchProgress['status'],
+          total: batch.total, processed: batch.processed,
+          skippedNoEvidence: batch.skippedNoEvidence, heldGeneric: batch.heldGeneric,
+          queuedForSend: batch.queuedForSend, failed: batch.failed, pauseReason: batch.pauseReason,
+        });
+      }
+    }).catch(() => {});
     getSignatureHtml().then(html => {
       setSignatureHtml(html);
       console.log('[Outreach] signature:', html ? 'loaded (' + html.length + ' chars)' : 'NULL — preview will have no signature');
@@ -386,6 +401,16 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     } catch (err) { console.error('[Outreach]', err); }
   }, [fetchStats]);
 
+  // Operator reclassify (slice 0014): flip a replied lead auto↔real. SSE also fires
+  // email:replied, but the optimistic refresh keeps the single-client case instant.
+  const handleReclassify = useCallback(async (lead: RepliedLead, to: 'auto' | 'real') => {
+    try {
+      await setReplyType(lead.id, to);
+      setLeadRefreshTrigger(n => n + 1);
+      fetchStats();
+    } catch (err) { console.error('[Outreach]', err); }
+  }, [fetchStats]);
+
   // Live updates from open tracking + reply detection + premium analysis progress
   useSSE({
     'send-scheduler:tick': (data) => {
@@ -555,6 +580,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
           mode={mode}
           onModeChange={handleModeChange}
           onMarkReplied={handleMarkReplied}
+          onReclassify={handleReclassify}
           style={{ flex: 1, minHeight: 0, borderRight: 'none' }}
         />
       </div>

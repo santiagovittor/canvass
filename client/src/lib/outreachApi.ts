@@ -189,6 +189,14 @@ export function getRepliedLeads(page: number): Promise<{ rows: RepliedLead[]; to
   return request(`/outreach/replied?page=${page}`);
 }
 
+// Operator reclassification (slice 0014): flip a reply auto↔real.
+export function setReplyType(businessId: string, replyType: 'auto' | 'real'): Promise<void> {
+  return request('/outreach/reply-type', {
+    method: 'POST',
+    body: JSON.stringify({ businessId, replyType }),
+  }).then(() => undefined);
+}
+
 export function generateFollowUp(businessId: string): Promise<{ subject: string; body: string }> {
   return request('/outreach/generate-follow-up', {
     method: 'POST',

@@ -38,8 +38,27 @@
   /* Radius for raised pane containers (one step over the 12px panel cap) */
   --radius-pane: 14px;
 
-  --font-ui:   'Outfit', system-ui, sans-serif;
+  /* UI face: IBM Plex Sans promoted to default in slice 0016 (was Outfit).
+     See DESIGN.md §3 amendment. Outfit kept as the approved alternate fallback. */
+  --font-ui:   'IBM Plex Sans', 'Outfit', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+
+  /* Type scale (slice 0016) — matches DESIGN.md §3. Sizes live here as tokens so
+     the scale stays coherent; numbers always use --font-mono regardless. */
+  --text-title:   20px;  /* workspace/section titles */
+  --text-section: 17px;  /* panel headings */
+  --text-body:    15px;  /* body / input / table cell */
+  --text-label:   13px;  /* labels / buttons / tabs */
+  --text-caption: 12px;  /* captions / metadata / pills */
+  --leading-body: 1.5;
+
+  /* Spacing scale (slice 0016) — mirrors DESIGN.md §4 spacing guidance. */
+  --space-xs:   6px;
+  --space-sm:   10px;
+  --space-md:   16px;
+  --space-lg:   22px;
+  --space-xl:   28px;
+  --gap-filter: 12px;
 }
 
 *, *::before, *::after {
@@ -55,6 +74,7 @@ html, body, #root {
   background: var(--bg-base);
   color: var(--text-primary);
   font-family: var(--font-ui);
+  line-height: var(--leading-body);
 }
 
 .app-root {
@@ -109,6 +129,76 @@ html, body, #root {
   border-bottom-color: var(--accent);
 }
 
+/* Active-runs strip (slice 0012) — always-mounted, server-authoritative */
+.active-runs-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.active-runs-label {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.active-run-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 150ms, background 150ms;
+}
+.active-run-chip:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+.active-run-chip--error { border-color: var(--error); }
+.active-run-chip--paused { border-color: var(--warn); }
+.active-run-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+  flex-shrink: 0;
+  animation: active-run-pulse 1.6s ease-in-out infinite;
+}
+.active-run-chip--error .active-run-dot { background: var(--error); box-shadow: none; animation: none; }
+.active-run-chip--paused .active-run-dot { background: var(--warn); box-shadow: none; animation: none; }
+@keyframes active-run-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.active-run-name {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.active-run-meta {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.active-run-num {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
 @media (max-width: 1279px) {
   .app-grid { grid-template-columns: 1fr; }
   .sidebar-left, .sidebar-right { position: absolute; z-index: 1000; }
@@ -147,7 +237,7 @@ html, body, #root {
   border-radius: 8px;
   padding: 10px 14px;
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: var(--text-body);
   color: var(--text-primary);
   outline: none;
   transition: border-color 150ms;
@@ -305,7 +395,7 @@ select option {
   align-items: center;
   gap: 6px;
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -329,6 +419,52 @@ select option {
 .pill--pending   { background: var(--bg-elevated); color: var(--text-muted); }
 .pill--pending .pill-dot { background: var(--text-muted); }
 .pill--keyword { background: var(--accent-dim); color: var(--accent); padding: 2px 7px; font-size: 10px; font-weight: 600; margin-left: 6px; }
+
+/* Disclosure primitive (slice 0016) — progressive disclosure for secondary filters */
+.disclosure { display: flex; flex-direction: column; }
+.disclosure-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-label);
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 150ms;
+}
+.disclosure-toggle:hover { color: var(--text-primary); }
+.disclosure-chevron {
+  display: inline-block;
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 180ms ease;
+}
+.disclosure-chevron[data-open="true"] { transform: rotate(90deg); }
+.disclosure-badge {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-radius: 100px;
+  padding: 1px 7px;
+}
+.disclosure-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 200ms ease;
+}
+.disclosure-panel[data-open="true"] { grid-template-rows: 1fr; }
+.disclosure-panel-inner { overflow: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .disclosure-panel { transition: none; }
+  .disclosure-chevron { transition: none; }
+}
 
 .scraper-center-col { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 

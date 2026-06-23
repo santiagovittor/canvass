@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { OutreachLead, FollowUpLead, RepliedLead, OutreachLeadFilters } from '../../lib/outreachApi';
 import { getOutreachLeads, getNoSiteLeads, getFollowUpLeads, getRepliedLeads, getOutreachCategories, countryFlag } from '../../lib/outreachApi';
+import { Disclosure } from '../ui/Disclosure';
 
 export type QueueMode = 'new' | 'followup' | 'replied' | 'no-site';
 
@@ -30,9 +31,9 @@ const PILL_BASE: React.CSSProperties = {
   background: 'transparent',
   border: '1px solid var(--border-strong)',
   borderRadius: 20,
-  padding: '2px 8px',
+  padding: '4px 10px',
   fontFamily: 'var(--font-ui)',
-  fontSize: 11,
+  fontSize: 'var(--text-caption)',
   color: 'var(--text-muted)',
   cursor: 'pointer',
   whiteSpace: 'nowrap' as const,
@@ -163,6 +164,17 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
     !!country,
     hasWebsite !== undefined,
     !!category,
+    !validEmailOnly,
+  ].filter(Boolean).length;
+
+  // Count of the filters now hidden inside the "Filtros" disclosure (everything
+  // except the always-visible search) — drives the disclosure's active-count badge
+  // so hidden active filters stay discoverable.
+  const hiddenFilterCount = [
+    !!country,
+    hasWebsite !== undefined,
+    !!category,
+    !validEmailOnly,
   ].filter(Boolean).length;
 
   return (
@@ -274,76 +286,81 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
         )}
 
         {mode === 'new' && (<>
-        {/* Row 1: search + category */}
-        <div style={{ display: 'flex', gap: 6 }}>
-          <input
-            type="text"
-            placeholder="Buscar negocio…"
-            aria-label="Search leads"
-            value={searchInput}
-            onChange={e => setSearchInput(e.target.value)}
-            style={{
-              flex: 1,
-              minWidth: 0,
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              padding: '4px 8px',
-              fontFamily: 'var(--font-ui)',
-              fontSize: 12,
-              color: 'var(--text-primary)',
-              outline: 'none',
-            }}
-          />
-          <select
-            aria-label="Filter by category"
-            value={category}
-            onChange={e => handleCategory(e.target.value)}
-            style={{
-              background: 'var(--bg-panel)',
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              padding: '4px 4px',
-              fontFamily: 'var(--font-ui)',
-              fontSize: 11,
-              color: category ? 'var(--text-secondary)' : 'var(--text-muted)',
-              cursor: 'pointer',
-              maxWidth: 100,
-            }}
-          >
-            <option value="">Todas</option>
-            {categories.map(cat => (
-              <option key={cat} value={cat}>{cat}</option>
-            ))}
-          </select>
-        </div>
+        {/* Search — always visible */}
+        <input
+          type="text"
+          placeholder="Buscar negocio…"
+          aria-label="Search leads"
+          value={searchInput}
+          onChange={e => setSearchInput(e.target.value)}
+          style={{
+            width: '100%',
+            minWidth: 0,
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            padding: '6px 10px',
+            fontFamily: 'var(--font-ui)',
+            fontSize: 'var(--text-label)',
+            color: 'var(--text-primary)',
+            outline: 'none',
+          }}
+        />
 
-        {/* Row 2: email filter pills */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <button
-            style={validEmailOnly ? PILL_ACTIVE : PILL_BASE}
-            onClick={() => { setValidEmailOnly(true); setPage(1); }}
-          >
-            Has email
-          </button>
-          <button
-            style={!validEmailOnly ? PILL_ACTIVE : PILL_BASE}
-            onClick={() => { setValidEmailOnly(false); setPage(1); }}
-          >
-            All leads
-          </button>
-        </div>
+        {/* Secondary filters behind progressive disclosure (slice 0016) */}
+        <Disclosure label="Filtros" count={hiddenFilterCount}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 8 }}>
+            {/* Category */}
+            <select
+              aria-label="Filter by category"
+              value={category}
+              onChange={e => handleCategory(e.target.value)}
+              style={{
+                width: '100%',
+                background: 'var(--bg-panel)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                padding: '6px 8px',
+                fontFamily: 'var(--font-ui)',
+                fontSize: 'var(--text-label)',
+                color: category ? 'var(--text-secondary)' : 'var(--text-muted)',
+                cursor: 'pointer',
+              }}
+            >
+              <option value="">Todas las categorías</option>
+              {categories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
 
-        {/* Row 3: country pills + website pills */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' as const }}>
-          <button aria-label="All countries" style={country === '' ? PILL_ACTIVE : PILL_BASE} onClick={() => handleCountry('')}>Todos</button>
-          <button aria-label="Argentina" style={country === 'Argentina' ? PILL_ACTIVE : PILL_BASE} onClick={() => handleCountry('Argentina')}>🇦🇷 AR</button>
-          <button aria-label="United States" style={country === 'United States' ? PILL_ACTIVE : PILL_BASE} onClick={() => handleCountry('United States')}>🇺🇸 US</button>
-          <span aria-hidden="true" style={{ width: 1, height: 12, background: 'var(--border-strong)', margin: '0 2px', flexShrink: 0 }} />
-          <button aria-label="All websites" style={hasWebsite === undefined ? PILL_ACTIVE : PILL_BASE} onClick={() => handleHasWebsite(undefined)}>Todos</button>
-          <button aria-label="No website" style={hasWebsite === false ? PILL_ACTIVE : PILL_BASE} onClick={() => handleHasWebsite(false)}>Sin sitio</button>
-          <button aria-label="Has website" style={hasWebsite === true ? PILL_ACTIVE : PILL_BASE} onClick={() => handleHasWebsite(true)}>Con sitio</button>
-        </div>
+            {/* Email filter pills */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button
+                style={validEmailOnly ? PILL_ACTIVE : PILL_BASE}
+                onClick={() => { setValidEmailOnly(true); setPage(1); }}
+              >
+                Has email
+              </button>
+              <button
+                style={!validEmailOnly ? PILL_ACTIVE : PILL_BASE}
+                onClick={() => { setValidEmailOnly(false); setPage(1); }}
+              >
+                All leads
+              </button>
+            </div>
+
+            {/* Country pills + website pills */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' as const }}>
+              <button aria-label="All countries" style={country === '' ? PILL_ACTIVE : PILL_BASE} onClick={() => handleCountry('')}>Todos</button>
+              <button aria-label="Argentina" style={country === 'Argentina' ? PILL_ACTIVE : PILL_BASE} onClick={() => handleCountry('Argentina')}>🇦🇷 AR</button>
+              <button aria-label="United States" style={country === 'United States' ? PILL_ACTIVE : PILL_BASE} onClick={() => handleCountry('United States')}>🇺🇸 US</button>
+              <span aria-hidden="true" style={{ width: 1, height: 12, background: 'var(--border-strong)', margin: '0 2px', flexShrink: 0 }} />
+              <button aria-label="All websites" style={hasWebsite === undefined ? PILL_ACTIVE : PILL_BASE} onClick={() => handleHasWebsite(undefined)}>Todos</button>
+              <button aria-label="No website" style={hasWebsite === false ? PILL_ACTIVE : PILL_BASE} onClick={() => handleHasWebsite(false)}>Sin sitio</button>
+              <button aria-label="Has website" style={hasWebsite === true ? PILL_ACTIVE : PILL_BASE} onClick={() => handleHasWebsite(true)}>Con sitio</button>
+            </div>
+          </div>
+        </Disclosure>
         </>)}
       </div>
 

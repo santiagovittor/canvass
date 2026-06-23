@@ -60,6 +60,16 @@ sqlite.exec(`
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+  -- Email-validity cache (slice 0013). One row per probed address; avoids re-doing
+  -- DNS MX / SMTP RCPT on every batch pass (281 distinct domains across the queue).
+  -- source: placeholder (no network) | probe (MX/SMTP) | bounce (DSN-confirmed dead).
+  CREATE TABLE IF NOT EXISTS email_validity (
+    email TEXT PRIMARY KEY,
+    result TEXT NOT NULL,
+    mx_ok INTEGER NOT NULL DEFAULT 0,
+    source TEXT,
+    checked_at TEXT NOT NULL
+  );
   CREATE INDEX IF NOT EXISTS email_opens_send_id_idx ON email_opens(send_id);
   CREATE INDEX IF NOT EXISTS email_opens_business_id_idx ON email_opens(business_id);
   CREATE TABLE IF NOT EXISTS psi_cache (
@@ -126,6 +136,22 @@ sqlite.exec(`
     pacific_date TEXT PRIMARY KEY,
     count INTEGER NOT NULL DEFAULT 0
   );
+  -- Per-call Gemini cost ledger. One row per BILLED call (success with usage). The
+  -- only durable record of spend — recordCost() previously logged to console only,
+  -- so historical per-stage/per-lead cost was unrecoverable after log rotation.
+  CREATE TABLE IF NOT EXISTS gemini_cost_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    label TEXT NOT NULL,
+    model TEXT NOT NULL,
+    business_id TEXT,
+    analysis_id TEXT,
+    in_tokens INTEGER NOT NULL DEFAULT 0,
+    out_tokens INTEGER NOT NULL DEFAULT 0,
+    usd REAL NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS gemini_cost_log_ts_idx ON gemini_cost_log(ts);
+  CREATE INDEX IF NOT EXISTS gemini_cost_log_business_id_idx ON gemini_cost_log(business_id);
   -- Live config overrides for the Settings tab. Additive; one row per overridden key.
   CREATE TABLE IF NOT EXISTS app_settings (
     key TEXT PRIMARY KEY,
@@ -444,6 +470,30 @@ export function parseEmails(json: string | null): string[] {
   }
 }
 
+// Template/placeholder addresses scraped verbatim from site boilerplate
+// ("escribí a tuemail@email.com"). Block by LOCAL-PART, never by domain alone —
+// email.com / domain.com are real providers, so the junk signal is the local-part.
+//
+// STRONG: junk on any domain — no real person uses these as a mailbox name.
+const PLACEHOLDER_STRONG_RE =
+  /^(?:tu-?(?:email|correo|mail)|your-?(?:email|mail|name)|youremailhere|nombre|ejemplo|sample|usuario|prueba|abc|xyz)$/i;
+// WEAK: generic words that ARE legitimate mailboxes (info@, mail@) on a real
+// domain, but are placeholders when paired with a template domain stem
+// (email@email, name@domain, info@example, test@test, user@domain…).
+const PLACEHOLDER_WEAK_RE = /^(?:email|correo|mail|name|info|test|user|example)$/i;
+const TEMPLATE_DOMAIN_STEM_RE = /^(?:email|correo|mail|domain|dominio|example|ejemplo|test|sample|yourdomain|tudominio)$/i;
+
+export function isPlaceholderEmail(addr: string): boolean {
+  const at = addr.indexOf('@');
+  if (at < 0) return false;
+  const local = addr.slice(0, at).toLowerCase();
+  const domainStem = addr.slice(at + 1).toLowerCase().split('.')[0];
+  if (PLACEHOLDER_STRONG_RE.test(local)) return true;
+  // weak local-part only junk against a template-y domain stem (or an exact echo)
+  if (PLACEHOLDER_WEAK_RE.test(local) && (local === domainStem || TEMPLATE_DOMAIN_STEM_RE.test(domainStem))) return true;
+  return false;
+}
+
 export function validateEmail(addr: string): boolean {
   if (!addr || addr.length < 6 || addr.length > 254) return false;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(addr)) return false;
@@ -451,7 +501,60 @@ export function validateEmail(addr: string): boolean {
   const blocked = ['example.com', 'test.com'];
   if (blocked.includes(domain)) return false;
   if (domain.endsWith('.local') || domain.endsWith('.internal')) return false;
+  if (isPlaceholderEmail(addr)) return false;
   return true;
+}
+
+// ── Email-validity cache (slice 0013) ─────────────────────────────────────────
+
+export type EmailValidity = 'valid' | 'unknown' | 'invalid';
+
+export function getEmailValidity(email: string): { result: EmailValidity; checkedAt: string } | null {
+  const row = sqlite.prepare<[string], { result: string; checked_at: string }>(
+    `SELECT result, checked_at FROM email_validity WHERE email = ?`
+  ).get(email.toLowerCase());
+  if (!row) return null;
+  return { result: row.result as EmailValidity, checkedAt: row.checked_at };
+}
+
+export function upsertEmailValidity(email: string, result: EmailValidity, mxOk: boolean, source: string): void {
+  sqlite.prepare(`
+    INSERT INTO email_validity (email, result, mx_ok, source, checked_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(email) DO UPDATE SET
+      result = excluded.result, mx_ok = excluded.mx_ok,
+      source = excluded.source, checked_at = excluded.checked_at
+  `).run(email.toLowerCase(), result, mxOk ? 1 : 0, source, nowUtcMinus3());
+}
+
+// Batch lookup for the lead queue: one query per page instead of N.
+export function getEmailValidityMany(emails: string[]): Map<string, EmailValidity> {
+  const out = new Map<string, EmailValidity>();
+  if (emails.length === 0) return out;
+  const lc = [...new Set(emails.map(e => e.toLowerCase()))];
+  const placeholders = lc.map(() => '?').join(',');
+  const rows = sqlite.prepare(`SELECT email, result FROM email_validity WHERE email IN (${placeholders})`)
+    .all(...lc) as { email: string; result: string }[];
+  for (const r of rows) out.set(r.email, r.result as EmailValidity);
+  return out;
+}
+
+// Resolve a lead's deliverability state against a page's pre-loaded validity map
+// (built by getEmailValidityMany — one query per page, no N+1): cached probe wins;
+// else regex-fail/placeholder → invalid, not-yet-probed → unknown.
+function resolveValidity(first: string | null, map: Map<string, EmailValidity>): EmailValidity {
+  const cached = first ? map.get(first.toLowerCase()) : undefined;
+  return cached ?? (first !== null && validateEmail(first) ? 'unknown' : 'invalid');
+}
+
+// First email for a lead — the batch gate needs the address itself, which the
+// lighter getBusinessForEmail / BusinessForEmailRow does not carry.
+export function getFirstEmailForBusiness(businessId: string): string | null {
+  const r = sqlite.prepare<[string], { emails_json: string | null }>(
+    `SELECT emails_json FROM businesses WHERE id = ?`
+  ).get(businessId);
+  if (!r) return null;
+  return parseEmails(r.emails_json)[0] ?? null;
 }
 
 export interface OutreachLead {
@@ -469,6 +572,7 @@ export interface OutreachLead {
   locCity: string | null;
   outreachStatus: string | null;
   valid_email: boolean;
+  email_validity: EmailValidity;
   first_email: string | null;
   latitude: number | null;
   longitude: number | null;
@@ -552,16 +656,23 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
   const raw = sqlite.prepare<(string | number)[], RawLeadRow>(leadsSQL).all(...params, pageSize, offset);
   const total = sqlite.prepare<(string | number)[], { n: number }>(countSQL).get(...params)?.n ?? 0;
 
+  // Batch-load cached probe results for this page's first-emails (one query).
+  const firstEmails = raw.map(r => parseEmails(r.emails_json)[0]).filter((e): e is string => !!e);
+  const validityMap = getEmailValidityMany(firstEmails);
+
   const rows: OutreachLead[] = raw.map(r => {
     const emails = parseEmails(r.emails_json);
     const first = emails[0] ?? null;
+    const validEmail = first !== null && validateEmail(first);
+    const email_validity = resolveValidity(first, validityMap);
     return {
       id: r.id, name: r.name, address: r.address, phone: r.phone,
       website: r.website, emailsJson: r.emails_json, category: r.category,
       rating: r.rating, reviewCount: r.review_count,
       locCountry: r.loc_country, locNeighbourhood: r.loc_neighbourhood,
       locCity: r.loc_city, outreachStatus: r.outreach_status,
-      valid_email: first !== null && validateEmail(first),
+      valid_email: validEmail,
+      email_validity,
       first_email: first,
       latitude: r.latitude, longitude: r.longitude,
       instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
@@ -609,16 +720,23 @@ export function getNoSiteLeads(page = 1, pageSize = 25, filters: { search?: stri
   const raw = sqlite.prepare<(string | number)[], RawLeadRow>(leadsSQL).all(...params, pageSize, offset);
   const total = sqlite.prepare<(string | number)[], { n: number }>(countSQL).get(...params)?.n ?? 0;
 
+  // Batch-load cached probe results for this page's first-emails (one query).
+  const firstEmails = raw.map(r => parseEmails(r.emails_json)[0]).filter((e): e is string => !!e);
+  const validityMap = getEmailValidityMany(firstEmails);
+
   const rows: OutreachLead[] = raw.map(r => {
     const emails = parseEmails(r.emails_json);
     const first = emails[0] ?? null;
+    const validEmail = first !== null && validateEmail(first);
+    const email_validity = resolveValidity(first, validityMap);
     return {
       id: r.id, name: r.name, address: r.address, phone: r.phone,
       website: r.website, emailsJson: r.emails_json, category: r.category,
       rating: r.rating, reviewCount: r.review_count,
       locCountry: r.loc_country, locNeighbourhood: r.loc_neighbourhood,
       locCity: r.loc_city, outreachStatus: r.outreach_status,
-      valid_email: first !== null && validateEmail(first),
+      valid_email: validEmail,
+      email_validity,
       first_email: first,
       latitude: r.latitude, longitude: r.longitude,
       instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
@@ -1152,6 +1270,43 @@ export function deleteAppSetting(key: string): void {
   stmtDeleteAppSetting.run(key);
 }
 
+// ── Gemini cost ledger ────────────────────────────────────────────────────────
+const stmtInsertGeminiCost = sqlite.prepare<
+  [string, string, string, string | null, string | null, number, number, number],
+  void
+>(`
+  INSERT INTO gemini_cost_log (ts, label, model, business_id, analysis_id, in_tokens, out_tokens, usd)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`);
+export function insertGeminiCost(row: {
+  label: string; model: string; businessId: string | null; analysisId: string | null;
+  inTokens: number; outTokens: number; usd: number;
+}): void {
+  stmtInsertGeminiCost.run(
+    new Date().toISOString(), row.label, row.model, row.businessId, row.analysisId,
+    row.inTokens, row.outTokens, row.usd,
+  );
+}
+
+// Cost ledger rollups for the cost-report script. `sinceIso` filters by ts (null = all time).
+export interface CostRollups {
+  byStage: { label: string; calls: number; inTokens: number; outTokens: number; usd: number }[];
+  byModel: { model: string; calls: number; usd: number }[];
+  byDay: { day: string; calls: number; usd: number }[];
+  topLeads: { business_id: string | null; calls: number; usd: number }[];
+  total: { calls: number; usd: number };
+}
+export function getCostRollups(sinceIso: string | null): CostRollups {
+  const w = sinceIso ? `WHERE ts >= '${sinceIso}'` : '';
+  return {
+    byStage: sqlite.prepare(`SELECT label, COUNT(*) calls, SUM(in_tokens) inTokens, SUM(out_tokens) outTokens, ROUND(SUM(usd),4) usd FROM gemini_cost_log ${w} GROUP BY label ORDER BY usd DESC`).all() as CostRollups['byStage'],
+    byModel: sqlite.prepare(`SELECT model, COUNT(*) calls, ROUND(SUM(usd),4) usd FROM gemini_cost_log ${w} GROUP BY model ORDER BY usd DESC`).all() as CostRollups['byModel'],
+    byDay: sqlite.prepare(`SELECT substr(ts,1,10) day, COUNT(*) calls, ROUND(SUM(usd),4) usd FROM gemini_cost_log ${w} GROUP BY day ORDER BY day DESC LIMIT 14`).all() as CostRollups['byDay'],
+    topLeads: sqlite.prepare(`SELECT business_id, COUNT(*) calls, ROUND(SUM(usd),4) usd FROM gemini_cost_log ${w} GROUP BY business_id ORDER BY usd DESC LIMIT 15`).all() as CostRollups['topLeads'],
+    total: sqlite.prepare(`SELECT COUNT(*) calls, ROUND(SUM(usd),4) usd FROM gemini_cost_log ${w}`).get() as CostRollups['total'],
+  };
+}
+
 // ── Few-shot example pool ─────────────────────────────────────────────────────
 
 export function getCategoryBucket(category: string | null): string {
@@ -1260,6 +1415,8 @@ export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: 
   const raw = sqlite.prepare<(string | number)[], RawFollowUpRow>(leadsSQL).all(cutoff, pageSize, offset);
   const total = sqlite.prepare<[string], { n: number }>(countSQL).get(cutoff)?.n ?? 0;
 
+  const validityMap = getEmailValidityMany(raw.map(r => parseEmails(r.emails_json)[0]).filter((e): e is string => !!e));
+
   const rows: FollowUpLead[] = raw.map(r => {
     const emails = parseEmails(r.emails_json);
     const first = emails[0] ?? null;
@@ -1270,6 +1427,7 @@ export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: 
       locCountry: r.loc_country, locNeighbourhood: r.loc_neighbourhood,
       locCity: r.loc_city, outreachStatus: r.outreach_status,
       valid_email: first !== null && validateEmail(first),
+      email_validity: resolveValidity(first, validityMap),
       first_email: first,
       latitude: r.latitude, longitude: r.longitude,
       instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
@@ -1329,6 +1487,8 @@ export function getRepliedLeads(page = 1, pageSize = 25): { rows: RepliedLead[];
   const raw = sqlite.prepare<(string | number)[], RawFollowUpRow & { replied_at: string | null }>(leadsSQL).all(pageSize, offset);
   const total = sqlite.prepare<[], { n: number }>(countSQL).get()?.n ?? 0;
 
+  const validityMap = getEmailValidityMany(raw.map(r => parseEmails(r.emails_json)[0]).filter((e): e is string => !!e));
+
   const rows: RepliedLead[] = raw.map(r => {
     const emails = parseEmails(r.emails_json);
     const first = emails[0] ?? null;
@@ -1339,6 +1499,7 @@ export function getRepliedLeads(page = 1, pageSize = 25): { rows: RepliedLead[];
       locCountry: r.loc_country, locNeighbourhood: r.loc_neighbourhood,
       locCity: r.loc_city, outreachStatus: r.outreach_status,
       valid_email: first !== null && validateEmail(first),
+      email_validity: resolveValidity(first, validityMap),
       first_email: first,
       latitude: r.latitude, longitude: r.longitude,
       instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
@@ -1422,6 +1583,27 @@ export function getReplyCheckTargets(): ReplyCheckTarget[] {
       retro: r.outreach_status === 'replied',
     }))
     .filter(r => r.emails.length > 0);
+}
+
+// ── Bounce ingestion (slice 0013) ─────────────────────────────────────────────
+
+// Flip the most recent 'sent' row for a business to 'bounced' (DSN-confirmed dead).
+// 'bounced' is additive — getDailySendCount/history filter status='sent', so a
+// bounced row stops counting as delivered. Returns false if no sent row exists.
+export function markEmailSendBounced(businessId: string): boolean {
+  const r = sqlite.prepare(`
+    UPDATE email_sends SET status = 'bounced'
+    WHERE id = (
+      SELECT id FROM email_sends
+      WHERE business_id = ? AND status = 'sent'
+      ORDER BY sent_at DESC LIMIT 1
+    )
+  `).run(businessId);
+  return r.changes > 0;
+}
+
+export function getBounceCount(): number {
+  return (sqlite.prepare(`SELECT COUNT(*) AS n FROM email_sends WHERE status = 'bounced'`).get() as { n: number }).n;
 }
 
 export function markReplied(businessId: string, replyType: ReplyType): boolean {

@@ -44,6 +44,16 @@ const schema = z.object({
   // tune to the account tier. Retries are absorbed by the margin below the real ceiling.
   GEMINI_RPD: z.coerce.number().int().positive().default(1000),
   GEMINI_COMPOSER_FALLBACK_MODEL: z.string().default('gemini-3-flash'),
+  // Pre-compose email-validity gate (slice 0013). SMTP RCPT probe ON by default
+  // (operator: real emails is key) — degrades gracefully to 'unknown' when port 25
+  // is blocked/greylisted, never blocks the pipeline. Explicit enum — z.coerce.boolean
+  // treats "false" as true.
+  EMAIL_VERIFY_SMTP_PROBE: z.enum(['true', 'false']).default('true').transform(v => v === 'true'),
+  // Per-address probe budget: bounds DNS MX + the full SMTP handshake. Mirrors the
+  // SOCIAL_ENRICHMENT_TIMEOUT_MS discipline so a slow MX can't stall a batch.
+  EMAIL_VERIFY_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  // Re-probe TTL: a cached validity result older than this is re-checked.
+  EMAIL_VERIFY_CACHE_TTL_DAYS: z.coerce.number().int().positive().default(30),
 }).refine(
   d => (d.APP_AUTH_USER == null) === (d.APP_AUTH_PASS == null),
   { message: 'AUTH_USER and AUTH_PASS must both be set or both be unset' },

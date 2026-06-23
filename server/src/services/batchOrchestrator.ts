@@ -1,7 +1,8 @@
 import { broadcast } from '../sse';
 import {
-  getBusinessForEmail, upsertDraft, saveDraftTopGap, saveDraftVerification,
+  getBusinessForEmail, getFirstEmailForBusiness, upsertDraft, saveDraftTopGap, saveDraftVerification,
 } from '../db';
+import { verifyEmailDeliverable } from './emailVerifier';
 import {
   createBatchRun, addBatchItems, getBatchRun, transitionItem, setRunStatus,
   listResumableItems, listRunsByStatus, enqueueForSend, type BatchItemRow,
@@ -85,6 +86,23 @@ async function processItem(runId: string, item: BatchItemRow, dryRun: boolean): 
     return broadcastProgress(runId);
   }
 
+  // ── email-validity gate (slice 0013): runs FIRST, before analyze/compose/verify,
+  // so a dead or placeholder address costs zero Gemini + zero Playwright. 'unknown'
+  // (MX ok but SMTP inconclusive/blocked) and 'valid' both proceed — only a
+  // definitive 'invalid' is skipped. Reuses the skipped_no_evidence terminal state
+  // (already wired to the counter/SSE/UI) with a distinct disposition + log.
+  if (!runIsRunning(runId)) return;
+  const to = getFirstEmailForBusiness(businessId);
+  const validity = to ? await verifyEmailDeliverable(to) : 'invalid';
+  if (validity === 'invalid') {
+    console.log(`[batch] skipped business=${businessId} reason=bad_email email=${to ?? '<none>'}`);
+    transitionItem(itemRef, 'skipped_no_evidence', {
+      disposition: 'skipped_bad_email',
+      lastError: `email_invalid:${to ?? 'no_email'}`,
+    });
+    return broadcastProgress(runId);
+  }
+
   // ── analyze: TTL-gated reuse — skip if fresh + complete, else re-run ──
   if (!runIsRunning(runId)) return;
   transitionItem(itemRef, 'analyzing');
@@ -156,7 +174,7 @@ async function processItem(runId: string, item: BatchItemRow, dryRun: boolean): 
   const scheduledAtUtc = new Date(nextOptimalWindowUtc(Date.now(), type)).toISOString();
   enqueueForSend({
     item: itemRef,
-    scheduled: { businessId, scheduledAtUtc, businessType: type, windowLabel: describeWindow(type), dryRun },
+    scheduled: { businessId, scheduledAtUtc, businessType: type, windowLabel: describeWindow(type), dryRun, origin: 'auto' },
   });
   broadcastProgress(runId);
 }

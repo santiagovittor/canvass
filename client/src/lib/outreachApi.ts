@@ -104,6 +104,9 @@ export interface OutreachLead {
   locCity: string | null;
   outreachStatus: string | null;
   valid_email: boolean;
+  // slice 0013: deliverability state from the validity gate (MX/SMTP probe cache).
+  // 'unknown' = not yet probed or inconclusive; 'invalid' = placeholder/dead/bounced.
+  email_validity: 'valid' | 'unknown' | 'invalid';
   first_email: string | null;
   latitude: number | null;
   longitude: number | null;

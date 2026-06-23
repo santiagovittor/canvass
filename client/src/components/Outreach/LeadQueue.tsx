@@ -363,7 +363,10 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
           const isActive = activeLead?.id === lead.id;
           // No-site leads have no email by definition — they're contacted by phone,
           // so they are never "invalid" here; the email gate only applies elsewhere.
-          const invalid = mode !== 'no-site' && !lead.valid_email;
+          // slice 0013: block on the deliverability state (placeholder/dead-MX/bounced),
+          // not just regex validity — a confirmed-dead address is not worth composing.
+          const validity = mode === 'no-site' ? 'valid' : lead.email_validity;
+          const invalid = validity === 'invalid';
           return (
             <div
               key={lead.id}
@@ -418,13 +421,15 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                         {lead.phone ?? 'sin teléfono'}
                       </span>
                     )
-                  : lead.valid_email && lead.first_email
+                  : validity !== 'invalid' && lead.first_email
                     ? (
-                      <span style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 10,
-                        color: 'var(--text-muted)',
-                      }}>
+                      <span
+                        title="Email found during enrichment (not the map scrape) — deliverability not guaranteed"
+                        style={{
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: 10,
+                          color: 'var(--text-muted)',
+                        }}>
                         {lead.first_email}
                       </span>
                     )
@@ -564,16 +569,32 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                 {lead.has_draft && (
                   <span style={{ fontSize: 11, color: 'var(--accent)', lineHeight: 1 }}>✏</span>
                 )}
-                {invalid ? (
-                  <span style={{ fontSize: 12, color: 'var(--warn)' }} title="Invalid email">⚠</span>
+                {/* slice 0013: 3-state deliverability — valid (filled green) /
+                    unknown (hollow muted: MX ok, mailbox unconfirmed) / invalid (warn ⚠).
+                    Emails come from the enrichment step, not the scrape. */}
+                {validity === 'invalid' ? (
+                  <span style={{ fontSize: 12, color: 'var(--warn)' }} title="Undeliverable email (placeholder, dead domain, or bounced)">⚠</span>
+                ) : validity === 'unknown' ? (
+                  <div
+                    title="Deliverability unverified — domain accepts mail but mailbox unconfirmed (email from enrichment, not scrape)"
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: 'transparent',
+                      border: '1px solid var(--text-muted)',
+                      flexShrink: 0,
+                    }} />
                 ) : (
-                  <div style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    background: 'var(--success)',
-                    flexShrink: 0,
-                  }} />
+                  <div
+                    title="Verified deliverable (MX + mailbox accepted)"
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      background: 'var(--success)',
+                      flexShrink: 0,
+                    }} />
                 )}
               </div>
             </div>

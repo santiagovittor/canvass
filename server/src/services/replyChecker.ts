@@ -1,6 +1,6 @@
 import { ImapFlow, FetchMessageObject } from 'imapflow';
 import { env } from '../env';
-import { getMeta, setMeta, getReplyCheckTargets, markReplied, setReplyType, ReplyType } from '../db';
+import { getMeta, setMeta, getReplyCheckTargets, markReplied, setReplyType, markEmailSendBounced, upsertEmailValidity, ReplyType } from '../db';
 import { broadcast } from '../sse';
 import { UTC_MINUS_3_OFFSET_MS } from '../util/time';
 
@@ -22,6 +22,28 @@ function parseHeaders(buf?: Buffer): Map<string, string> {
     if (i > 0) map.set(line.slice(0, i).trim().toLowerCase(), line.slice(i + 1).trim());
   }
   return map;
+}
+
+// ── Bounce (DSN) parsing (slice 0013) ─────────────────────────────────────────
+// RFC 3464 delivery-status notifications. We only treat a PERMANENT failure
+// (Status 5.x.x, or Action: failed + a 5xx diagnostic) as a bounce — 4.x is a
+// transient delay that may still deliver. Returns the failed recipient addresses.
+const FINAL_RCPT_RE = /^(?:Final|Original)-Recipient:\s*[A-Za-z0-9-]+\s*;\s*(.+?)\s*$/gim;
+const PERM_STATUS_RE = /^Status:\s*5\.\d+\.\d+/im;
+const FAILED_ACTION_RE = /^Action:\s*failed/im;
+const DIAG_5XX_RE = /Diagnostic-Code:\s*[^;]+;\s*5\d\d\b/i;
+
+export function parseDsnRecipients(source: string): string[] {
+  const permanent = PERM_STATUS_RE.test(source) || (FAILED_ACTION_RE.test(source) && DIAG_5XX_RE.test(source));
+  if (!permanent) return [];
+  const out = new Set<string>();
+  FINAL_RCPT_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = FINAL_RCPT_RE.exec(source))) {
+    const raw = m[1].trim().replace(/^<|>$/g, '');
+    if (raw.indexOf('@') > 0) out.add(raw.toLowerCase());
+  }
+  return [...out];
 }
 
 export function classifyReply(msg: FetchMessageObject, lastSentAt: string | null): ReplyType {
@@ -46,20 +68,23 @@ export function classifyReply(msg: FetchMessageObject, lastSentAt: string | null
   return 'real';
 }
 
-export async function checkReplies(): Promise<{ checked: number; matched: number }> {
+export async function checkReplies(): Promise<{ checked: number; matched: number; bounced: number }> {
   if (!env.GMAIL_FROM || !env.GMAIL_APP_PASSWORD) {
     throw new Error('not_configured');
   }
-  if (running) return { checked: 0, matched: 0 };
+  if (running) return { checked: 0, matched: 0, bounced: 0 };
   running = true;
 
   try {
     const targets = getReplyCheckTargets();
     const byEmail = new Map<string, (typeof targets)[number]>();
+    // Stable copy for bounce matching — byEmail is mutated (.delete) during reply
+    // matching, but a DSN must resolve against the full contacted set.
+    const bounceByEmail = new Map<string, (typeof targets)[number]>();
     for (const t of targets) {
-      for (const email of t.emails) byEmail.set(email, t);
+      for (const email of t.emails) { byEmail.set(email, t); bounceByEmail.set(email, t); }
     }
-    if (byEmail.size === 0) return { checked: 0, matched: 0 };
+    if (byEmail.size === 0) return { checked: 0, matched: 0, bounced: 0 };
 
     const hasRetro = targets.some(t => t.retro);
 
@@ -80,6 +105,7 @@ export async function checkReplies(): Promise<{ checked: number; matched: number
 
     let checked = 0;
     let matched = 0;
+    let bounced = 0;
 
     await client.connect();
     try {
@@ -106,6 +132,31 @@ export async function checkReplies(): Promise<{ checked: number; matched: number
             byEmail.delete(addr);
           }
         }
+
+        // ── Bounce (DSN) pass: delivery-status notifications come from
+        // mailer-daemon/postmaster. Fetch their full source, parse RFC 3464 for
+        // permanently-failed recipients, flag the lead + flip its send to 'bounced'.
+        const bouncedIds = new Set<string>();
+        for await (const msg of client.fetch(
+          { since, or: [{ from: 'mailer-daemon' }, { from: 'postmaster' }] },
+          { source: true },
+        )) {
+          const src = msg.source?.toString('utf8');
+          if (!src) continue;
+          for (const rcpt of parseDsnRecipients(src)) {
+            const hit = bounceByEmail.get(rcpt);
+            if (!hit || bouncedIds.has(hit.id)) continue;
+            bouncedIds.add(hit.id);
+            // Flag the address dead regardless; bump the count only when a real
+            // 'sent' row flips (dry-run/legacy rows have none).
+            upsertEmailValidity(rcpt, 'invalid', false, 'bounce');
+            if (markEmailSendBounced(hit.id)) {
+              bounced++;
+              console.log(`[replyChecker] bounce detected for ${rcpt} → ${hit.name}`);
+              broadcast('email:bounced', { businessId: hit.id, name: hit.name, email: rcpt });
+            }
+          }
+        }
       } finally {
         lock.release();
       }
@@ -126,7 +177,7 @@ export async function checkReplies(): Promise<{ checked: number; matched: number
     }
 
     setMeta(LAST_CHECK_KEY, new Date().toISOString());
-    return { checked, matched };
+    return { checked, matched, bounced };
   } finally {
     running = false;
   }
@@ -139,8 +190,8 @@ export function startReplyChecker(): void {
   }
   const run = () => {
     checkReplies()
-      .then(({ checked, matched }) => {
-        if (matched > 0) console.log(`[replyChecker] ${checked} messages checked, ${matched} replies matched`);
+      .then(({ checked, matched, bounced }) => {
+        if (matched > 0 || bounced > 0) console.log(`[replyChecker] ${checked} messages checked, ${matched} replies matched, ${bounced} bounced`);
       })
       .catch(err => console.error('[replyChecker]', err instanceof Error ? err.message : err));
   };

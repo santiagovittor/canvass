@@ -1360,6 +1360,10 @@ export function getMatchingExample(topGap: string | null, categoryBucket: string
 export interface FollowUpLead extends OutreachLead {
   last_sent_at: string;
   send_count: number;
+  // True when at least one 'sent' row carried a tracking_token — i.e. a pixel was
+  // actually embedded. Drives the tri-state open indicator (slice 0015): without
+  // this, open_count===0 is ambiguous between "not tracked" and "tracked, no open".
+  tracked: boolean;
   open_count: number;
   last_opened_at: string | null;
   reply_type: string | null;
@@ -1368,6 +1372,7 @@ export interface FollowUpLead extends OutreachLead {
 type RawFollowUpRow = RawLeadRow & {
   last_sent_at: string;
   send_count: number;
+  tracked_count: number | null;
   open_count: number;
   last_opened_at: string | null;
   reply_type: string | null;
@@ -1380,7 +1385,8 @@ export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: 
 
   const lastSendJoin = `
     JOIN (
-      SELECT business_id, MAX(sent_at) AS last_sent_at, COUNT(*) AS send_count
+      SELECT business_id, MAX(sent_at) AS last_sent_at, COUNT(*) AS send_count,
+             SUM(CASE WHEN tracking_token IS NOT NULL THEN 1 ELSE 0 END) AS tracked_count
       FROM email_sends WHERE status = 'sent' GROUP BY business_id
     ) ls ON ls.business_id = b.id
   `;
@@ -1397,7 +1403,7 @@ export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: 
            b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status, b.outreach_analysis_json,
            b.latitude, b.longitude, b.instagram, b.facebook, b.twitter, b.tiktok, b.linkedin, b.youtube,
            CASE WHEN d.business_id IS NOT NULL THEN 1 ELSE 0 END AS has_draft,
-           b.reply_type, ls.last_sent_at, ls.send_count,
+           b.reply_type, ls.last_sent_at, ls.send_count, ls.tracked_count,
            COALESCE(op.open_count, 0) AS open_count, op.last_opened_at
     FROM businesses b
     ${lastSendJoin}
@@ -1435,6 +1441,7 @@ export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: 
       has_draft: r.has_draft === 1,
       outreachAnalysisJson: r.outreach_analysis_json,
       last_sent_at: r.last_sent_at, send_count: r.send_count,
+      tracked: (r.tracked_count ?? 0) > 0,
       open_count: r.open_count, last_opened_at: r.last_opened_at,
       reply_type: r.reply_type,
     };
@@ -1456,7 +1463,8 @@ export function getRepliedLeads(page = 1, pageSize = 25): { rows: RepliedLead[];
 
   const lastSendJoin = `
     LEFT JOIN (
-      SELECT business_id, MAX(sent_at) AS last_sent_at, COUNT(*) AS send_count
+      SELECT business_id, MAX(sent_at) AS last_sent_at, COUNT(*) AS send_count,
+             SUM(CASE WHEN tracking_token IS NOT NULL THEN 1 ELSE 0 END) AS tracked_count
       FROM email_sends WHERE status = 'sent' GROUP BY business_id
     ) ls ON ls.business_id = b.id
   `;
@@ -1471,7 +1479,7 @@ export function getRepliedLeads(page = 1, pageSize = 25): { rows: RepliedLead[];
            b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status, b.outreach_analysis_json,
            b.latitude, b.longitude, b.instagram, b.facebook, b.twitter, b.tiktok, b.linkedin, b.youtube,
            CASE WHEN d.business_id IS NOT NULL THEN 1 ELSE 0 END AS has_draft,
-           b.reply_type, b.replied_at, ls.last_sent_at, ls.send_count,
+           b.reply_type, b.replied_at, ls.last_sent_at, ls.send_count, ls.tracked_count,
            COALESCE(op.open_count, 0) AS open_count, op.last_opened_at
     FROM businesses b
     ${lastSendJoin}
@@ -1509,6 +1517,7 @@ export function getRepliedLeads(page = 1, pageSize = 25): { rows: RepliedLead[];
       has_draft: r.has_draft === 1,
       outreachAnalysisJson: r.outreach_analysis_json,
       last_sent_at: r.last_sent_at, send_count: r.send_count,
+      tracked: (r.tracked_count ?? 0) > 0,
       open_count: r.open_count, last_opened_at: r.last_opened_at,
       reply_type: r.reply_type, replied_at: r.replied_at,
     };

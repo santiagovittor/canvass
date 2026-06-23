@@ -489,18 +489,35 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                           ×{fu.send_count}
                         </span>
                       )}
-                      <span style={{
-                        fontFamily: 'var(--font-ui)',
-                        fontSize: 10,
-                        fontWeight: 500,
-                        padding: '1px 5px',
-                        borderRadius: 3,
-                        ...(fu.open_count > 0
-                          ? { color: 'var(--accent)', background: 'var(--accent-dim)' }
-                          : { color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)' }),
-                      }}>
-                        {fu.open_count > 0 ? 'abierto' : 'sin abrir'}
-                      </span>
+                      {/* Tri-state open indicator (slice 0015): never claim "sin abrir"
+                          when no pixel was embedded. tracked=false → no measurement;
+                          tracked+no open → honest "no registrada"; tracked+open → only
+                          a *possible* open (MPP/corporate prefetch fire the pixel). */}
+                      {(() => {
+                        const opened = fu.open_count > 0;
+                        const label = !fu.tracked
+                          ? 'sin seguimiento'
+                          : opened ? 'posible apertura' : 'sin apertura registrada';
+                        const title = !fu.tracked
+                          ? 'Sin píxel de seguimiento incrustado — las aperturas no se midieron'
+                          : opened
+                            ? 'Posible apertura: el píxel se cargó, pero Apple Mail y escáneres corporativos lo disparan solos — no puede confirmarse'
+                            : 'Píxel incrustado, sin apertura registrada (la ausencia no confirma "sin abrir")';
+                        return (
+                          <span title={title} style={{
+                            fontFamily: 'var(--font-ui)',
+                            fontSize: 10,
+                            fontWeight: 500,
+                            padding: '1px 5px',
+                            borderRadius: 3,
+                            ...(fu.tracked && opened
+                              ? { color: 'var(--accent)', background: 'var(--accent-dim)' }
+                              : { color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)' }),
+                          }}>
+                            {label}
+                          </span>
+                        );
+                      })()}
                       {fu.reply_type === 'auto' && (
                         <span style={{
                           fontFamily: 'var(--font-ui)',

@@ -123,6 +123,9 @@ export interface OutreachLead {
 export interface FollowUpLead extends OutreachLead {
   last_sent_at: string;
   send_count: number;
+  // A tracking pixel was actually embedded (slice 0015). When false, opens were
+  // never measurable — render "sin seguimiento", not a false "sin abrir".
+  tracked: boolean;
   open_count: number;
   last_opened_at: string | null;
   reply_type: 'auto' | 'real' | 'unknown' | null;

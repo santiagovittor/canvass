@@ -554,13 +554,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
   }
 
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: '300px 1fr 320px',
-      height: 'calc(100vh - 44px)',
-      background: 'var(--bg-base)',
-      overflow: 'hidden',
-    }}>
+    <div className="outreach-grid">
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden', borderRight: '1px solid var(--border)' }}>
         {mode === 'new' && (
           <BatchRunner

@@ -99,6 +99,20 @@ html, body, #root {
   overflow: hidden;
 }
 
+/* Outreach root grid (slice 0018) — fills .view-fill via flex sizing instead of
+   an absolute viewport calc, so the ActiveRunsStrip can't push content off-screen. */
+.outreach-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr 320px;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-base);
+  overflow: hidden;
+}
+@media (max-width: 1279px) {
+  .outreach-grid { grid-template-columns: 1fr; overflow-y: auto; }
+}
+
 /* Tab strip */
 .tab-strip {
   display: flex;

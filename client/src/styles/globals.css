@@ -218,6 +218,56 @@ html, body, #root {
   color: var(--text-primary);
 }
 
+/* Gemini health chip (slice 0020) — always-on; calm when healthy, escalates on low/exhausted */
+.gemini-health {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.gemini-health-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--success);
+}
+.gemini-health-label {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+.gemini-health-msg {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.gemini-health-num {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.gemini-health--low .gemini-health-dot { background: var(--warn); }
+.gemini-health--low .gemini-health-msg,
+.gemini-health--low .gemini-health-num { color: var(--warn); }
+.gemini-health--exhausted .gemini-health-dot {
+  background: var(--warn);
+  animation: gemini-health-pulse 1.6s ease-in-out infinite;
+}
+.gemini-health--exhausted .gemini-health-msg,
+.gemini-health--exhausted .gemini-health-num { color: var(--warn); }
+@keyframes gemini-health-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) {
+  .gemini-health--exhausted .gemini-health-dot { animation: none; }
+}
+
 @media (max-width: 1279px) {
   .app-grid { grid-template-columns: 1fr; }
   .sidebar-left, .sidebar-right { position: absolute; z-index: 1000; }

@@ -21,8 +21,23 @@ import { env } from '../env';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from '../services/visionClient';
 import { UTC_MINUS_3_OFFSET_MS } from '../util/time';
+import { GeminiProviderExhausted } from '../services/geminiRateLimiter';
 
 const DAILY_CAP = 30;
+
+// Non-technical copy + stable code for provider-quota exhaustion on a single-lead
+// generate (slice 0020). The client maps the code to the same friendly message and
+// the global health chip already reflects the paused state.
+const PROVIDER_QUOTA_CODE = 'provider_quota_exhausted';
+const PROVIDER_QUOTA_MSG =
+  'Gemini quota reached — preparing new emails is paused and will resume automatically when quota frees up.';
+function sendGeminiError(res: import('express').Response, err: unknown): void {
+  if (err instanceof GeminiProviderExhausted) {
+    res.status(503).json({ error: PROVIDER_QUOTA_MSG, code: PROVIDER_QUOTA_CODE });
+    return;
+  }
+  res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+}
 
 const router = Router();
 
@@ -81,8 +96,7 @@ router.post('/wa-generate', async (req, res) => {
     upsertDraft(businessId, '', message, true);
     res.json({ message });
   } catch (err) {
-    const errMessage = err instanceof Error ? err.message : String(err);
-    res.status(502).json({ error: errMessage });
+    sendGeminiError(res, err);
   }
 });
 
@@ -155,8 +169,7 @@ router.post('/generate-follow-up', async (req, res) => {
     }, original, daysSinceSent, hasOpens(businessId));
     res.json(result);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(502).json({ error: message });
+    sendGeminiError(res, err);
   }
 });
 
@@ -289,8 +302,7 @@ router.post('/generate', async (req, res) => {
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(502).json({ error: message });
+    sendGeminiError(res, err);
   }
 });
 

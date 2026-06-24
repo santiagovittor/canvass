@@ -18,7 +18,7 @@ import { rankAnchors } from './anchorRanker';
 import { composeVerifiedEmail } from './outreachComposePipeline';
 import { resolveBusinessType, describeWindow } from './outreachSchedulingConfig';
 import { nextOptimalWindowUtc } from './outreachGovernor';
-import { GeminiRpdExhausted } from './geminiRateLimiter';
+import { GeminiRpdExhausted, GeminiProviderExhausted } from './geminiRateLimiter';
 import { getNumber } from './appSettings';
 import { withAnalysis, stageCached } from './stageTracker';
 
@@ -203,6 +203,15 @@ async function driveRun(runId: string): Promise<void> {
           broadcastProgress(runId);
           return;
         }
+        if (err instanceof GeminiProviderExhausted) {
+          // Google's provider quota is spent (429 RESOURCE_EXHAUSTED past the retry
+          // budget): pause resumably, same as RPD, but arm the recovery probe that
+          // re-attempts on a backoff until a Gemini call succeeds and auto-resumes.
+          setRunStatus(runId, 'paused', PROVIDER_PAUSE_REASON);
+          broadcastProgress(runId);
+          ensureRecoveryTimer();
+          return;
+        }
         // Failure isolation: one bad lead → failed (dead-letter), batch continues.
         transitionItem({ id: item.id, batchId: runId }, 'failed', {
           lastError: err instanceof Error ? err.message : String(err),
@@ -223,6 +232,42 @@ async function driveRun(runId: string): Promise<void> {
     activeRuns.delete(runId);
     forceRefreshRuns.delete(runId);
   }
+}
+
+// ── Provider-quota recovery probe (slice 0020) ──────────────────────────────────
+// Provider exhaustion has no push signal, so a low-frequency server timer re-attempts
+// any run paused on 'provider_quota_exhausted'. driveRun re-drives the resumable items;
+// if Gemini still 429s, the item re-pauses (no thrash). On a successful call the limiter
+// emits gemini:recovered and the run progresses, so the next probe finds nothing and the
+// timer stops. Backoff starts at 15m and doubles to a ~1h cap; resets when nothing is
+// paused. unref'd so it never holds the process open.
+const PROVIDER_PAUSE_REASON = 'provider_quota_exhausted';
+const RECOVERY_MIN_MS = 15 * 60_000;
+const RECOVERY_MAX_MS = 60 * 60_000;
+let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+let recoveryBackoffMs = RECOVERY_MIN_MS;
+
+function pausedProviderRuns() {
+  return listRunsByStatus(['paused']).filter(r => r.pauseReason === PROVIDER_PAUSE_REASON);
+}
+
+function ensureRecoveryTimer(): void {
+  if (recoveryTimer !== null) return; // already armed — idempotent across concurrent items
+  recoveryBackoffMs = RECOVERY_MIN_MS;
+  scheduleRecoveryProbe();
+}
+
+function scheduleRecoveryProbe(): void {
+  recoveryTimer = setTimeout(() => {
+    recoveryTimer = null;
+    const paused = pausedProviderRuns();
+    if (paused.length === 0) { recoveryBackoffMs = RECOVERY_MIN_MS; return; } // recovered → stop
+    console.log(`[batch] gemini recovery probe — re-attempting ${paused.length} run(s) paused on provider quota`);
+    for (const run of paused) resumeBatch(run.id);
+    recoveryBackoffMs = Math.min(recoveryBackoffMs * 2, RECOVERY_MAX_MS);
+    scheduleRecoveryProbe();
+  }, recoveryBackoffMs);
+  recoveryTimer.unref?.();
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -265,4 +310,6 @@ export function resumeInterruptedBatches(): void {
   for (const run of listRunsByStatus(['running'])) {
     void driveRun(run.id);
   }
+  // A restart must keep the provider-quota auto-resume alive for runs paused before it.
+  if (pausedProviderRuns().length > 0) ensureRecoveryTimer();
 }

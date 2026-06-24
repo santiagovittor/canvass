@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
-import { withGeminiRate, GeminiRpdExhausted, describeGeminiError } from './geminiRateLimiter';
+import { withGeminiRate, GeminiRpdExhausted, GeminiProviderExhausted, describeGeminiError } from './geminiRateLimiter';
 import type { ResponseSchema } from '@google/generative-ai';
 import { z } from 'zod';
 import { env } from '../env';
@@ -965,9 +965,10 @@ async function callGeminiStructured(systemPrompt: string, userPayload: Record<st
       recordPrimarySuccess();
       return parsed;
     } catch (err) {
-      // RPD exhaustion is a run-pause control signal, not a parse failure — don't
-      // burn the retry budget on it; propagate so the batch pauses resumably.
-      if (err instanceof GeminiRpdExhausted) throw err;
+      // RPD / provider exhaustion are run-pause control signals, not parse failures —
+      // don't bury them in the generic retry-failure error below; propagate so the
+      // batch pauses resumably (and the single-lead path maps to a friendly message).
+      if (err instanceof GeminiRpdExhausted || err instanceof GeminiProviderExhausted) throw err;
       const errInfo = describeGeminiError(err);
       if (errInfo.status !== null && errInfo.status >= 500) recordPrimary5xx(composeModel);
       lastErr = err;

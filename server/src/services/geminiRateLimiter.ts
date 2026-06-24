@@ -6,6 +6,7 @@ import { reserveGeminiRpd, insertGeminiCost } from '../db';
 // so the cyclic edge must be a lazy property read, never a load-time binding.
 import * as appSettings from './appSettings';
 import { reportRetry, addCost, currentCostMeta } from './stageTracker';
+import { markGeminiExhausted, markGeminiSuccess, refreshGeminiHealth } from './geminiHealth';
 
 // Thrown when the persisted Pacific-date daily budget is hit. The batch orchestrator
 // catches this, pauses the run, and resumes after the midnight-Pacific RPD reset.
@@ -17,6 +18,18 @@ export class GeminiRpdExhausted extends Error {
   ) {
     super(`Gemini daily request budget exhausted (${count}/${ceiling}) for ${pacificDate}`);
     this.name = 'GeminiRpdExhausted';
+  }
+}
+
+// Thrown when Google's *provider-side* quota/billing is exhausted: a genuine 429 whose
+// reason is RESOURCE_EXHAUSTED that survived the entire bounded retry budget (a soft
+// per-minute 429 clears within the budget and never reaches here). Distinct from the
+// app's own GeminiRpdExhausted. The batch orchestrator catches it, pauses with
+// 'provider_quota_exhausted', and a recovery timer re-probes until a call succeeds.
+export class GeminiProviderExhausted extends Error {
+  constructor(public readonly desc: GeminiErrorDesc) {
+    super(`Gemini provider quota exhausted (status=${desc.status ?? '?'} reason=${desc.reason ?? '?'})`);
+    this.name = 'GeminiProviderExhausted';
   }
 }
 
@@ -214,46 +227,76 @@ export async function withGeminiRate<T>(
   const date = pacificDate();
   const rpd = appSettings.getNumber('GEMINI_RPD');
   const reserved = reserveGeminiRpd(date, rpd);
-  if (!reserved.ok) throw new GeminiRpdExhausted(reserved.count, rpd, date);
+  if (!reserved.ok) {
+    refreshGeminiHealth(); // counter is at the ceiling → chip flips to exhausted
+    throw new GeminiRpdExhausted(reserved.count, rpd, date);
+  }
 
   const timeoutMs = opts.timeoutMs ?? appSettings.getNumber('GEMINI_TIMEOUT_MS');
   const totalCapMs = appSettings.getNumber('GEMINI_TOTAL_CAP_MS');
   const start = Date.now();
 
-  return pRetry(
-    () => limiter.schedule(async () => {
-      calls++;
-      console.log(`[gemini] ${label} call #${calls} @ ${new Date().toISOString()} (rpd ${reserved.count}/${rpd})`);
-      try {
-        const out = await callWithTimeout(fn, timeoutMs, label);
-        recordCost(label, opts.model, out);
-        return out;
-      } catch (err) {
-        // Non-retryable (other 4xx, parse/logic) → abort: p-retry rejects with the
-        // original error, preserving each caller's existing degradation behavior.
-        if (!isRetryable(err)) throw new AbortError(err instanceof Error ? err : new Error(String(err)));
-        throw err; // retryable → onFailedAttempt below, then backoff + re-schedule
-      }
-    }),
-    {
-      retries: 4, minTimeout: 1000, maxTimeout: 8000, factor: 2, randomize: true,
-      onFailedAttempt: async (error) => {
-        // Only fires for retryable errors (p-retry skips this for AbortError).
-        const elapsed = Date.now() - start;
-        const d = describeGeminiError(error);
-        logGeminiFailure(label, d, error, error.attemptNumber);
-        // No room for another full attempt within the budget → stop and fail safe now
-        // (caller's catch decides hold/degrade) rather than overshoot by a whole attempt.
-        if (elapsed + timeoutMs >= totalCapMs) throw new AbortError(error);
-        // Honor the server's requested retryDelay, but never wait past the budget.
-        if (d.retryDelayMs && d.retryDelayMs > 0) {
-          const wait = Math.min(d.retryDelayMs, totalCapMs - elapsed);
-          reportRetry(d.retryDelayMs, error.attemptNumber);
-          if (wait > 0) await sleep(wait);
-        } else {
-          reportRetry(null, error.attemptNumber);
+  return runWithRetry(fn, label, opts, { timeoutMs, totalCapMs, start, rpdCount: reserved.count, rpdCeiling: rpd });
+}
+
+// Inner retry runner, split out so withGeminiRate can classify the *final* failure:
+// a 429/RESOURCE_EXHAUSTED that survives the whole retry budget is provider exhaustion
+// (vs. a soft per-minute 429 that clears within the budget and resolves to success).
+async function runWithRetry<T>(
+  fn: (signal: AbortSignal) => Promise<T>,
+  label: string,
+  opts: { timeoutMs?: number; model?: string },
+  budget: { timeoutMs: number; totalCapMs: number; start: number; rpdCount: number; rpdCeiling: number },
+): Promise<T> {
+  const { timeoutMs, totalCapMs, start, rpdCount, rpdCeiling } = budget;
+  try {
+    return await pRetry(
+      () => limiter.schedule(async () => {
+        calls++;
+        console.log(`[gemini] ${label} call #${calls} @ ${new Date().toISOString()} (rpd ${rpdCount}/${rpdCeiling})`);
+        try {
+          const out = await callWithTimeout(fn, timeoutMs, label);
+          recordCost(label, opts.model, out);
+          markGeminiSuccess(); // clears any latched provider exhaustion + refreshes the band
+          return out;
+        } catch (err) {
+          // Non-retryable (other 4xx, parse/logic) → abort: p-retry rejects with the
+          // original error, preserving each caller's existing degradation behavior.
+          if (!isRetryable(err)) throw new AbortError(err instanceof Error ? err : new Error(String(err)));
+          throw err; // retryable → onFailedAttempt below, then backoff + re-schedule
         }
+      }),
+      {
+        retries: 4, minTimeout: 1000, maxTimeout: 8000, factor: 2, randomize: true,
+        onFailedAttempt: async (error) => {
+          // Only fires for retryable errors (p-retry skips this for AbortError).
+          const elapsed = Date.now() - start;
+          const d = describeGeminiError(error);
+          logGeminiFailure(label, d, error, error.attemptNumber);
+          // No room for another full attempt within the budget → stop and fail safe now
+          // (caller's catch decides hold/degrade) rather than overshoot by a whole attempt.
+          if (elapsed + timeoutMs >= totalCapMs) throw new AbortError(error);
+          // Honor the server's requested retryDelay, but never wait past the budget.
+          if (d.retryDelayMs && d.retryDelayMs > 0) {
+            const wait = Math.min(d.retryDelayMs, totalCapMs - elapsed);
+            reportRetry(d.retryDelayMs, error.attemptNumber);
+            if (wait > 0) await sleep(wait);
+          } else {
+            reportRetry(null, error.attemptNumber);
+          }
+        },
       },
-    },
-  );
+    );
+  } catch (err) {
+    // Final failure after the whole retry budget. A genuine 429 whose reason is
+    // RESOURCE_EXHAUSTED here means Google's provider quota is spent — classify it
+    // distinctly so the batch pauses (and auto-resumes) instead of dead-lettering
+    // each lead. Everything else (timeouts, 5xx, parse/logic) propagates unchanged.
+    const d = describeGeminiError(err);
+    if (d.status === 429 && d.reason === 'RESOURCE_EXHAUSTED') {
+      markGeminiExhausted(d);
+      throw new GeminiProviderExhausted(d);
+    }
+    throw err;
+  }
 }

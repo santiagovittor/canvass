@@ -3,6 +3,7 @@ import { db } from './db';
 import { scrapeJobs, businesses } from './db/schema';
 import { or, eq, ne, and, isNull, desc, count } from 'drizzle-orm';
 import { getActiveRuns } from './services/activeRuns';
+import { geminiHealthSnapshot } from './services/geminiHealth';
 
 const clients = new Set<Response>();
 
@@ -72,6 +73,10 @@ export function register(res: Response) {
   const activeRuns = getActiveRuns();
   console.log(`[sse] register() emitting runs:snapshot — ${activeRuns.length} active run(s)`);
   safeWrite(res, `event: runs:snapshot\ndata: ${JSON.stringify(activeRuns)}\n\n`);
+
+  // Gemini health snapshot (slice 0020): a fresh client renders the always-on health
+  // chip immediately — healthy / low (daily budget ≥80%) / exhausted — without polling.
+  safeWrite(res, `event: gemini:health\ndata: ${JSON.stringify(geminiHealthSnapshot())}\n\n`);
 }
 
 export function broadcast(event: string, data: unknown) {

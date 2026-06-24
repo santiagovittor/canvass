@@ -9,6 +9,7 @@ import { Analytics } from './pages/Analytics';
 import { Settings } from './pages/Settings';
 import { KeywordPanel } from './components/Scraper/KeywordPanel';
 import { ActiveRunsStrip } from './components/ActiveRuns/ActiveRunsStrip';
+import { GeminiHealthBanner } from './components/GeminiHealthBanner';
 import { useSSE } from './hooks/useSSE';
 import { useScrape } from './hooks/useScrape';
 import { useResults } from './hooks/useResults';
@@ -196,6 +197,7 @@ export default function App() {
         </button>
       </div>
 
+      <GeminiHealthBanner />
       <ActiveRunsStrip onNavigate={setView} />
 
       {view === 'scraper' ? (

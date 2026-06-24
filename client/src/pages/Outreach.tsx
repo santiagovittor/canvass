@@ -14,6 +14,17 @@ interface Draft {
   body: string;
 }
 
+// Single-lead compose paths (slice 0020): the server tags a provider-quota exhaustion
+// with this code. Map it to the same calm copy the global health chip shows instead of
+// surfacing the raw "503 {…}" body. Other errors keep their original message.
+const PROVIDER_QUOTA_MSG =
+  'Gemini quota reached — preparing new emails is paused and will resume automatically when quota frees up.';
+function composeErrorMessage(err: unknown, fallback: string): string {
+  const msg = err instanceof Error ? err.message : '';
+  if (msg.includes('provider_quota_exhausted')) return PROVIDER_QUOTA_MSG;
+  return msg || fallback;
+}
+
 function parseSavedAnalysis(raw: string | null): WebsiteAnalysis | null {
   if (!raw) return null;
   try {
@@ -157,7 +168,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
         setSavingState('saved');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Generation failed');
+      setError(composeErrorMessage(err, 'Generation failed'));
     } finally {
       setIsGenerating(false);
     }
@@ -176,7 +187,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
       setIsAiDraft(true);
       setSavingState('saved');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Generation failed');
+      setError(composeErrorMessage(err, 'Generation failed'));
     } finally {
       setIsGenerating(false);
     }
@@ -227,7 +238,7 @@ export function Outreach({ onEmailSent }: OutreachProps) {
       setVerificationVerdict(result.verification ?? null);
       setSavingState('saved');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Generation failed');
+      setError(composeErrorMessage(err, 'Generation failed'));
     } finally {
       setIsGenerating(false);
     }

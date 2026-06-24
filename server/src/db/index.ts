@@ -547,14 +547,30 @@ function resolveValidity(first: string | null, map: Map<string, EmailValidity>):
   return cached ?? (first !== null && validateEmail(first) ? 'unknown' : 'invalid');
 }
 
-// First email for a lead — the batch gate needs the address itself, which the
-// lighter getBusinessForEmail / BusinessForEmailRow does not carry.
-export function getFirstEmailForBusiness(businessId: string): string | null {
+// All parsed emails for a lead — the send/gate path needs every candidate to rank
+// them (slice 0025), not just the first. Light row the BusinessForEmailRow lacks.
+export function getBusinessEmails(businessId: string): string[] {
   const r = sqlite.prepare<[string], { emails_json: string | null }>(
     `SELECT emails_json FROM businesses WHERE id = ?`
   ).get(businessId);
-  if (!r) return null;
-  return parseEmails(r.emails_json)[0] ?? null;
+  return r ? parseEmails(r.emails_json) : [];
+}
+
+// Slice 0025: pick the best-reachable address among a lead's candidates using only
+// CACHED validity (valid > unknown > invalid; ties keep original order). Pure — no
+// probing — so it is safe inside per-page list queries. The send path
+// (selectBestEmail) probes uncached addresses and caches them, so the queue
+// converges to the address that actually gets emailed.
+const VALIDITY_RANK: Record<EmailValidity, number> = { valid: 0, unknown: 1, invalid: 2 };
+export function pickBestCachedEmail(emails: string[], map: Map<string, EmailValidity>): string | null {
+  if (emails.length === 0) return null;
+  let best = emails[0];
+  let bestRank = VALIDITY_RANK[resolveValidity(best, map)];
+  for (let i = 1; i < emails.length; i++) {
+    const rank = VALIDITY_RANK[resolveValidity(emails[i], map)];
+    if (rank < bestRank) { best = emails[i]; bestRank = rank; }
+  }
+  return best;
 }
 
 export interface OutreachLead {
@@ -656,15 +672,14 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
   const raw = sqlite.prepare<(string | number)[], RawLeadRow>(leadsSQL).all(...params, pageSize, offset);
   const total = sqlite.prepare<(string | number)[], { n: number }>(countSQL).get(...params)?.n ?? 0;
 
-  // Batch-load cached probe results for this page's first-emails (one query).
-  const firstEmails = raw.map(r => parseEmails(r.emails_json)[0]).filter((e): e is string => !!e);
-  const validityMap = getEmailValidityMany(firstEmails);
+  // Batch-load cached probe results for ALL of this page's emails (one query) so
+  // pickBestCachedEmail (slice 0025) can rank every candidate, not just the first.
+  const validityMap = getEmailValidityMany(raw.flatMap(r => parseEmails(r.emails_json)));
 
   const rows: OutreachLead[] = raw.map(r => {
-    const emails = parseEmails(r.emails_json);
-    const first = emails[0] ?? null;
-    const validEmail = first !== null && validateEmail(first);
-    const email_validity = resolveValidity(first, validityMap);
+    const best = pickBestCachedEmail(parseEmails(r.emails_json), validityMap);
+    const validEmail = best !== null && validateEmail(best);
+    const email_validity = resolveValidity(best, validityMap);
     return {
       id: r.id, name: r.name, address: r.address, phone: r.phone,
       website: r.website, emailsJson: r.emails_json, category: r.category,
@@ -673,7 +688,7 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
       locCity: r.loc_city, outreachStatus: r.outreach_status,
       valid_email: validEmail,
       email_validity,
-      first_email: first,
+      first_email: best,   // slice 0025: now the selected best-reachable address
       latitude: r.latitude, longitude: r.longitude,
       instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
       tiktok: r.tiktok, linkedin: r.linkedin, youtube: r.youtube,
@@ -720,15 +735,15 @@ export function getNoSiteLeads(page = 1, pageSize = 25, filters: { search?: stri
   const raw = sqlite.prepare<(string | number)[], RawLeadRow>(leadsSQL).all(...params, pageSize, offset);
   const total = sqlite.prepare<(string | number)[], { n: number }>(countSQL).get(...params)?.n ?? 0;
 
-  // Batch-load cached probe results for this page's first-emails (one query).
-  const firstEmails = raw.map(r => parseEmails(r.emails_json)[0]).filter((e): e is string => !!e);
-  const validityMap = getEmailValidityMany(firstEmails);
+  // Batch-load cached probe results for ALL of this page's emails (one query) so
+  // pickBestCachedEmail (slice 0025) can rank every candidate. No-site leads have
+  // no email by definition, so best stays null here — kept consistent regardless.
+  const validityMap = getEmailValidityMany(raw.flatMap(r => parseEmails(r.emails_json)));
 
   const rows: OutreachLead[] = raw.map(r => {
-    const emails = parseEmails(r.emails_json);
-    const first = emails[0] ?? null;
-    const validEmail = first !== null && validateEmail(first);
-    const email_validity = resolveValidity(first, validityMap);
+    const best = pickBestCachedEmail(parseEmails(r.emails_json), validityMap);
+    const validEmail = best !== null && validateEmail(best);
+    const email_validity = resolveValidity(best, validityMap);
     return {
       id: r.id, name: r.name, address: r.address, phone: r.phone,
       website: r.website, emailsJson: r.emails_json, category: r.category,
@@ -737,7 +752,7 @@ export function getNoSiteLeads(page = 1, pageSize = 25, filters: { search?: stri
       locCity: r.loc_city, outreachStatus: r.outreach_status,
       valid_email: validEmail,
       email_validity,
-      first_email: first,
+      first_email: best,   // slice 0025: selected best-reachable address
       latitude: r.latitude, longitude: r.longitude,
       instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
       tiktok: r.tiktok, linkedin: r.linkedin, youtube: r.youtube,
@@ -1421,20 +1436,19 @@ export function getFollowUpLeads(page = 1, pageSize = 25, minDays = 4): { rows: 
   const raw = sqlite.prepare<(string | number)[], RawFollowUpRow>(leadsSQL).all(cutoff, pageSize, offset);
   const total = sqlite.prepare<[string], { n: number }>(countSQL).get(cutoff)?.n ?? 0;
 
-  const validityMap = getEmailValidityMany(raw.map(r => parseEmails(r.emails_json)[0]).filter((e): e is string => !!e));
+  const validityMap = getEmailValidityMany(raw.flatMap(r => parseEmails(r.emails_json)));
 
   const rows: FollowUpLead[] = raw.map(r => {
-    const emails = parseEmails(r.emails_json);
-    const first = emails[0] ?? null;
+    const best = pickBestCachedEmail(parseEmails(r.emails_json), validityMap);
     return {
       id: r.id, name: r.name, address: r.address, phone: r.phone,
       website: r.website, emailsJson: r.emails_json, category: r.category,
       rating: r.rating, reviewCount: r.review_count,
       locCountry: r.loc_country, locNeighbourhood: r.loc_neighbourhood,
       locCity: r.loc_city, outreachStatus: r.outreach_status,
-      valid_email: first !== null && validateEmail(first),
-      email_validity: resolveValidity(first, validityMap),
-      first_email: first,
+      valid_email: best !== null && validateEmail(best),
+      email_validity: resolveValidity(best, validityMap),
+      first_email: best,   // slice 0025: selected best-reachable address
       latitude: r.latitude, longitude: r.longitude,
       instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
       tiktok: r.tiktok, linkedin: r.linkedin, youtube: r.youtube,
@@ -1497,20 +1511,19 @@ export function getRepliedLeads(page = 1, pageSize = 25): { rows: RepliedLead[];
   const raw = sqlite.prepare<(string | number)[], RawFollowUpRow & { replied_at: string | null }>(leadsSQL).all(pageSize, offset);
   const total = sqlite.prepare<[], { n: number }>(countSQL).get()?.n ?? 0;
 
-  const validityMap = getEmailValidityMany(raw.map(r => parseEmails(r.emails_json)[0]).filter((e): e is string => !!e));
+  const validityMap = getEmailValidityMany(raw.flatMap(r => parseEmails(r.emails_json)));
 
   const rows: RepliedLead[] = raw.map(r => {
-    const emails = parseEmails(r.emails_json);
-    const first = emails[0] ?? null;
+    const best = pickBestCachedEmail(parseEmails(r.emails_json), validityMap);
     return {
       id: r.id, name: r.name, address: r.address, phone: r.phone,
       website: r.website, emailsJson: r.emails_json, category: r.category,
       rating: r.rating, reviewCount: r.review_count,
       locCountry: r.loc_country, locNeighbourhood: r.loc_neighbourhood,
       locCity: r.loc_city, outreachStatus: r.outreach_status,
-      valid_email: first !== null && validateEmail(first),
-      email_validity: resolveValidity(first, validityMap),
-      first_email: first,
+      valid_email: best !== null && validateEmail(best),
+      email_validity: resolveValidity(best, validityMap),
+      first_email: best,   // slice 0025: selected best-reachable address
       latitude: r.latitude, longitude: r.longitude,
       instagram: r.instagram, facebook: r.facebook, twitter: r.twitter,
       tiktok: r.tiktok, linkedin: r.linkedin, youtube: r.youtube,

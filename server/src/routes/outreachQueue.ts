@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from '../db';
 import { businesses } from '../db/schema';
 import { eq, sql } from 'drizzle-orm';
-import { getOutreachLeads, getNoSiteLeads, markNoSiteContacted, getDailySendCount, validateEmail, parseEmails, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, reclassifyReply, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens, getOutreachSendRow, createScheduledSend, listUpcomingScheduledSends, cancelScheduledSend, rescheduleScheduledSend, saveOutreachAnalysis, supersedeScheduledSendsForBusiness, getMostRecentScheduledSend } from '../db';
+import { getOutreachLeads, getNoSiteLeads, markNoSiteContacted, getDailySendCount, validateEmail, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, reclassifyReply, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens, getOutreachSendRow, createScheduledSend, listUpcomingScheduledSends, cancelScheduledSend, rescheduleScheduledSend, saveOutreachAnalysis, supersedeScheduledSendsForBusiness, getMostRecentScheduledSend } from '../db';
 import { broadcast } from '../sse';
 import { resolveBusinessType, describeWindow } from '../services/outreachSchedulingConfig';
 import { nextOptimalWindowUtc } from '../services/outreachGovernor';
@@ -11,6 +11,7 @@ import { type VerificationResult } from '../services/geminiVerifier';
 import { composeVerifiedEmail } from '../services/outreachComposePipeline';
 import { evaluateSendGate, parseVerdict } from '../services/sendGate';
 import { sendEmail, signatureHtml } from '../services/emailSender';
+import { selectBestEmail } from '../services/emailVerifier';
 import { checkReplies } from '../services/replyChecker';
 import { analyzeWebsite } from '../services/websiteAnalyzer';
 import type { WebsiteAnalysis } from '../services/websiteAnalyzer';
@@ -341,8 +342,9 @@ router.post('/send', async (req, res) => {
     }
   }
 
-  const emails = parseEmails(row.emailsJson ?? null);
-  const to = emails[0];
+  // Slice 0025: same selector as the batch gate / scheduled worker — the manual
+  // Send button must transmit to the same best-reachable address the queue showed.
+  const to = await selectBestEmail(businessId);
   if (!to || !validateEmail(to)) {
     return res.status(422).json({ error: 'no_valid_email', field: 'emailsJson' });
   }

@@ -3,7 +3,7 @@ import net from 'net';
 import { env } from '../env';
 import {
   validateEmail, isPlaceholderEmail, getEmailValidity, upsertEmailValidity,
-  type EmailValidity,
+  getBusinessEmails, type EmailValidity,
 } from '../db';
 
 // Pre-compose deliverability gate (slice 0013). Establishes, without a paid API,
@@ -158,4 +158,28 @@ export async function verifyEmailDeliverable(addr: string): Promise<EmailValidit
     // Belt-and-suspenders: never let the gate throw into the batch loop.
     return 'unknown';
   }
+}
+
+// Slice 0025: choose the single best-reachable address for a lead. Ranks
+// valid > unknown > invalid; ties keep original order. Reuses cached validity and
+// PROBES uncached candidates via verifyEmailDeliverable (which caches + bounds each
+// probe by EMAIL_VERIFY_TIMEOUT_MS). Short-circuits on the first 'valid' — the top
+// rank can't be beaten — so a multi-email lead can't stall a batch probing the rest.
+// All-invalid (or none) → the original first, so the lead keeps a target and the
+// caller's own 'invalid' skip decides. One address per lead — never multi-send
+// (domain-block risk, slice 0022 F3).
+const SELECT_RANK: Record<EmailValidity, number> = { valid: 0, unknown: 1, invalid: 2 };
+export async function selectBestEmail(businessId: string): Promise<string | null> {
+  const emails = getBusinessEmails(businessId);
+  if (emails.length <= 1) return emails[0] ?? null;
+
+  let best = emails[0];
+  let bestRank = 3;
+  for (const addr of emails) {
+    const v = await verifyEmailDeliverable(addr);
+    if (v === 'valid') return addr;                 // top rank — stop probing
+    const rank = SELECT_RANK[v];
+    if (rank < bestRank) { best = addr; bestRank = rank; }
+  }
+  return best;
 }

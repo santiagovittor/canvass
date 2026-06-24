@@ -1,8 +1,8 @@
 import { broadcast } from '../sse';
 import {
-  getBusinessForEmail, getFirstEmailForBusiness, upsertDraft, saveDraftTopGap, saveDraftVerification,
+  getBusinessForEmail, upsertDraft, saveDraftTopGap, saveDraftVerification,
 } from '../db';
-import { verifyEmailDeliverable } from './emailVerifier';
+import { verifyEmailDeliverable, selectBestEmail } from './emailVerifier';
 import {
   createBatchRun, addBatchItems, getBatchRun, transitionItem, setRunStatus,
   listResumableItems, listRunsByStatus, enqueueForSend,
@@ -94,7 +94,7 @@ async function processItem(runId: string, item: BatchItemRow, dryRun: boolean): 
   // definitive 'invalid' is skipped. Reuses the skipped_no_evidence terminal state
   // (already wired to the counter/SSE/UI) with a distinct disposition + log.
   if (!runIsRunning(runId)) return;
-  const to = getFirstEmailForBusiness(businessId);
+  const to = await selectBestEmail(businessId);
   const validity = to ? await verifyEmailDeliverable(to) : 'invalid';
   if (validity === 'invalid') {
     console.log(`[batch] skipped business=${businessId} reason=bad_email email=${to ?? '<none>'}`);

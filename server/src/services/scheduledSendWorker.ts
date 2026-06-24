@@ -2,7 +2,7 @@ import { env } from '../env';
 import {
   reapStaleClaims, getDueScheduledSends, claimScheduledSend, finishScheduledSend,
   deferScheduledSend, resolveScheduledFromScheduled, getOutreachSendRow, getDraft,
-  parseEmails, validateEmail, isSuppressed, sentRowExistsForScheduledSend,
+  validateEmail, isSuppressed, sentRowExistsForScheduledSend,
   saveEmailExample, deleteDraft, getScheduledCounts, getNextScheduledRows,
   type ScheduledSendRow,
 } from '../db';
@@ -12,6 +12,7 @@ import { sendEmail } from './emailSender';
 import { evaluateSendGate, parseVerdict } from './sendGate';
 import { governSend } from './outreachGovernor';
 import { resolveBusinessType } from './outreachSchedulingConfig';
+import { selectBestEmail } from './emailVerifier';
 
 // One in-process poller, mirroring startReplyChecker. 30s granularity is far finer
 // than the 5–15min pacing it enforces; the atomic claim — not this guard — is the
@@ -126,7 +127,10 @@ export async function processJob(job: ScheduledSendRow, nowMs: number = Date.now
     return;
   }
 
-  const to = parseEmails(row.emailsJson)[0];
+  // Slice 0025: same selector the batch gate used — single source of truth, so the
+  // address we transmit to is the same best-reachable one the queue showed (cache
+  // hit; no re-probe within TTL). row.emailsJson is no longer the raw [0].
+  const to = await selectBestEmail(bid);
   if (!to || !validateEmail(to)) {
     console.log(`[scheduler] skipped id=${job.id} business=${bid} reason=no_valid_email`);
     resolveScheduledFromScheduled(job.id, 'skipped', 'skipped', 'no_valid_email');

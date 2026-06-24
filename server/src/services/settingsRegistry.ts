@@ -152,6 +152,14 @@ export const FIELDS: SettingField[] = [
     help: 'Used once if the primary compose model returns 5xx after all retries. Must differ from GEMINI_MODEL to avoid a no-op fallback. Use a real, reliable model — NOT gemini-3-flash (404, not a valid id) or gemini-3.5-flash (chronic 503s).',
   },
   {
+    key: 'GEMINI_VERIFIER_FALLBACK_MODEL',
+    group: 'Gemini & Rate Limits',
+    label: 'Gemini model (verify fallback)',
+    type: 'string',
+    default: '',
+    help: 'Used once if the primary verify model 5xx-storms (same quarantine as compose). Empty = no verifier fallback. May be a `nim:<model-id>` to route the fact-check to NVIDIA NIM when Gemini is down. Must differ from GEMINI_VERIFIER_MODEL.',
+  },
+  {
     key: 'COMPOSE_503_QUARANTINE_MINUTES',
     group: 'Gemini & Rate Limits',
     label: 'Composer primary 5xx quarantine (minutes)',
@@ -266,6 +274,10 @@ export const FIELDS: SettingField[] = [
   {
     key: 'GEMINI_API_KEY', group: 'Secrets', label: 'Gemini API key',
     type: 'secret', default: '', envVar: 'GEMINI_API_KEY', isSecret: true,
+  },
+  {
+    key: 'NVIDIA_NIM_API_KEY', group: 'Secrets', label: 'NVIDIA NIM API key',
+    type: 'secret', default: '', envVar: 'NVIDIA_NIM_API_KEY', isSecret: true,
   },
   {
     key: 'PAGESPEED_API_KEY', group: 'Secrets', label: 'PageSpeed API key',

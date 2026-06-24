@@ -169,7 +169,8 @@ function recordCost(label: string, model: string | undefined, out: unknown): voi
   if (!um) return;
   const inT = um.promptTokenCount ?? 0;
   const outT = um.candidatesTokenCount ?? 0;
-  const p = GEMINI_PRICING[model] ?? DEFAULT_PRICING;
+  // NIM (slice 0026) is free — ledger NIM rows at $0 instead of the Gemini default estimate.
+  const p = model.startsWith('nim:') ? { in: 0, out: 0 } : (GEMINI_PRICING[model] ?? DEFAULT_PRICING);
   const usd = (inT / 1e6) * p.in + (outT / 1e6) * p.out;
   addCost(usd);
   const meta = currentCostMeta();
@@ -222,7 +223,10 @@ export async function withGeminiRate<T>(
   label = 'gemini',
   opts: { timeoutMs?: number; model?: string } = {},
 ): Promise<T> {
-  if (!env.GEMINI_API_KEY) return fn(new AbortController().signal); // unconfigured callers degrade as before
+  // Genuinely-unconfigured non-NIM callers degrade as before (no rate/RPD/timeout). A NIM
+  // model (slice 0026) is a first-class provider — keep it on the full machinery even when
+  // GEMINI_API_KEY is unset, so its calls are still rate/RPD/timeout/cost-governed.
+  if (!env.GEMINI_API_KEY && !opts.model?.startsWith('nim:')) return fn(new AbortController().signal);
 
   const date = pacificDate();
   const rpd = appSettings.getNumber('GEMINI_RPD');

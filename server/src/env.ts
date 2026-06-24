@@ -21,6 +21,10 @@ const schema = z.object({
   GMAIL_FROM: z.string().email().optional(),
   GMAIL_SENDER_NAME: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  // NVIDIA NIM (OpenAI-compatible) provider for the compose/verify text task (slice 0026).
+  // Key optional; a `nim:` model selected without the key throws a clear error at call time.
+  NVIDIA_NIM_API_KEY: z.string().optional(),
+  NVIDIA_NIM_BASE_URL: z.string().url().default('https://integrate.api.nvidia.com'),
   PUBLIC_URL: z.string().url().optional(),
   // Unset → premium analysis routes 503 and the queue no-ops (prod-safe before compose update)
   PLAYWRIGHT_WS_URL: z.string().optional(),
@@ -51,7 +55,9 @@ const schema = z.object({
   // Gemini daily request budget — persisted, Pacific-date keyed. Conservative default;
   // tune to the account tier. Retries are absorbed by the margin below the real ceiling.
   GEMINI_RPD: z.coerce.number().int().positive().default(1000),
-  GEMINI_COMPOSER_FALLBACK_MODEL: z.string().default('gemini-3-flash'),
+  // Must match settingsRegistry default. gemini-3-flash is a 404 (not a valid id) — never
+  // default the resilience fallback to a model that always fails. (slice 0026 review fix)
+  GEMINI_COMPOSER_FALLBACK_MODEL: z.string().default('gemini-2.5-flash-lite'),
   // Pre-compose email-validity gate (slice 0013). SMTP RCPT probe ON by default
   // (operator: real emails is key) — degrades gracefully to 'unknown' when port 25
   // is blocked/greylisted, never blocks the pipeline. Explicit enum — z.coerce.boolean

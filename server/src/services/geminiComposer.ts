@@ -1,5 +1,7 @@
-import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { SchemaType } from '@google/generative-ai';
 import { withGeminiRate, GeminiRpdExhausted, GeminiProviderExhausted, describeGeminiError } from './geminiRateLimiter';
+import { makeGenerate } from './aiProvider';
+import { createQuarantine } from './modelQuarantine';
 import type { ResponseSchema } from '@google/generative-ai';
 import { z } from 'zod';
 import { env } from '../env';
@@ -746,18 +748,11 @@ function buildSignalContext(signalMap: SignalMap | undefined, isAR: boolean): st
 }
 
 async function callGemini(systemPrompt: string, userPayload: Record<string, unknown>): Promise<{ subject: string; body: string }> {
-  if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
-
-  const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
   const composeModel = getString('GEMINI_MODEL');
-  const model = genAI.getGenerativeModel({
-    model: composeModel,
-    systemInstruction: systemPrompt,
-  });
-
   const timeoutMs = getNumber('GEMINI_TIMEOUT_MS');
+  const generate = makeGenerate({ modelId: composeModel, systemInstruction: systemPrompt, json: true });
   const result = await withGeminiRate(
-    signal => model.generateContent(JSON.stringify(userPayload), { signal, timeout: timeoutMs }),
+    signal => generate(JSON.stringify(userPayload), signal, timeoutMs),
     'compose-followup',
     { timeoutMs, model: composeModel },
   );
@@ -877,58 +872,26 @@ export async function composeWhatsApp(
   return { message: body };
 }
 
-// In-process quarantine for the primary compose model. After QUARANTINE_STRIKES
-// consecutive 5xx within QUARANTINE_WINDOW_MS, skip primary entirely and route
-// directly to the fallback for COMPOSE_503_QUARANTINE_MINUTES minutes.
-const QUARANTINE_STRIKES = 2;
-const QUARANTINE_WINDOW_MS = 5 * 60_000;
-let primaryStrikes: { modelId: string; at: number }[] = [];
-let primaryQuarantinedUntil = 0;
-
-function recordPrimary5xx(modelId: string): void {
-  const now = Date.now();
-  primaryStrikes.push({ modelId, at: now });
-  primaryStrikes = primaryStrikes.filter(s => now - s.at < QUARANTINE_WINDOW_MS);
-  const recent = primaryStrikes.filter(s => s.modelId === modelId);
-  if (recent.length >= QUARANTINE_STRIKES) {
-    const quarantineMs = getNumber('COMPOSE_503_QUARANTINE_MINUTES') * 60_000;
-    primaryQuarantinedUntil = now + quarantineMs;
-    console.warn(
-      `[gemini] composer primary quarantined model=${modelId} until=${new Date(primaryQuarantinedUntil).toISOString()} reason=${recent.length}x 5xx in ${QUARANTINE_WINDOW_MS / 60_000}m`,
-    );
-  }
-}
-
-function recordPrimarySuccess(): void {
-  if (primaryQuarantinedUntil > 0) {
-    const modelId = getString('GEMINI_MODEL');
-    console.warn(`[gemini] composer primary quarantine cleared model=${modelId}`);
-  }
-  primaryStrikes = [];
-  primaryQuarantinedUntil = 0;
-}
+// In-process quarantine for the primary compose model. After 2 consecutive 5xx within
+// 5min, skip primary entirely and route directly to the fallback for
+// COMPOSE_503_QUARANTINE_MINUTES minutes. Shared factory (slice 0026) — the verifier
+// uses the same one.
+const composerQuarantine = createQuarantine('COMPOSE_503_QUARANTINE_MINUTES', 'composer');
 
 // Structured composer call: enforces the JSON shape via responseSchema, validates
 // with zod, bounded retry on parse failure. Composer keeps its own Gemini client.
 async function callGeminiStructured(systemPrompt: string, userPayload: Record<string, unknown>): Promise<ComposedEmail> {
-  if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
-
-  const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
   const composeModel = getString('GEMINI_MODEL');
   const timeoutMs = getNumber('GEMINI_TIMEOUT_MS');
   const fallbackModelId = getString('GEMINI_COMPOSER_FALLBACK_MODEL');
 
   const runFallback = async (): Promise<ComposedEmail> => {
-    const fallbackModel = genAI.getGenerativeModel({
-      model: fallbackModelId,
-      systemInstruction: systemPrompt,
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: COMPOSED_RESPONSE_SCHEMA,
-      },
+    const generate = makeGenerate({
+      modelId: fallbackModelId, systemInstruction: systemPrompt,
+      responseSchema: COMPOSED_RESPONSE_SCHEMA, json: true,
     });
     const fallbackResult = await withGeminiRate(
-      signal => fallbackModel.generateContent(JSON.stringify(userPayload), { signal, timeout: timeoutMs }),
+      signal => generate(JSON.stringify(userPayload), signal, timeoutMs),
       'compose-fallback',
       { timeoutMs, model: fallbackModelId },
     );
@@ -937,32 +900,28 @@ async function callGeminiStructured(systemPrompt: string, userPayload: Record<st
     return ComposedEmailSchema.parse(JSON.parse(fallbackCleaned));
   };
 
-  if (Date.now() < primaryQuarantinedUntil && !!fallbackModelId && fallbackModelId !== composeModel) {
+  if (composerQuarantine.isQuarantined() && !!fallbackModelId && fallbackModelId !== composeModel) {
     console.warn(`[gemini] composer primary quarantined, routing direct to fallback=${fallbackModelId}`);
     return await runFallback();
   }
 
-  const model = genAI.getGenerativeModel({
-    model: composeModel,
-    systemInstruction: systemPrompt,
-    generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: COMPOSED_RESPONSE_SCHEMA,
-    },
+  const generate = makeGenerate({
+    modelId: composeModel, systemInstruction: systemPrompt,
+    responseSchema: COMPOSED_RESPONSE_SCHEMA, json: true,
   });
 
   let lastErr: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const result = await withGeminiRate(
-        signal => model.generateContent(JSON.stringify(userPayload), { signal, timeout: timeoutMs }),
+        signal => generate(JSON.stringify(userPayload), signal, timeoutMs),
         'compose',
         { timeoutMs, model: composeModel },
       );
       const text = result.response.text().trim();
       const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
       const parsed = ComposedEmailSchema.parse(JSON.parse(cleaned));
-      recordPrimarySuccess();
+      composerQuarantine.recordSuccess();
       return parsed;
     } catch (err) {
       // RPD / provider exhaustion are run-pause control signals, not parse failures —
@@ -970,7 +929,7 @@ async function callGeminiStructured(systemPrompt: string, userPayload: Record<st
       // batch pauses resumably (and the single-lead path maps to a friendly message).
       if (err instanceof GeminiRpdExhausted || err instanceof GeminiProviderExhausted) throw err;
       const errInfo = describeGeminiError(err);
-      if (errInfo.status !== null && errInfo.status >= 500) recordPrimary5xx(composeModel);
+      if (errInfo.status !== null && errInfo.status >= 500) composerQuarantine.record5xx(composeModel);
       lastErr = err;
     }
   }

@@ -1,7 +1,8 @@
-import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
-import { withGeminiRate, GeminiRpdExhausted } from './geminiRateLimiter';
+import { SchemaType } from '@google/generative-ai';
+import { withGeminiRate, GeminiRpdExhausted, describeGeminiError } from './geminiRateLimiter';
+import { makeGenerate } from './aiProvider';
+import { createQuarantine } from './modelQuarantine';
 import type { ResponseSchema } from '@google/generative-ai';
-import { env } from '../env';
 import type { SignalMap } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from './visionClient';
@@ -107,50 +108,12 @@ const VERIFIER_RESPONSE_SCHEMA: ResponseSchema = {
   required: ['claims'],
 };
 
-async function callGeminiVerifier(
-  draft: { subject: string; body: string },
-  declaredClaims: ComposedClaim[],
-  bundle: VerificationBundle,
-): Promise<ClaimVerdict[]> {
-  if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
+// Same 5xx quarantine the composer uses (slice 0026): a verifier primary that 5xx-storms
+// is skipped and routed to GEMINI_VERIFIER_FALLBACK_MODEL (which may be a `nim:` id) for
+// COMPOSE_503_QUARANTINE_MINUTES minutes, instead of re-storming every lead.
+const verifierQuarantine = createQuarantine('COMPOSE_503_QUARANTINE_MINUTES', 'verifier');
 
-  const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY);
-  // SEPARATE model from the composer (GEMINI_VERIFIER_MODEL) — an independent model
-  // fact-checking the composer's output, never the same one that wrote it.
-  const verifierModel = getString('GEMINI_VERIFIER_MODEL');
-  const model = genAI.getGenerativeModel({
-    model: verifierModel,
-    systemInstruction: SYSTEM_VERIFIER,
-    generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: VERIFIER_RESPONSE_SCHEMA,
-    },
-  });
-
-  // Trim vision to the only two fields the verifier rules cite (strengths +
-  // opportunities). designEra / widgetVisibility / mobileResponsive were echoed on
-  // every verify call but never graded — pure input-token waste.
-  const visionForVerify = bundle.vision
-    ? { strengths: bundle.vision.strengths, opportunities: bundle.vision.opportunities }
-    : null;
-  const userPayload = {
-    draft: { subject: draft.subject, body: draft.body },
-    declaredClaims,
-    evidence: {
-      signals: bundle.signals ?? {},
-      vision: visionForVerify,
-      psi: bundle.psi ?? null,
-    },
-  };
-
-  const timeoutMs = getNumber('GEMINI_TIMEOUT_MS');
-  const result = await withGeminiRate(
-    signal => model.generateContent(JSON.stringify(userPayload), { signal, timeout: timeoutMs }),
-    'verify',
-    { timeoutMs, model: verifierModel },
-  );
-  const text = result.response.text().trim();
-
+function parseVerdicts(text: string): ClaimVerdict[] {
   // Strip markdown code fences if model wraps response
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
   let parsed: unknown;
@@ -179,6 +142,73 @@ async function callGeminiVerifier(
     }
     return c as ClaimVerdict;
   });
+}
+
+async function callGeminiVerifier(
+  draft: { subject: string; body: string },
+  declaredClaims: ComposedClaim[],
+  bundle: VerificationBundle,
+): Promise<ClaimVerdict[]> {
+  // SEPARATE model from the composer (GEMINI_VERIFIER_MODEL) — an independent model
+  // fact-checking the composer's output, never the same one that wrote it.
+  const verifierModel = getString('GEMINI_VERIFIER_MODEL');
+  const fallbackModel = getString('GEMINI_VERIFIER_FALLBACK_MODEL');
+  const timeoutMs = getNumber('GEMINI_TIMEOUT_MS');
+
+  // Trim vision to the only two fields the verifier rules cite (strengths +
+  // opportunities). designEra / widgetVisibility / mobileResponsive were echoed on
+  // every verify call but never graded — pure input-token waste.
+  const visionForVerify = bundle.vision
+    ? { strengths: bundle.vision.strengths, opportunities: bundle.vision.opportunities }
+    : null;
+  const userPayload = {
+    draft: { subject: draft.subject, body: draft.body },
+    declaredClaims,
+    evidence: {
+      signals: bundle.signals ?? {},
+      vision: visionForVerify,
+      psi: bundle.psi ?? null,
+    },
+  };
+
+  const callModel = async (modelId: string, label: string): Promise<ClaimVerdict[]> => {
+    const generate = makeGenerate({
+      modelId, systemInstruction: SYSTEM_VERIFIER,
+      responseSchema: VERIFIER_RESPONSE_SCHEMA, json: true,
+    });
+    const result = await withGeminiRate(
+      signal => generate(JSON.stringify(userPayload), signal, timeoutMs),
+      label,
+      { timeoutMs, model: modelId },
+    );
+    return parseVerdicts(result.response.text().trim());
+  };
+
+  const hasFallback = !!fallbackModel && fallbackModel !== verifierModel;
+
+  // Primary quarantined → skip it, go straight to fallback.
+  if (verifierQuarantine.isQuarantined() && hasFallback) {
+    console.warn(`[gemini] verifier primary quarantined, routing direct to fallback=${fallbackModel}`);
+    return callModel(fallbackModel, 'verify-fallback');
+  }
+
+  try {
+    const out = await callModel(verifierModel, 'verify');
+    verifierQuarantine.recordSuccess();
+    return out;
+  } catch (err) {
+    // RPD exhaustion is a run-pause control signal — never a 5xx strike; propagate.
+    if (err instanceof GeminiRpdExhausted) throw err;
+    const d = describeGeminiError(err);
+    if (d.status !== null && d.status >= 500) {
+      verifierQuarantine.record5xx(verifierModel);
+      if (hasFallback) {
+        console.warn(`[gemini] verifier 5xx (status=${d.status}), trying fallback=${fallbackModel}`);
+        return callModel(fallbackModel, 'verify-fallback');
+      }
+    }
+    throw err;
+  }
 }
 
 export async function verifyDraft(

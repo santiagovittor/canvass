@@ -11,9 +11,9 @@ import {
 //   placeholder/malformed → invalid (no network)
 //   no MX / dead domain    → invalid
 //   MX ok, probe off       → unknown
-//   SMTP RCPT 250 (not catch-all) → valid
-//   SMTP RCPT 5xx          → invalid
-//   catch-all / greylist / timeout / refused → unknown
+//   SMTP discriminates: real 2xx + random 5xx → valid; real 5xx + random 2xx → invalid
+//   reject-all (both 5xx, e.g. M365) / catch-all (both 2xx) → unknown (can't confirm)
+//   greylist / timeout / refused → unknown
 // Fail-open: any unexpected error degrades to 'unknown', never throws, never blocks
 // the pipeline. Results are cached (email_validity) keyed to the address.
 
@@ -26,11 +26,12 @@ function heloName(): string {
 }
 
 // Minimal SMTP RCPT probe over one socket, bounded by a single budget. Returns the
-// numeric reply code for RCPT TO:<addr> plus a catch-all flag (RCPT to a random
-// local-part on the same domain also accepted ⇒ the server accepts everything).
+// numeric reply code for RCPT TO:<addr> (real) plus the code for RCPT to a random
+// local-part on the same domain. Comparing the two tells us whether the server
+// actually discriminates (slice 0024 symmetry test).
 async function smtpProbe(
   mxHost: string, addr: string, domain: string, budgetMs: number,
-): Promise<{ code: number; catchAll: boolean } | null> {
+): Promise<{ code: number; randomCode: number } | null> {
   return new Promise(resolve => {
     const socket = net.createConnection({ host: mxHost, port: 25 });
     let stage = 0;
@@ -40,7 +41,7 @@ async function smtpProbe(
     const randomLocal = `probe-${Date.now()}${Math.random().toString(36).slice(2, 10)}`;
     let settled = false;
 
-    const done = (val: { code: number; catchAll: boolean } | null) => {
+    const done = (val: { code: number; randomCode: number } | null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);                                    // cancel on every exit path
@@ -57,7 +58,7 @@ async function smtpProbe(
     socket.on('error', () => done(null));
     socket.on('close', () => {
       // If we got a RCPT verdict before close, report it (guarded; no-op if settled).
-      if (rcptCode > 0) done({ code: rcptCode, catchAll: catchAllCode >= 200 && catchAllCode < 300 });
+      if (rcptCode > 0) done({ code: rcptCode, randomCode: catchAllCode });
       else done(null);
     });
 
@@ -123,11 +124,18 @@ async function probe(addr: string): Promise<{ result: EmailValidity; mxOk: boole
   const top = mx.slice().sort((a, b) => a.priority - b.priority)[0].exchange;
   const verdict = await smtpProbe(top, addr, domain, budget);
   if (!verdict) return { result: 'unknown', mxOk: true };          // blocked/timeout/refused
-  if (verdict.code >= 500 && verdict.code < 600) return { result: 'invalid', mxOk: true };
-  if (verdict.code >= 200 && verdict.code < 300) {
-    return { result: verdict.catchAll ? 'unknown' : 'valid', mxOk: true }; // catch-all → can't confirm
-  }
-  return { result: 'unknown', mxOk: true };                         // 4xx greylist etc.
+
+  // Symmetry test (slice 0024): trust a verdict only when the server discriminates
+  // between the real address and a random local part. A server that answers both
+  // the same way (reject-all M365, or accept-all catch-all) can't confirm anything.
+  const realOk = verdict.code >= 200 && verdict.code < 300;
+  const real5xx = verdict.code >= 500 && verdict.code < 600;
+  const randOk = verdict.randomCode >= 200 && verdict.randomCode < 300;
+  const rand5xx = verdict.randomCode >= 500 && verdict.randomCode < 600;
+
+  if (realOk && rand5xx) return { result: 'valid', mxOk: true };   // discriminates, accepted real
+  if (real5xx && randOk) return { result: 'invalid', mxOk: true }; // discriminates, rejected real
+  return { result: 'unknown', mxOk: true };                        // both same (reject-all/catch-all), 4xx greylist, etc.
 }
 
 export async function verifyEmailDeliverable(addr: string): Promise<EmailValidity> {

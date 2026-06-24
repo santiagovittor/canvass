@@ -5,8 +5,10 @@ import {
 import { verifyEmailDeliverable } from './emailVerifier';
 import {
   createBatchRun, addBatchItems, getBatchRun, transitionItem, setRunStatus,
-  listResumableItems, listRunsByStatus, enqueueForSend, type BatchItemRow,
+  listResumableItems, listRunsByStatus, enqueueForSend,
+  type BatchItemRow, type BatchRunRow,
 } from '../db/batch';
+import { UTC_MINUS_3_OFFSET_MS } from '../util/time';
 import {
   getLatestPremiumAnalysis, createPremiumAnalysisRunning, isAnalysisFresh,
   type DetectedSig, type SignalMap,
@@ -151,8 +153,9 @@ async function processItem(runId: string, item: BatchItemRow, dryRun: boolean): 
   if (!runIsRunning(runId)) return;
   transitionItem(itemRef, 'composing');
   broadcastProgress(runId);
-  const { subject, body, topGap, verdict } = await composeVerifiedEmail(
-    business, undefined, detectedSigs, psiData, visionResult, signalMap, businessId,
+  const { subject, body, topGap, verdict } = await withTimeout(
+    composeVerifiedEmail(business, undefined, detectedSigs, psiData, visionResult, signalMap, businessId),
+    getNumber('BATCH_COMPOSE_TIMEOUT_MS'), 'compose_timeout',
   );
 
   if (verdict.disposition !== 'sent_specific') {
@@ -270,6 +273,54 @@ function scheduleRecoveryProbe(): void {
   recoveryTimer.unref?.();
 }
 
+// ── Run-level stall watchdog (slice 0023) ───────────────────────────────────────
+// A run can wedge with no item progress (a stage hanging past its own timeout, a
+// crashed driver) and sit 'running' forever — the operator's 47-min stuck batch. A
+// low-frequency sweep finalizes any running run whose updated_at has not advanced
+// within BATCH_STALL_TIMEOUT_MS: its non-terminal items fail (last_error='stalled')
+// and the run is marked done, so the factory never needs a manual nudge. updated_at
+// only advances on a terminal-item bump or a status change, so a healthy run (each
+// item terminalizing within analyze+compose ≈ 300s, bound 600s) never trips. Armed by
+// startBatch/resumeBatch, re-armed on boot; self-stops when no run is running.
+// unref'd so it never holds the process open.
+const STALL_SWEEP_MS = 60_000;
+let stallTimer: ReturnType<typeof setTimeout> | null = null;
+
+// updated_at is nowUtcMinus3() (a -3h-shifted ISO string); subtract the same offset
+// from Date.now() so the delta is offset-invariant.
+function runAgeMs(run: BatchRunRow): number {
+  return Date.now() - UTC_MINUS_3_OFFSET_MS - Date.parse(run.updatedAt);
+}
+
+function sweepStalledRuns(): void {
+  const bound = getNumber('BATCH_STALL_TIMEOUT_MS');
+  for (const run of listRunsByStatus(['running'])) {
+    const age = runAgeMs(run);
+    if (age < bound) continue;
+    const stuck = listResumableItems(run.id);
+    console.warn(`[batch] stall watchdog — run=${run.id} no progress for ${Math.round(age / 1000)}s; failing ${stuck.length} item(s) + finalizing`);
+    for (const item of stuck) {
+      transitionItem({ id: item.id, batchId: run.id }, 'failed', { lastError: 'stalled', disposition: 'failed' });
+    }
+    setRunStatus(run.id, 'done');
+    broadcastProgress(run.id);
+  }
+}
+
+function ensureStallWatchdog(): void {
+  if (stallTimer !== null) return; // already armed — idempotent across concurrent starts
+  scheduleStallSweep();
+}
+
+function scheduleStallSweep(): void {
+  stallTimer = setTimeout(() => {
+    stallTimer = null;
+    sweepStalledRuns();
+    if (listRunsByStatus(['running']).length > 0) scheduleStallSweep(); // keep watching while work remains
+  }, STALL_SWEEP_MS);
+  stallTimer.unref?.();
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function startBatch(businessIds: string[], dryRun: boolean, forceRefresh = false): string {
@@ -277,6 +328,7 @@ export function startBatch(businessIds: string[], dryRun: boolean, forceRefresh 
   addBatchItems(run.id, businessIds);
   if (forceRefresh) forceRefreshRuns.add(run.id);
   void driveRun(run.id);
+  ensureStallWatchdog();
   return run.id;
 }
 
@@ -301,15 +353,18 @@ export function resumeBatch(runId: string): boolean {
   if (!run || run.status === 'done' || run.status === 'canceled') return false;
   setRunStatus(runId, 'running', null);
   void driveRun(runId);
+  ensureStallWatchdog();
   return true;
 }
 
 // Boot: a run left 'running' by a restart resumes from its persisted item states.
 // 'paused' runs stay paused (intentional human/budget hold) until explicitly resumed.
 export function resumeInterruptedBatches(): void {
-  for (const run of listRunsByStatus(['running'])) {
+  const running = listRunsByStatus(['running']);
+  for (const run of running) {
     void driveRun(run.id);
   }
+  if (running.length > 0) ensureStallWatchdog();
   // A restart must keep the provider-quota auto-resume alive for runs paused before it.
   if (pausedProviderRuns().length > 0) ensureRecoveryTimer();
 }

@@ -37,6 +37,14 @@ const schema = z.object({
   BATCH_PREPARE_CONCURRENCY: z.coerce.number().int().positive().default(3),
   // Per-item analyze timeout (Playwright render + PSI + vision can hang).
   BATCH_ANALYZE_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
+  // Per-item compose timeout (slice 0023). composeVerifiedEmail can issue ~12 Gemini
+  // calls; each bounded by GEMINI_TOTAL_CAP_MS. Ceiling above worst-case-legit, well
+  // under "stuck" — a timeout throws → item failed (compose_timeout), batch continues.
+  BATCH_COMPOSE_TIMEOUT_MS: z.coerce.number().int().positive().default(180000),
+  // Run-level stall watchdog (slice 0023). A running run whose updated_at has not
+  // advanced within this bound is wedged → its non-terminal items fail (stalled) and
+  // the run finalizes. Above worst-case-legit single item (~analyze+compose=300s).
+  BATCH_STALL_TIMEOUT_MS: z.coerce.number().int().positive().default(600000),
   // Gemini throttle. RPM enforced in-memory by Bottleneck; keep below the tier limit.
   // Default tuned to Tier-1 headroom for fast generation (minTime = 60000/RPM ms).
   GEMINI_RPM: z.coerce.number().int().positive().default(120),

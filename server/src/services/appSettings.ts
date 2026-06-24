@@ -49,9 +49,9 @@ function clampNumber(field: SettingField, n: number): number {
   let v = n;
   if (field.min !== undefined) v = Math.max(field.min, v);
   if (field.max !== undefined) v = Math.min(field.max, v);
-  // The cap's field.max IS GMAIL_HARD_CEILING; assert the backstop explicitly so the
-  // ceiling holds even if a future registry edit forgets to set max on this key.
-  if (field.key === 'OUTREACH_DAILY_CAP') v = Math.min(v, GMAIL_HARD_CEILING);
+  // Each sender's cap field.max IS GMAIL_HARD_CEILING; assert the backstop explicitly so
+  // the per-account ceiling holds even if a future registry edit forgets to set max.
+  if (field.key === 'OUTREACH_DAILY_CAP' || field.key === 'OUTREACH_DAILY_CAP_2') v = Math.min(v, GMAIL_HARD_CEILING);
   return v;
 }
 

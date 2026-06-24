@@ -193,7 +193,7 @@ export async function processJob(job: ScheduledSendRow, nowMs: number = Date.now
   try {
     const result = await sendEmail(
       to, draft.subject, draft.body, bid, row.locCountry, false,
-      { dryRun, scheduledSendId: job.id },
+      { dryRun, scheduledSendId: job.id, sender: decision.sender },
     );
     if (!result.success) {
       return void finishScheduledSend(job.id, 'failed', 'failed', result.error ?? 'send_failed');

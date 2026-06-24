@@ -10,7 +10,8 @@
  */
 import { sqlite, createScheduledSend, getScheduledSendById, listUpcomingScheduledSends, upsertDraft, saveDraftVerification, addSuppression, type ScheduledSendRow } from '../db';
 import { processJob, tick } from '../services/scheduledSendWorker';
-import { getDailyCapRolling } from '../services/outreachSchedulingConfig';
+import { getSenders } from '../services/senders';
+import { getNumber } from '../services/appSettings';
 import { env } from '../env';
 import { UTC_MINUS_3_OFFSET_MS } from '../util/time';
 
@@ -77,12 +78,14 @@ function realContactedCount(): number {
 const TUE_OPEN = Date.UTC(2026, 5, 16, 14, 0, 0);   // Tue 16 Jun 11:00 BA → generic + lawyer open
 const MON_CLOSED = Date.UTC(2026, 5, 15, 5, 0, 0);   // Mon 15 Jun 02:00 BA → all windows closed
 // Seed a synthetic 'dryrun' row with a sent_at ~minsAgo before `nowMs` (UTC-3 shifted).
-function seedRecentSend(nowMs: number, minsAgo: number): void {
+// sender attributes the row to a sending identity (slice 0027 per-sender cap); defaults
+// to sender #1 so pacing (global) tests are unaffected.
+function seedRecentSend(nowMs: number, minsAgo: number, sender: string | null = getSenders()[0]?.from ?? null): void {
   const sentAt = new Date(nowMs - minsAgo * 60_000 - UTC_MINUS_3_OFFSET_MS).toISOString();
   sqlite.prepare(
-    `INSERT INTO email_sends (id, business_id, sent_at, status, verification_override, scheduled_send_id)
-     VALUES (?, ?, ?, 'dryrun', 0, NULL)`
-  ).run(crypto.randomUUID(), PREFIX + 'synthetic', sentAt);
+    `INSERT INTO email_sends (id, business_id, sent_at, status, verification_override, scheduled_send_id, sender)
+     VALUES (?, ?, ?, 'dryrun', 0, NULL, ?)`
+  ).run(crypto.randomUUID(), PREFIX + 'synthetic', sentAt, sender);
 }
 
 // ── run ─────────────────────────────────────────────────────────────────────
@@ -126,9 +129,13 @@ async function main(): Promise<void> {
   rows.push(`C | generic Tue 11:00 | defer:pacing | (rescheduled)`);
   clearTestSends();
 
-  // Phase 3 — CAP (saturate rolling 24h → defer, even with window open)
+  // Phase 3 — CAP (saturate rolling 24h → defer, even with window open). With rotation
+  // (slice 0027) the governor defers only when EVERY sender is at its own cap, so fill
+  // each configured sender's cap.
   console.log('Phase 3 — cap');
-  for (let i = 0; i < getDailyCapRolling(); i++) seedRecentSend(TUE_OPEN, 60 + i); // fill the cap
+  for (const s of getSenders()) {
+    for (let i = 0; i < getNumber(s.capKey); i++) seedRecentSend(TUE_OPEN, 60 + i, s.from);
+  }
   seedBusiness('D', 'Café D', 'Cafetería', 'd@example.test');
   seedDraft('D', sentSpecific);
   const D = schedule('D', 'generic');

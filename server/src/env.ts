@@ -20,6 +20,11 @@ const schema = z.object({
   GMAIL_APP_PASSWORD: z.string().optional(),
   GMAIL_FROM: z.string().email().optional(),
   GMAIL_SENDER_NAME: z.string().optional(),
+  // Second sender (slice 0027). Same App Password mechanism as sender #1. Both vars
+  // of the pair must be set together — see the refine below (clear boot error if a
+  // configured sender is missing its password). Display name is shared (same person).
+  GMAIL_FROM_2: z.string().email().optional(),
+  GMAIL_APP_PASSWORD_2: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   // NVIDIA NIM (OpenAI-compatible) provider for the compose/verify text task (slice 0026).
   // Key optional; a `nim:` model selected without the key throws a clear error at call time.
@@ -71,6 +76,11 @@ const schema = z.object({
 }).refine(
   d => (d.APP_AUTH_USER == null) === (d.APP_AUTH_PASS == null),
   { message: 'AUTH_USER and AUTH_PASS must both be set or both be unset' },
+).refine(
+  // Truthiness, not null: an empty-string password must error (clear message), not
+  // silently drop sender #2 (getSenders treats empty as unconfigured).
+  d => (!d.GMAIL_FROM_2) === (!d.GMAIL_APP_PASSWORD_2),
+  { message: 'GMAIL_FROM_2 and GMAIL_APP_PASSWORD_2 must both be set or both be unset', path: ['GMAIL_APP_PASSWORD_2'] },
 );
 
 const parsed = schema.safeParse(process.env);

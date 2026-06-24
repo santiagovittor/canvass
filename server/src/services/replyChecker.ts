@@ -1,5 +1,5 @@
 import { ImapFlow, FetchMessageObject } from 'imapflow';
-import { env } from '../env';
+import { getSenders } from './senders';
 import { getMeta, setMeta, getReplyCheckTargets, markReplied, setReplyType, markEmailSendBounced, upsertEmailValidity, ReplyType } from '../db';
 import { broadcast } from '../sse';
 
@@ -64,7 +64,8 @@ export function classifyReply(msg: FetchMessageObject): ReplyType {
 }
 
 export async function checkReplies(): Promise<{ checked: number; matched: number; bounced: number }> {
-  if (!env.GMAIL_FROM || !env.GMAIL_APP_PASSWORD) {
+  const senders = getSenders();
+  if (senders.length === 0) {
     throw new Error('not_configured');
   }
   if (running) return { checked: 0, matched: 0, bounced: 0 };
@@ -90,73 +91,82 @@ export async function checkReplies(): Promise<{ checked: number; matched: number
       ? new Date(Date.now() - 30 * 86_400_000)
       : new Date(new Date(lastCheck).getTime() - 86_400_000);
 
-    const client = new ImapFlow({
-      host: 'imap.gmail.com',
-      port: 993,
-      secure: true,
-      auth: { user: env.GMAIL_FROM, pass: env.GMAIL_APP_PASSWORD },
-      logger: false,
-    });
-
     let checked = 0;
     let matched = 0;
     let bounced = 0;
+    // Shared across inboxes: a business bounces once (the DSN lands at the sender that
+    // sent it), and byEmail.delete dedups replies — so a hit in either inbox is final.
+    // ponytail: shared byEmail means a reply routed into the "wrong" sender's inbox is
+    // still matched when THAT inbox is scanned; only a duplicate second reply is deduped.
+    // Correct for direct Gmail accounts; revisit if aliases/catch-alls/forwarding appear.
+    const bouncedIds = new Set<string>();
 
-    await client.connect();
-    try {
-      const lock = await client.getMailboxLock('INBOX');
+    // Scan every sender's inbox (slice 0027). Each sender authenticates with its own
+    // App Password; ownAddress is that sender's own address.
+    for (const sender of senders) {
+      const client = new ImapFlow({
+        host: 'imap.gmail.com',
+        port: 993,
+        secure: true,
+        auth: { user: sender.from, pass: sender.appPassword },
+        logger: false,
+      });
+
+      await client.connect();
       try {
-        const ownAddress = env.GMAIL_FROM.toLowerCase();
-        for await (const msg of client.fetch({ since }, { envelope: true, headers: AUTO_HEADERS })) {
-          checked++;
-          for (const from of msg.envelope?.from ?? []) {
-            const addr = from.address?.toLowerCase();
-            if (!addr || addr === ownAddress) continue;
-            const hit = byEmail.get(addr);
-            if (!hit) continue;
-            const type = classifyReply(msg);
-            if (hit.retro) {
-              if (setReplyType(hit.id, type)) {
-                console.log(`[replyChecker] retro-classified ${hit.name} as '${type}'`);
+        const lock = await client.getMailboxLock('INBOX');
+        try {
+          const ownAddress = sender.from.toLowerCase();
+          for await (const msg of client.fetch({ since }, { envelope: true, headers: AUTO_HEADERS })) {
+            checked++;
+            for (const from of msg.envelope?.from ?? []) {
+              const addr = from.address?.toLowerCase();
+              if (!addr || addr === ownAddress) continue;
+              const hit = byEmail.get(addr);
+              if (!hit) continue;
+              const type = classifyReply(msg);
+              if (hit.retro) {
+                if (setReplyType(hit.id, type)) {
+                  console.log(`[replyChecker] retro-classified ${hit.name} as '${type}'`);
+                }
+              } else if (markReplied(hit.id, type)) {
+                matched++;
+                console.log(`[replyChecker] reply detected from ${addr} → ${hit.name} (${type}) in ${sender.from}`);
+                broadcast('email:replied', { businessId: hit.id, name: hit.name, replyType: type });
               }
-            } else if (markReplied(hit.id, type)) {
-              matched++;
-              console.log(`[replyChecker] reply detected from ${addr} → ${hit.name} (${type})`);
-              broadcast('email:replied', { businessId: hit.id, name: hit.name, replyType: type });
+              byEmail.delete(addr);
             }
-            byEmail.delete(addr);
           }
-        }
 
-        // ── Bounce (DSN) pass: delivery-status notifications come from
-        // mailer-daemon/postmaster. Fetch their full source, parse RFC 3464 for
-        // permanently-failed recipients, flag the lead + flip its send to 'bounced'.
-        const bouncedIds = new Set<string>();
-        for await (const msg of client.fetch(
-          { since, or: [{ from: 'mailer-daemon' }, { from: 'postmaster' }] },
-          { source: true },
-        )) {
-          const src = msg.source?.toString('utf8');
-          if (!src) continue;
-          for (const rcpt of parseDsnRecipients(src)) {
-            const hit = bounceByEmail.get(rcpt);
-            if (!hit || bouncedIds.has(hit.id)) continue;
-            bouncedIds.add(hit.id);
-            // Flag the address dead regardless; bump the count only when a real
-            // 'sent' row flips (dry-run/legacy rows have none).
-            upsertEmailValidity(rcpt, 'invalid', false, 'bounce');
-            if (markEmailSendBounced(hit.id)) {
-              bounced++;
-              console.log(`[replyChecker] bounce detected for ${rcpt} → ${hit.name}`);
-              broadcast('email:bounced', { businessId: hit.id, name: hit.name, email: rcpt });
+          // ── Bounce (DSN) pass: delivery-status notifications come from
+          // mailer-daemon/postmaster. Fetch their full source, parse RFC 3464 for
+          // permanently-failed recipients, flag the lead + flip its send to 'bounced'.
+          for await (const msg of client.fetch(
+            { since, or: [{ from: 'mailer-daemon' }, { from: 'postmaster' }] },
+            { source: true },
+          )) {
+            const src = msg.source?.toString('utf8');
+            if (!src) continue;
+            for (const rcpt of parseDsnRecipients(src)) {
+              const hit = bounceByEmail.get(rcpt);
+              if (!hit || bouncedIds.has(hit.id)) continue;
+              bouncedIds.add(hit.id);
+              // Flag the address dead regardless; bump the count only when a real
+              // 'sent' row flips (dry-run/legacy rows have none).
+              upsertEmailValidity(rcpt, 'invalid', false, 'bounce');
+              if (markEmailSendBounced(hit.id)) {
+                bounced++;
+                console.log(`[replyChecker] bounce detected for ${rcpt} → ${hit.name} in ${sender.from}`);
+                broadcast('email:bounced', { businessId: hit.id, name: hit.name, email: rcpt });
+              }
             }
           }
+        } finally {
+          lock.release();
         }
       } finally {
-        lock.release();
+        await client.logout().catch(() => {});
       }
-    } finally {
-      await client.logout().catch(() => {});
     }
 
     // Unmatched retro targets finalize as 'unknown' (message archived/deleted or
@@ -179,7 +189,7 @@ export async function checkReplies(): Promise<{ checked: number; matched: number
 }
 
 export function startReplyChecker(): void {
-  if (!env.GMAIL_FROM || !env.GMAIL_APP_PASSWORD) {
+  if (getSenders().length === 0) {
     console.log('[replyChecker] Gmail credentials not configured — checker disabled');
     return;
   }

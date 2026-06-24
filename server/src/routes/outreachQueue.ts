@@ -5,7 +5,7 @@ import { eq, sql } from 'drizzle-orm';
 import { getOutreachLeads, getNoSiteLeads, markNoSiteContacted, getDailySendCount, validateEmail, upsertDraft, getDraft, deleteDraft, getDistinctOutreachCategories, saveDraftTopGap, saveDraftVerification, saveEmailExample, getFollowUpLeads, getRepliedLeads, reclassifyReply, setFollowUpStatus, getLatestSentEmail, getLastSentAt, hasOpens, getOutreachSendRow, createScheduledSend, listUpcomingScheduledSends, cancelScheduledSend, rescheduleScheduledSend, saveOutreachAnalysis, supersedeScheduledSendsForBusiness, getMostRecentScheduledSend } from '../db';
 import { broadcast } from '../sse';
 import { resolveBusinessType, describeWindow } from '../services/outreachSchedulingConfig';
-import { nextOptimalWindowUtc } from '../services/outreachGovernor';
+import { nextOptimalWindowUtc, chooseSender } from '../services/outreachGovernor';
 import { composeFollowUp, composeWhatsApp } from '../services/geminiComposer';
 import { type VerificationResult } from '../services/geminiVerifier';
 import { composeVerifiedEmail } from '../services/outreachComposePipeline';
@@ -349,7 +349,10 @@ router.post('/send', async (req, res) => {
     return res.status(422).json({ error: 'no_valid_email', field: 'emailsJson' });
   }
 
-  const result = await sendEmail(to, subject, body, businessId, row.locCountry ?? null, isOverride);
+  // Manual send rotates like the worker (least-loaded sender). null ⇒ all senders at
+  // cap → fall through to emailSender's default (#1): the operator's explicit click is
+  // never blocked on the rolling cap (the manual path has never gated on it).
+  const result = await sendEmail(to, subject, body, businessId, row.locCountry ?? null, isOverride, { sender: chooseSender() ?? undefined });
   if (!result.success) {
     return res.status(result.error === 'Daily limit reached' ? 429 : 502).json(result);
   }

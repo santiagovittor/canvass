@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { env } from '../env';
 import { getDailySendCount, recordEmailSend, markContacted, validateEmail } from '../db';
+import { defaultSender, type Sender } from './senders';
 
 const candidates = [
   env.EMAIL_SIGNATURE_PATH,
@@ -34,13 +35,10 @@ export function reloadSignature(html: string): void {
 
 const DAILY_CAP = 30;
 
-function getTransport() {
-  if (!env.GMAIL_FROM || !env.GMAIL_APP_PASSWORD) {
-    throw new Error('GMAIL_FROM and GMAIL_APP_PASSWORD not configured');
-  }
+function getTransport(sender: Sender) {
   return nodemailer.createTransport({
     service: 'gmail',
-    auth: { user: env.GMAIL_FROM, pass: env.GMAIL_APP_PASSWORD },
+    auth: { user: sender.from, pass: sender.appPassword },
   });
 }
 
@@ -51,11 +49,17 @@ export async function sendEmail(
   businessId: string,
   country: string | null = null,
   verificationOverride = false,
-  opts: { dryRun?: boolean; scheduledSendId?: string | null } = {},
+  opts: { dryRun?: boolean; scheduledSendId?: string | null; sender?: Sender } = {},
 ): Promise<{ success: boolean; error?: string; remaining: number }> {
   if (!validateEmail(to)) {
     console.error('[emailSender] invalid email address:', to);
     return { success: false, error: 'Invalid email address', remaining: DAILY_CAP - getDailySendCount() };
+  }
+
+  // Sender #1 is the back-compat default when a caller does not pick one (slice 0027).
+  const sender = opts.sender ?? defaultSender();
+  if (!sender) {
+    return { success: false, error: 'No sender configured (GMAIL_FROM/GMAIL_APP_PASSWORD)', remaining: DAILY_CAP - getDailySendCount() };
   }
 
   const scheduledSendId = opts.scheduledSendId ?? null;
@@ -64,8 +68,8 @@ export async function sendEmail(
   // never mutate real state. Record a 'dryrun' row (excluded from real history /
   // analytics, which filter status='sent') and do NOT flip contacted-state.
   if (opts.dryRun) {
-    console.log(`[scheduledSend] DRY-RUN transmit suppressed for ${businessId}`);
-    recordEmailSend(businessId, 'dryrun', undefined, null, verificationOverride, scheduledSendId);
+    console.log(`[scheduledSend] DRY-RUN transmit suppressed for ${businessId} via ${sender.from}`);
+    recordEmailSend(businessId, 'dryrun', undefined, null, verificationOverride, scheduledSendId, sender.from);
     return { success: true, remaining: DAILY_CAP - getDailySendCount() };
   }
 
@@ -74,7 +78,7 @@ export async function sendEmail(
   const trackingToken = publicBase ? crypto.randomUUID() : null;
 
   try {
-    const transport = getTransport();
+    const transport = getTransport(sender);
     const pixel = trackingToken
       ? `<img src="${publicBase}/t/${trackingToken}.gif" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0">`
       : '';
@@ -84,7 +88,7 @@ export async function sendEmail(
       ? signatureHtml.replace('https://santiagovittor.store/ar', 'https://santiagovittor.store')
       : signatureHtml;
     await transport.sendMail({
-      from: env.GMAIL_FROM,
+      from: sender.from,
       to,
       subject,
       text: body,
@@ -92,12 +96,12 @@ export async function sendEmail(
         html: bodyHtml + (sig !== null ? `<br><br>${sig}` : '') + pixel,
       } : {}),
     });
-    recordEmailSend(businessId, 'sent', undefined, trackingToken, verificationOverride, scheduledSendId);
+    recordEmailSend(businessId, 'sent', undefined, trackingToken, verificationOverride, scheduledSendId, sender.from);
     markContacted(businessId);
     return { success: true, remaining: DAILY_CAP - getDailySendCount() };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    recordEmailSend(businessId, 'failed', message, null, verificationOverride, scheduledSendId);
+    recordEmailSend(businessId, 'failed', message, null, verificationOverride, scheduledSendId, sender.from);
     return { success: false, error: message, remaining: DAILY_CAP - getDailySendCount() };
   }
 }

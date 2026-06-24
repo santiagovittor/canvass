@@ -1,8 +1,10 @@
 import { rollingSentCount24h, lastSentAtAny } from '../db';
 import {
-  getDailyCapRolling, GMAIL_HARD_CEILING, getPacingMinMs, getPacingMaxMs, TZ_OFFSET_MS,
+  GMAIL_HARD_CEILING, getPacingMinMs, getPacingMaxMs, TZ_OFFSET_MS,
   getGenericWindow, BUSINESS_TYPE_WINDOWS, type BusinessType,
 } from './outreachSchedulingConfig';
+import { getNumber } from './appSettings';
+import { getSenders, type Sender } from './senders';
 
 // All "when" values here are TRUE-UTC milliseconds (Date.now() basis). BA wall-clock
 // fields are derived by subtracting TZ_OFFSET_MS and reading the UTC getters — BA has
@@ -54,8 +56,27 @@ export function nextOptimalWindowUtc(afterUtcMs: number, type: BusinessType): nu
   return afterUtcMs; // unreachable for any non-empty window within 14 days
 }
 
-export function capRemaining(): number {
-  return Math.min(getDailyCapRolling(), GMAIL_HARD_CEILING) - rollingSentCount24h();
+// Remaining rolling-24h headroom for ONE sender (slice 0027). Each account has its own
+// cap setting (sender.capKey); the GMAIL hard ceiling is per account. No-arg = sender #1
+// (back-compat: capKey OUTREACH_DAILY_CAP, byte-identical to the old global cap).
+export function capRemaining(sender?: Sender): number {
+  const s = sender ?? getSenders()[0];
+  if (!s) return 0;
+  return Math.min(getNumber(s.capKey), GMAIL_HARD_CEILING) - rollingSentCount24h(s.from);
+}
+
+// Rotation: least-loaded-today. Pick the sender with the most remaining headroom; the
+// strict `>` keeps the lowest index on a tie, and because a send drops that sender's
+// remaining by one the next pick flips to the other — so equal caps self-alternate
+// without round-robin state. Returns null when no sender has headroom (→ defer:cap).
+export function chooseSender(): Sender | null {
+  let best: Sender | null = null;
+  let bestRem = 0;
+  for (const s of getSenders()) {
+    const rem = capRemaining(s);
+    if (rem > bestRem) { best = s; bestRem = rem; }
+  }
+  return best;
 }
 
 // Real-UTC ms of the most recent send/dryrun, or null. sent_at is UTC-3 shifted,
@@ -73,14 +94,17 @@ function pacingGapMs(): number {
 }
 
 export type GovernDecision =
-  | { action: 'send' }
+  | { action: 'send'; sender: Sender }
   | { action: 'defer'; untilUtc: string; reason: string };
 
 // Ordered gates: cap → window → pacing. First failing gate defers to the soonest
 // time that gate could pass. Never overnight, never over cap, never robotic cadence.
 // skipWindow=true for manually-scheduled rows — operator's chosen time is authoritative.
 export function governSend(type: BusinessType, nowUtcMs: number, skipWindow = false): GovernDecision {
-  if (capRemaining() <= 0) {
+  // Cap gate = rotation: choose the least-loaded sender with headroom. null ⇒ every
+  // sender is at its own cap ⇒ defer (no account has capacity).
+  const sender = chooseSender();
+  if (!sender) {
     // Defer past the current window: next slot start after a 1h nudge so we don't
     // re-evaluate inside the same saturated window.
     const untilMs = nextOptimalWindowUtc(nowUtcMs + 60 * 60_000, type);
@@ -97,5 +121,5 @@ export function governSend(type: BusinessType, nowUtcMs: number, skipWindow = fa
       return { action: 'defer', untilUtc: new Date(nextAllowed).toISOString(), reason: 'deferred:pacing' };
     }
   }
-  return { action: 'send' };
+  return { action: 'send', sender };
 }

@@ -52,9 +52,14 @@ export const GROUPS = [
 export const FIELDS: SettingField[] = [
   // ── Sending & Deliverability ──
   {
-    key: 'OUTREACH_DAILY_CAP', group: 'Sending & Deliverability', label: 'Daily send cap (rolling 24h)',
+    key: 'OUTREACH_DAILY_CAP', group: 'Sending & Deliverability', label: 'Daily send cap — sender #1 (rolling 24h)',
     type: 'number', unit: 'emails', min: 1, max: HARD_CEILING, default: 15, envVar: 'OUTREACH_DAILY_CAP',
-    help: `Hard-ceiling backstop is ${HARD_CEILING}; values above it are clamped.`,
+    help: `Per-account rolling-24h cap for sender #1 (GMAIL_FROM). Hard-ceiling backstop is ${HARD_CEILING}; values above it are clamped. Warmup ramp: start ~5–10/day on a fresh inbox, scale over 2–4 weeks toward ~50/day; the two senders sum to the ~100/day target.`,
+  },
+  {
+    key: 'OUTREACH_DAILY_CAP_2', group: 'Sending & Deliverability', label: 'Daily send cap — sender #2 (rolling 24h)',
+    type: 'number', unit: 'emails', min: 1, max: HARD_CEILING, default: 10,
+    help: `Per-account rolling-24h cap for sender #2 (GMAIL_FROM_2). Only applies when a second sender is configured. Default is conservative for a fresh inbox — raise it as the account warms (see sender #1 help for the ramp).`,
   },
   {
     key: 'PACING_MIN_MS', group: 'Sending & Deliverability', label: 'Min inter-send gap',
@@ -268,8 +273,12 @@ export const FIELDS: SettingField[] = [
 
   // ── Secrets (read-only masked status) ──
   {
-    key: 'GMAIL_APP_PASSWORD', group: 'Secrets', label: 'Gmail app password',
+    key: 'GMAIL_APP_PASSWORD', group: 'Secrets', label: 'Gmail app password (sender #1)',
     type: 'secret', default: '', envVar: 'GMAIL_APP_PASSWORD', isSecret: true,
+  },
+  {
+    key: 'GMAIL_APP_PASSWORD_2', group: 'Secrets', label: 'Gmail app password (sender #2)',
+    type: 'secret', default: '', envVar: 'GMAIL_APP_PASSWORD_2', isSecret: true,
   },
   {
     key: 'GEMINI_API_KEY', group: 'Secrets', label: 'Gemini API key',

@@ -252,6 +252,15 @@ if (!sendCols.includes('verification_override')) {
 if (!sendCols.includes('scheduled_send_id')) {
   sqlite.exec('ALTER TABLE email_sends ADD COLUMN scheduled_send_id TEXT');
 }
+// Sending identity per row (slice 0027). Backfill pre-0027 rows to the original
+// single sender so per-sender rolling-24h counts include history.
+if (!sendCols.includes('sender')) {
+  sqlite.exec('ALTER TABLE email_sends ADD COLUMN sender TEXT');
+  if (env.GMAIL_FROM) {
+    sqlite.prepare('UPDATE email_sends SET sender = ? WHERE sender IS NULL').run(env.GMAIL_FROM);
+  }
+}
+sqlite.exec('CREATE INDEX IF NOT EXISTS email_sends_sender_idx ON email_sends(sender)');
 sqlite.exec('CREATE INDEX IF NOT EXISTS email_sends_tracking_token_idx ON email_sends(tracking_token)');
 sqlite.exec('CREATE INDEX IF NOT EXISTS email_sends_scheduled_send_id_idx ON email_sends(scheduled_send_id)');
 
@@ -788,16 +797,16 @@ export function getDailySendCount(): number {
   return stmtSendCount.get(todayUtcMinus3())?.n ?? 0;
 }
 
-const stmtInsertSend = sqlite.prepare<[string, string, string, string, string | null, string | null, number, string | null], void>(`
-  INSERT INTO email_sends (id, business_id, sent_at, status, error_text, tracking_token, verification_override, scheduled_send_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+const stmtInsertSend = sqlite.prepare<[string, string, string, string, string | null, string | null, number, string | null, string | null], void>(`
+  INSERT INTO email_sends (id, business_id, sent_at, status, error_text, tracking_token, verification_override, scheduled_send_id, sender) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 // 'dryrun' = a dry-run transmit: counts toward the governor's cap/pacing during a
 // test, but is filterable and excluded from real history/analytics (which filter
 // status='sent') and never flips contacted-state. Real send history is untouched.
-export function recordEmailSend(businessId: string, status: 'sent' | 'failed' | 'dryrun', errorText?: string, trackingToken?: string | null, verificationOverride?: boolean, scheduledSendId?: string | null): void {
+export function recordEmailSend(businessId: string, status: 'sent' | 'failed' | 'dryrun', errorText?: string, trackingToken?: string | null, verificationOverride?: boolean, scheduledSendId?: string | null, sender?: string | null): void {
   // sent_at stored as UTC-3 shifted ISO string — matches todayUtcMinus3() slice prefix
-  stmtInsertSend.run(crypto.randomUUID(), businessId, nowUtcMinus3(), status, errorText ?? null, trackingToken ?? null, verificationOverride ? 1 : 0, scheduledSendId ?? null);
+  stmtInsertSend.run(crypto.randomUUID(), businessId, nowUtcMinus3(), status, errorText ?? null, trackingToken ?? null, verificationOverride ? 1 : 0, scheduledSendId ?? null, sender ?? null);
 }
 
 const stmtFindSendByToken = sqlite.prepare<[string], { id: string; business_id: string }>(`
@@ -1181,16 +1190,27 @@ export function getNextScheduledRows(limit: number): UpcomingScheduledSend[] {
 // dry-run preview produces 'dryrun' rows that must NOT consume real send capacity or
 // pace away real sends, so they are excluded. Real 'sent' rows always count.
 // Two prepared statements selected by the static env flag (no per-call branching cost).
+// Sender-filtered variants (slice 0027): the per-sender cap counts only that sender's
+// rows; the no-arg path keeps the original global count (scripts/legacy callers).
 const stmtRolling24hAll = sqlite.prepare<[string], { n: number }>(`
   SELECT COUNT(*) AS n FROM email_sends WHERE status IN ('sent', 'dryrun') AND sent_at >= ?
 `);
 const stmtRolling24hSentOnly = sqlite.prepare<[string], { n: number }>(`
   SELECT COUNT(*) AS n FROM email_sends WHERE status = 'sent' AND sent_at >= ?
 `);
+const stmtRolling24hAllSender = sqlite.prepare<[string, string], { n: number }>(`
+  SELECT COUNT(*) AS n FROM email_sends WHERE status IN ('sent', 'dryrun') AND sent_at >= ? AND sender = ?
+`);
+const stmtRolling24hSentOnlySender = sqlite.prepare<[string, string], { n: number }>(`
+  SELECT COUNT(*) AS n FROM email_sends WHERE status = 'sent' AND sent_at >= ? AND sender = ?
+`);
 const stmtRolling24h = env.OUTREACH_DRY_RUN ? stmtRolling24hAll : stmtRolling24hSentOnly;
-export function rollingSentCount24h(): number {
+const stmtRolling24hSender = env.OUTREACH_DRY_RUN ? stmtRolling24hAllSender : stmtRolling24hSentOnlySender;
+export function rollingSentCount24h(sender?: string): number {
   const cutoff = new Date(Date.now() - UTC_MINUS_3_OFFSET_MS - 24 * 60 * 60 * 1000).toISOString();
-  return stmtRolling24h.get(cutoff)?.n ?? 0;
+  return sender !== undefined
+    ? stmtRolling24hSender.get(cutoff, sender)?.n ?? 0
+    : stmtRolling24h.get(cutoff)?.n ?? 0;
 }
 
 const stmtLastSentAll = sqlite.prepare<[], { sent_at: string }>(`

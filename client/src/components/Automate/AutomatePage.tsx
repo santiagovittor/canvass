@@ -7,7 +7,7 @@ import { SendLane } from './SendLane';
 // schedule/send). One story, top to bottom.
 export function AutomatePage() {
   return (
-    <div style={{ flex: 1, overflowY: 'auto', background: 'var(--bg-base)' }}>
+    <div style={{ height: '100%', overflowY: 'auto', background: 'var(--bg-base)' }}>
       <div style={{
         maxWidth: 'var(--automate-max)',
         margin: '0 auto',

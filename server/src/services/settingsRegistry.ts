@@ -93,7 +93,12 @@ export const FIELDS: SettingField[] = [
   },
   {
     key: 'MAX_ANCHOR_ATTEMPTS', group: 'Analysis & Claim-Gating', label: 'Max anchor attempts',
-    type: 'number', min: 1, max: 10, default: 3,
+    type: 'number', min: 1, max: 10, default: 2,
+  },
+  {
+    key: 'VERIFIER_SKIP_TRUSTED_ANCHORS', group: 'Analysis & Claim-Gating', label: 'Skip verifier for trusted anchors',
+    type: 'boolean', default: false,
+    help: 'When ON, skips the Gemini fact-check for leads whose anchor is a deterministic detector (PSI score, ABSENT_VERIFIED signal, or Meta-Pixel+no-assistant) AND whose draft declares only that one anchor claim. Saves 1+ Gemini call per such lead. Tradeoff: the verifier’s undeclared-claim body scan is skipped, so a hallucinated extra website claim could ship unflagged. Default OFF.',
   },
   {
     key: 'META_PIXEL_ANCHOR_ENABLED', group: 'Analysis & Claim-Gating', label: 'Meta Pixel no-assistant anchor',
@@ -142,9 +147,9 @@ export const FIELDS: SettingField[] = [
     group: 'Gemini & Rate Limits',
     label: 'Gemini model (compose fallback)',
     type: 'string',
-    default: 'gemini-3-flash',
+    default: 'gemini-2.5-flash-lite',
     envVar: 'GEMINI_COMPOSER_FALLBACK_MODEL',
-    help: 'Used once if the primary compose model returns 5xx after all retries. Must differ from GEMINI_MODEL to avoid a no-op fallback.',
+    help: 'Used once if the primary compose model returns 5xx after all retries. Must differ from GEMINI_MODEL to avoid a no-op fallback. Use a real, reliable model — NOT gemini-3-flash (404, not a valid id) or gemini-3.5-flash (chronic 503s).',
   },
   {
     key: 'COMPOSE_503_QUARANTINE_MINUTES',

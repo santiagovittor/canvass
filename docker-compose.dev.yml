@@ -45,7 +45,6 @@ services:
       DATABASE_URL: /app/data/scraper.db
       GOOGLE_SERVICE_ACCOUNT_PATH: /app/credentials/google-service-account.json
       PLAYWRIGHT_WS_URL: ws://playwright:3000/
-      FORCE_COMPOSE_5XX_STRIKES: "4"
     command: sh -c "npm install && npm -w server run dev"
     depends_on: [gosom, playwright]
 

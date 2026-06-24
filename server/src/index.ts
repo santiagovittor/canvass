@@ -21,6 +21,7 @@ import settingsRouter from './routes/settings';
 import schedulerStatusRouter from './routes/schedulerStatus';
 import scrapeSchedulesRouter from './routes/scrapeSchedules';
 import keywordScrapeRouter from './routes/keywordScrape';
+import runsRouter from './routes/runs';
 import { startReplyChecker } from './services/replyChecker';
 import { startScheduledSendWorker } from './services/scheduledSendWorker';
 import { startScrapeSchedulerWorker } from './services/scrapeSchedulerWorker';
@@ -71,6 +72,7 @@ app.use('/api/batch', batchRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/scrape-schedules', scrapeSchedulesRouter);
 app.use('/api/keyword-scrape', keywordScrapeRouter);
+app.use('/api/runs', runsRouter);
 app.use('/api/scheduled', schedulerStatusRouter);
 app.use('/events', eventsRouter);
 

@@ -127,10 +127,11 @@ export async function runKeywordJobSync(
 
   // Minimal scrape_jobs row so the enrichmentQueue left-join (enrichmentQueue.ts)
   // resolves extractEmails=1 and emails get scraped for website-bearing keyword
-  // leads — exactly like polygon leads (slice 0004). status='done' keeps it out
-  // of the SSE active-job snapshot (sse.ts) and polygon-oriented views; keyword
-  // runs are synchronous and have no bbox/geometry, so those columns are benign
-  // placeholders / null.
+  // leads — exactly like polygon leads (slice 0004). status='running' + run_kind
+  // ='keyword' makes this a durable, rehydratable run (slice 0012): the active-runs
+  // read-model surfaces it and the polygon snapshot / resumeOrphanedJobs exclude it
+  // by run_kind. Keyword runs are synchronous and have no bbox/geometry, so those
+  // columns are benign placeholders / null.
   db.insert(scrapeJobs).values({
     id: jobId,
     searchTerm: params.query.trim(),
@@ -138,11 +139,19 @@ export async function runKeywordJobSync(
     bboxJson: '[]',
     gridCellKm: 0,
     cellCount: 0,
-    status: 'done',
+    status: 'running',
+    runKind: 'keyword',
+    keywordRunId: runId,
+    keywordStage: 'submitting',
     geometryJson: null,
     extractEmails: 1,
     createdAt: new Date().toISOString(),
   }).run();
+
+  // Persist the live keyword stage so a rehydrated client (slice 0012) resumes the
+  // tracker at the right step. Rides alongside the existing keyword:stage broadcasts.
+  const persistStage = (stage: 'scraping' | 'saving' | 'enriching') =>
+    db.update(scrapeJobs).set({ keywordStage: stage }).where(eq(scrapeJobs.id, jobId)).run();
 
   const gosomId = await createGosomJobWithRetry({
     jobId,
@@ -155,6 +164,7 @@ export async function runKeywordJobSync(
     depth: params.depth,
   }, ac.signal);
   console.log(`[jobRunner] broadcast keyword:stage scraping run=${runId}`);
+  persistStage('scraping');
   broadcast('keyword:stage', { runId, stage: 'scraping' });
 
   const polledResults = await pollUntilDone(gosomId, ac.signal, KEYWORD_WEDGE_PROBE_AFTER_MS);
@@ -162,6 +172,7 @@ export async function runKeywordJobSync(
 
   const scrapedAt = new Date().toISOString();
   console.log(`[jobRunner] broadcast keyword:stage saving run=${runId}`);
+  persistStage('saving');
   broadcast('keyword:stage', { runId, stage: 'saving' });
   // upsertRawResults handles lat/lng guard internally — no polygon filter needed
   const { inserted } = upsertRawResults(rawResults as Record<string, unknown>[], jobId, scrapedAt);
@@ -178,6 +189,7 @@ export async function runKeywordJobSync(
 
   kickEnrichment();
   console.log(`[jobRunner] broadcast keyword:stage enriching run=${runId}`);
+  persistStage('enriching');
   broadcast('keyword:stage', { runId, stage: 'enriching' });
   // Auto-analyze: enqueue this run's website-bearing leads (Q7 filter at db layer,
   // consistent with the polygon path). Covers both the keyword scheduler branch
@@ -185,10 +197,18 @@ export async function runKeywordJobSync(
   const analyzable = getAnalyzableBusinessIdsForJob(jobId);
   const { enqueued, skipped } = autoEnqueueForAnalysis(analyzable);
   console.log(`[jobRunner] auto-analyze keyword job=${jobId} enqueued=${enqueued} skipped=${skipped}`);
+  // Terminal: the durable keyword run is complete — flip the row out of 'running'
+  // so the active-runs read-model stops surfacing it.
+  db.update(scrapeJobs)
+    .set({ status: 'done', keywordStage: 'done', completedAt: new Date().toISOString() })
+    .where(eq(scrapeJobs.id, jobId)).run();
   broadcast('keyword:done', { runId, added, deduped });
   return { added, deduped, businessIds };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
+    db.update(scrapeJobs)
+      .set({ status: 'error', keywordStage: 'error', errorMessage: message })
+      .where(eq(scrapeJobs.id, jobId)).run();
     broadcast('keyword:error', { runId, message });
     throw err;
   }
@@ -202,7 +222,11 @@ export function resumeOrphanedJobs(): void {
     .where(or(eq(scrapeJobs.status, 'running'), eq(scrapeJobs.status, 'enriching')))
     .all();
   for (const job of orphans) {
-    if (job.status === 'enriching') {
+    if (job.runKind === 'keyword') {
+      // A keyword run is synchronous — it cannot be resumed after a restart.
+      // Mark the interrupted row error so it leaves the active-runs read-model.
+      db.update(scrapeJobs).set({ status: 'error', keywordStage: 'error', errorMessage: 'Server restarted' }).where(eq(scrapeJobs.id, job.id)).run();
+    } else if (job.status === 'enriching') {
       // Legacy status from before enrichment was decoupled: scraping had
       // finished, so the job is done; the enrichment queue picks up the rest.
       db.update(scrapeJobs).set({ status: 'done', completedAt: new Date().toISOString() }).where(eq(scrapeJobs.id, job.id)).run();

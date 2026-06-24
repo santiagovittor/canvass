@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import type { OutreachLead } from '../../lib/outreachApi';
 import { useStageProgress, type StageName, type StepStatus } from '../../hooks/useStageProgress';
 
 type Lang = 'es' | 'en';
@@ -65,7 +64,10 @@ function StepDot({ status }: { status: StepStatus }) {
   return <span style={{ width: 6, height: 6, borderRadius: '50%', border: '1px solid var(--border-strong)' }} />;
 }
 
-export function StageTracker({ lead, mode, active }: { lead: OutreachLead | null; mode: Mode; active: boolean; premiumPresent: boolean }) {
+// Only `id` (SSE filter) and `locCountry` (caption language) are read, so the prop is
+// the minimal structural shape — a full OutreachLead is assignable, and the batch
+// console (slice 0019) can pass a lightweight { id, locCountry } for the in-flight lead.
+export function StageTracker({ lead, mode, active }: { lead: { id: string; locCountry: string | null } | null; mode: Mode; active: boolean; premiumPresent: boolean }) {
   const lang: Lang = lead?.locCountry === 'Argentina' ? 'es' : 'en';
   const progress = useStageProgress(lead?.id ?? null, active);
 

@@ -127,12 +127,18 @@ async function callGeminiVerifier(
     },
   });
 
+  // Trim vision to the only two fields the verifier rules cite (strengths +
+  // opportunities). designEra / widgetVisibility / mobileResponsive were echoed on
+  // every verify call but never graded — pure input-token waste.
+  const visionForVerify = bundle.vision
+    ? { strengths: bundle.vision.strengths, opportunities: bundle.vision.opportunities }
+    : null;
   const userPayload = {
     draft: { subject: draft.subject, body: draft.body },
     declaredClaims,
     evidence: {
       signals: bundle.signals ?? {},
-      vision: bundle.vision ?? null,
+      vision: visionForVerify,
       psi: bundle.psi ?? null,
     },
   };

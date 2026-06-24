@@ -47,9 +47,9 @@ export function Sidebar({
 }: SidebarProps) {
   if (!visible) {
     return (
-      <div style={{ height: '100vh', overflowY: 'auto', background: 'var(--bg-panel)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ fontFamily: 'var(--font-ui)', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', padding: '0 24px', letterSpacing: '0.03em' }}>
+      <div style={{ height: '100%', background: 'var(--bg-panel)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '32px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontFamily: 'var(--font-ui)', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', letterSpacing: '0.03em' }}>
             Draw an area to begin
           </span>
         </div>
@@ -57,9 +57,11 @@ export function Sidebar({
           <div className="sidebar-section-label">Scheduler</div>
           <ScrapeSchedulerStatus />
         </div>
-        <div className="sidebar-section">
+        <div className="sidebar-section" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderBottom: 'none', paddingBottom: 0 }}>
           <div className="sidebar-section-label">Schedules</div>
-          <SchedulesList geometry={geometry} />
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 16 }}>
+            <SchedulesList geometry={geometry} />
+          </div>
         </div>
       </div>
     );
@@ -71,8 +73,7 @@ export function Sidebar({
     <div
       className="sidebar-left sidebar-reveal"
       style={{
-        height: '100vh',
-        overflowY: 'auto',
+        height: '100%',
         background: 'var(--bg-panel)',
         borderRight: '1px solid var(--border)',
         display: 'flex',
@@ -120,9 +121,11 @@ export function Sidebar({
         <div className="sidebar-section-label">Scheduler</div>
         <ScrapeSchedulerStatus />
       </div>
-      <div className="sidebar-section">
+      <div className="sidebar-section" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderBottom: 'none', paddingBottom: 0 }}>
         <div className="sidebar-section-label">Schedules</div>
-        <SchedulesList geometry={geometry} />
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 16 }}>
+          <SchedulesList geometry={geometry} />
+        </div>
       </div>
     </div>
   );

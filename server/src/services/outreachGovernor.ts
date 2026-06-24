@@ -78,14 +78,15 @@ export type GovernDecision =
 
 // Ordered gates: cap → window → pacing. First failing gate defers to the soonest
 // time that gate could pass. Never overnight, never over cap, never robotic cadence.
-export function governSend(type: BusinessType, nowUtcMs: number): GovernDecision {
+// skipWindow=true for manually-scheduled rows — operator's chosen time is authoritative.
+export function governSend(type: BusinessType, nowUtcMs: number, skipWindow = false): GovernDecision {
   if (capRemaining() <= 0) {
     // Defer past the current window: next slot start after a 1h nudge so we don't
     // re-evaluate inside the same saturated window.
     const untilMs = nextOptimalWindowUtc(nowUtcMs + 60 * 60_000, type);
     return { action: 'defer', untilUtc: new Date(untilMs).toISOString(), reason: 'deferred:cap_reached' };
   }
-  if (!withinWindow(nowUtcMs, type)) {
+  if (!skipWindow && !withinWindow(nowUtcMs, type)) {
     const untilMs = nextOptimalWindowUtc(nowUtcMs, type);
     return { action: 'defer', untilUtc: new Date(untilMs).toISOString(), reason: 'deferred:outside_window' };
   }

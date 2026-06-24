@@ -58,6 +58,7 @@ function schedule(id: string, businessType: string): ScheduledSendRow {
     scheduledAtUtc: new Date(Date.now() - 60_000).toISOString(), // due (past)
     businessType,
     windowLabel: businessType,
+    origin: 'manual',
   });
 }
 function jobStatus(scheduledId: string): ScheduledSendRow {

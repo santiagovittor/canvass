@@ -8,10 +8,27 @@ Status legend: `planned` · `in-progress` · `done`.
 
 | Rank | ID | Intent | Status | Slice file |
 |---|---|---|---|---|
-| 1 | `0001-auto-enrich-analyze-pipeline` | Auto-run enrich + analyze after every scrape — no manual trigger | planned | [0001](SLICES/0001-auto-enrich-analyze-pipeline.md) |
-| 2 | `0002-daily-operational-digest` | Daily summary of sends / replies / queue health | planned | _(not created)_ |
-| 3 | `0003-auto-compose-schedule-high-confidence` | Auto compose + schedule leads above a confidence bar | planned | _(not created)_ |
-| 4 | `0004-new-lead-sources-meta-ad-library` | Add Meta Ad Library as a new lead source | planned | _(not created)_ |
+| — | `0001-auto-enrich-analyze-pipeline` | Auto-run enrich + analyze after every scrape — no manual trigger | shipped | [0001](SLICES/0001-auto-enrich-analyze-pipeline.md) |
+| — | `0002-text-query-ui-clarity-audit` | Diagnosis of keyword/text-query UI clarity + missing emails | diagnosis done | [0002](SLICES/0002-text-query-ui-clarity-audit.md) |
+| 1 | `0003-keyword-run-live-status` | Live SSE stage tracker for keyword runs (no polling) | planned | [0003](SLICES/0003-keyword-run-live-status.md) |
+| 2 | `0004-keyword-email-enrichment-gate` | Keyword leads get emails — write the `scrape_jobs` row so the email gate fires | planned | [0004](SLICES/0004-keyword-email-enrichment-gate.md) |
+| 3 | `0005-keyword-panel-disclosure-and-provenance` | Demote Bulk/Backlog behind disclosure + email-provenance copy | planned | [0005](SLICES/0005-keyword-panel-disclosure-and-provenance.md) |
+| 4 | `0006-scheduler-status-sse` | Replace 15s scheduler-status polling with SSE | planned | [0006](SLICES/0006-scheduler-status-sse.md) |
+| 5 | `0007-no-website-lead-outreach` | Contact lane (phone/WhatsApp) + cheap-site offer for no-website leads | planned (needs diagnosis) | [0007](SLICES/0007-no-website-lead-outreach.md) |
+| 6 | `0008-daily-operational-digest` | Daily summary of sends / replies / queue health | planned | _(not created)_ |
+| 7 | `0009-auto-compose-schedule-high-confidence` | Auto compose + schedule leads above a confidence bar | planned | _(not created)_ |
+| 8 | `0010-new-lead-sources-meta-ad-library` | Add Meta Ad Library as a new lead source | planned | _(not created)_ |
+| — | `0011-ux-clarity-and-outreach-audit` | Diagnosis: cross-tab run persistence, reply visibility, email validity, open-tracking honesty, type/declutter | diagnosis done | [0011](SLICES/0011-ux-clarity-and-outreach-audit.md) |
+| next·1 | `0012-active-runs-persistence` | Server-authoritative active-runs, SSE-rehydrated — runs survive tab switch + show concurrently | planned | [0012](SLICES/0012-active-runs-persistence.md) |
+| next·2 | `0013-email-validity-gate-and-bounce-ingestion` | MX + SMTP-RCPT validity gate before compose + bounce/DSN ingestion | planned | [0013](SLICES/0013-email-validity-gate-and-bounce-ingestion.md) |
+| next·3 | `0014-reply-visibility-and-reclassification` | Stop hiding auto-classified replies; one-tap reclassify; soften velocity rule | planned | [0014](SLICES/0014-reply-visibility-and-reclassification.md) |
+| next·4 | `0015-open-tracking-honesty` | Replace always-on `sin abrir` with honest state; optional spam-safe real tracking | planned | [0015](SLICES/0015-open-tracking-honesty.md) |
+| next·5 | `0016-typography-and-outreach-declutter` | Amend DESIGN/ui rules, raise type scale + spacing, collapse Outreach filters | planned | [0016](SLICES/0016-typography-and-outreach-declutter.md) |
+| — | `0017-modern-ui-conformance-and-batch-legibility-audit` | Diagnosis: design-rule conformance, batch-runner relocation + legibility/ETA, Gemini quota visibility, Outreach height-clip bug | diagnosis done | [0017](SLICES/0017-modern-ui-conformance-and-batch-legibility-audit.md) |
+| fix·1 | `0018-outreach-height-clip-fix` | Outreach root flex-sizing so the active-runs banner stops clipping bottom buttons | planned | [0018](SLICES/0018-outreach-height-clip-fix.md) |
+| fix·2 | `0019-batch-runner-relocate-and-legibility` | Move batch runner to a new Automate tab; wire live stage + ETA + per-lead failures | planned | [0019](SLICES/0019-batch-runner-relocate-and-legibility.md) |
+| fix·3 | `0020-gemini-provider-quota-visibility` | Surface provider 429 RESOURCE_EXHAUSTED as an auto-resuming paused/banner state, not silent failures | planned | [0020](SLICES/0020-gemini-provider-quota-visibility.md) |
+| fix·4 | `0021-design-conformance-adoption` | Adopt 0016 tokens in rendered surfaces: kill sub-12px/raw-hex/inline-style sprawl | planned | [0021](SLICES/0021-design-conformance-adoption.md) |
 
 ---
 
@@ -31,4 +48,4 @@ promote to the table above when picked up.
 - Edit `keyword_query` after creation.
 - Cancel a scrape run in-flight.
 - `extra_reviews` / fast-mode gosom flags.
-- instant-scrape progress UI — surface elapsed time + gosom wedge state so a 5-minute scrape doesn't look dead.
+- ~~instant-scrape progress UI~~ — promoted to slice `0003-keyword-run-live-status`.

@@ -54,6 +54,16 @@ export function runMigrations() {
   if (!jobCols.includes('extract_emails')) {
     sqlite.exec('ALTER TABLE scrape_jobs ADD COLUMN extract_emails INTEGER NOT NULL DEFAULT 1');
   }
+  // Active-runs read-model (slice 0012): mark + track durable keyword runs.
+  if (!jobCols.includes('run_kind')) {
+    sqlite.exec('ALTER TABLE scrape_jobs ADD COLUMN run_kind TEXT');
+  }
+  if (!jobCols.includes('keyword_stage')) {
+    sqlite.exec('ALTER TABLE scrape_jobs ADD COLUMN keyword_stage TEXT');
+  }
+  if (!jobCols.includes('keyword_run_id')) {
+    sqlite.exec('ALTER TABLE scrape_jobs ADD COLUMN keyword_run_id TEXT');
+  }
 
   const cols = (sqlite.prepare('PRAGMA table_info(businesses)').all() as { name: string }[]).map(r => r.name);
   if (!cols.includes('outreach_status')) {

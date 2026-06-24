@@ -1,7 +1,8 @@
 import type { Response } from 'express';
 import { db } from './db';
 import { scrapeJobs, businesses } from './db/schema';
-import { or, eq, desc, count } from 'drizzle-orm';
+import { or, eq, ne, and, isNull, desc, count } from 'drizzle-orm';
+import { getActiveRuns } from './services/activeRuns';
 
 const clients = new Set<Response>();
 
@@ -34,9 +35,14 @@ export function register(res: Response) {
       cellsDone: scrapeJobs.cellsDone,
     })
     .from(scrapeJobs)
-    .where(or(
-      eq(scrapeJobs.status, 'running'),
-      eq(scrapeJobs.status, 'error'),
+    .where(and(
+      or(
+        eq(scrapeJobs.status, 'running'),
+        eq(scrapeJobs.status, 'error'),
+      ),
+      // Exclude durable keyword runs (slice 0012) — they are now status='running'
+      // but must not hijack the polygon snapshot. NULL run_kind = polygon (legacy).
+      or(isNull(scrapeJobs.runKind), ne(scrapeJobs.runKind, 'keyword')),
     ))
     .orderBy(desc(scrapeJobs.createdAt))
     .limit(1)
@@ -59,6 +65,13 @@ export function register(res: Response) {
   } else {
     safeWrite(res, `event: snapshot\ndata: ${JSON.stringify({ type: 'idle' })}\n\n`);
   }
+
+  // Server-authoritative active-runs snapshot (slice 0012): every active run
+  // (scrape, keyword, batch, premium) so a freshly-connected/returned client
+  // rehydrates the strip without polling. Mirrors GET /api/runs/active.
+  const activeRuns = getActiveRuns();
+  console.log(`[sse] register() emitting runs:snapshot — ${activeRuns.length} active run(s)`);
+  safeWrite(res, `event: runs:snapshot\ndata: ${JSON.stringify(activeRuns)}\n\n`);
 }
 
 export function broadcast(event: string, data: unknown) {

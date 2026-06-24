@@ -49,7 +49,11 @@ export function rankAnchors(
   visionResult?: VisionResult | null,
   signalMap?: SignalMap,
 ): AnchorCandidate[] {
-  const isAR = business.locCountry === 'Argentina';
+  // Anchor facts are 3rd-person and language-keyed (ar=Spanish / en=English). Spain
+  // leads must get the Spanish fact too, else a Spanish email gets an English hook.
+  // The `ar` strings are neutral peninsular-compatible Spanish, safe for both.
+  const c = (business.locCountry ?? '').trim().toLowerCase();
+  const isAR = c === 'argentina' || c === 'spain' || c === 'españa' || c === 'espana';
   const candidates: AnchorCandidate[] = [];
 
   // Live claim-gating thresholds (Settings tab; same defaults as before).

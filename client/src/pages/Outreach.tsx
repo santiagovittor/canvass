@@ -4,10 +4,6 @@ import type { QueueMode } from '../components/Outreach/LeadQueue';
 import { EmailComposer } from '../components/Outreach/EmailComposer';
 import { WhatsAppComposer } from '../components/Outreach/WhatsAppComposer';
 import { BusinessContext } from '../components/Outreach/BusinessContext';
-import { BatchRunner } from '../components/Outreach/BatchRunner';
-import { startBatch, pauseBatch, resumeBatch, cancelBatch } from '../lib/batchApi';
-import type { BatchProgress } from '../lib/batchApi';
-import { getActiveRuns } from '../lib/activeRunsApi';
 import { generateEmail, generateFollowUp, skipFollowUp, sendOutreachEmail, getOutreachStats, analyzeWebsite, getSignatureHtml, saveDraft, loadDraft, startPremiumAnalysis, getPremiumAnalysis, scheduleDraft, listScheduled, cancelScheduled, rescheduleScheduled, getLeadScheduleStatus, getScheduledQueueStatus, pauseScheduler, resumeScheduler, cancelScheduledById, cancelScheduledByBusiness, cancelAllPending, generateWaMessage, markWaContacted, setReplyType } from '../lib/outreachApi';
 import { patchOutreach, getConfig } from '../lib/api';
 import { useSSE } from '../hooks/useSSE';
@@ -55,9 +51,6 @@ export function Outreach({ onEmailSent }: OutreachProps) {
   const [scheduled, setScheduled] = useState<ScheduledSend[]>([]);
   const [leadScheduleRow, setLeadScheduleRow] = useState<ScheduledSendRow | null>(null);
   const [queueStatus, setQueueStatus] = useState<ScheduledQueueStatus | null>(null);
-  const [queueCount, setQueueCount] = useState(0);
-  const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null);
-  const batchRunIdRef = useRef<string | null>(null);
 
   // Keep mutable refs for use inside keyboard listener without stale closure
   const activeLeadRef = useRef<OutreachLead | null>(null);
@@ -111,7 +104,6 @@ export function Outreach({ onEmailSent }: OutreachProps) {
 
   const handleLeadsChange = useCallback((rows: OutreachLead[]) => {
     queueLeadsRef.current = rows;
-    setQueueCount(rows.length);
   }, []);
 
   function rememberSavedAnalysis(leadId: string, saved: WebsiteAnalysis) {
@@ -124,52 +116,11 @@ export function Outreach({ onEmailSent }: OutreachProps) {
     );
   }
 
-  const handleStartBatch = useCallback(async (size: number, dryRun: boolean) => {
-    const ids = queueLeadsRef.current.slice(0, size).map(l => l.id);
-    if (ids.length === 0) return;
-    setError(null);
-    try {
-      const { runId } = await startBatch(ids, dryRun);
-      batchRunIdRef.current = runId;
-      // optimistic initial state; live counts arrive via SSE batch:progress
-      setBatchProgress({
-        runId, status: 'running', total: ids.length, processed: 0,
-        skippedNoEvidence: 0, heldGeneric: 0, queuedForSend: 0, failed: 0, pauseReason: null,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Batch failed to start');
-    }
-  }, []);
-
-  const handlePauseBatch = useCallback(() => {
-    if (batchRunIdRef.current) pauseBatch(batchRunIdRef.current).catch(() => {});
-  }, []);
-  const handleResumeBatch = useCallback(() => {
-    if (batchRunIdRef.current) resumeBatch(batchRunIdRef.current).catch(() => {});
-  }, []);
-  const handleCancelBatch = useCallback(() => {
-    if (batchRunIdRef.current) cancelBatch(batchRunIdRef.current).catch(() => {});
-  }, []);
-
   // Mount: load stats + signature + sender config + scheduled queue
   useEffect(() => {
     fetchStats();
     fetchScheduled();
     fetchQueueStatus();
-    // Rehydrate an in-flight batch run (slice 0012) so returning to Outreach shows
-    // live counts instead of an empty BatchRunner. Live updates continue via SSE.
-    getActiveRuns().then(runs => {
-      const batch = runs.find(r => r.type === 'batch');
-      if (batch && batch.type === 'batch') {
-        batchRunIdRef.current = batch.runId;
-        setBatchProgress({
-          runId: batch.runId, status: batch.status as BatchProgress['status'],
-          total: batch.total, processed: batch.processed,
-          skippedNoEvidence: batch.skippedNoEvidence, heldGeneric: batch.heldGeneric,
-          queuedForSend: batch.queuedForSend, failed: batch.failed, pauseReason: batch.pauseReason,
-        });
-      }
-    }).catch(() => {});
     getSignatureHtml().then(html => {
       setSignatureHtml(html);
       console.log('[Outreach] signature:', html ? 'loaded (' + html.length + ' chars)' : 'NULL — preview will have no signature');
@@ -428,12 +379,6 @@ export function Outreach({ onEmailSent }: OutreachProps) {
       setLeadRefreshTrigger(n => n + 1);
       fetchStats();
     },
-    'batch:progress': (data) => {
-      const d = data as BatchProgress;
-      // Track only the run this client started.
-      if (batchRunIdRef.current && d.runId !== batchRunIdRef.current) return;
-      setBatchProgress(d);
-    },
     'premium:progress': (data) => {
       const d = data as { businessId?: string; status?: string; renderOutcome?: string | null };
       if (!d.businessId || d.businessId !== activeLeadRef.current?.id || !d.status) return;
@@ -556,16 +501,6 @@ export function Outreach({ onEmailSent }: OutreachProps) {
   return (
     <div className="outreach-grid">
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden', borderRight: '1px solid var(--border)' }}>
-        {mode === 'new' && (
-          <BatchRunner
-            progress={batchProgress}
-            queueCount={queueCount}
-            onStart={handleStartBatch}
-            onPause={handlePauseBatch}
-            onResume={handleResumeBatch}
-            onCancel={handleCancelBatch}
-          />
-        )}
         <LeadQueue
           activeLead={activeLead}
           onSelect={handleSelectLead}

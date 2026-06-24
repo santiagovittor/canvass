@@ -1,11 +1,11 @@
 import Bottleneck from 'bottleneck';
 import pRetry, { AbortError } from 'p-retry';
 import { env } from '../env';
-import { reserveGeminiRpd } from '../db';
+import { reserveGeminiRpd, insertGeminiCost } from '../db';
 // Namespace import: appSettings depends on this module too (RPM apply side-effect),
 // so the cyclic edge must be a lazy property read, never a load-time binding.
 import * as appSettings from './appSettings';
-import { reportRetry, addCost } from './stageTracker';
+import { reportRetry, addCost, currentCostMeta } from './stageTracker';
 
 // Thrown when the persisted Pacific-date daily budget is hit. The batch orchestrator
 // catches this, pauses the run, and resumes after the midnight-Pacific RPD reset.
@@ -145,6 +145,8 @@ function logGeminiFailure(label: string, d: GeminiErrorDesc, err: unknown, attem
 // Per-1M-token USD estimate, keyed by model. ESTIMATE — edit to match current pricing.
 const GEMINI_PRICING: Record<string, { in: number; out: number }> = {
   'gemini-2.5-flash': { in: 0.30, out: 2.50 },
+  'gemini-2.5-flash-lite': { in: 0.10, out: 0.40 },
+  'gemini-2.0-flash': { in: 0.10, out: 0.40 },
   'gemini-3.5-flash': { in: 0.30, out: 2.50 },
 };
 const DEFAULT_PRICING = { in: 0.30, out: 2.50 };
@@ -157,6 +159,18 @@ function recordCost(label: string, model: string | undefined, out: unknown): voi
   const p = GEMINI_PRICING[model] ?? DEFAULT_PRICING;
   const usd = (inT / 1e6) * p.in + (outT / 1e6) * p.out;
   addCost(usd);
+  const meta = currentCostMeta();
+  // Durable ledger row — the persistent answer to "where did the money go", per
+  // stage (label), per model, per lead. Best-effort: never let a logging write
+  // break a Gemini call.
+  try {
+    insertGeminiCost({
+      label, model, businessId: meta?.businessId ?? null, analysisId: meta?.analysisId ?? null,
+      inTokens: inT, outTokens: outT, usd,
+    });
+  } catch (e) {
+    console.error('[gemini][cost] ledger write failed:', e instanceof Error ? e.message : String(e));
+  }
   console.log(`[gemini][cost] ${label} ${model} in=${inT} out=${outT} ~$${usd.toFixed(4)}`);
 }
 

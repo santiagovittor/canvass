@@ -1,11 +1,13 @@
 import { randomUUID } from 'crypto';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, getTableColumns } from 'drizzle-orm';
 import { db, sqlite, createScheduledSend, hasActiveScheduledSend } from './index';
 import { nowUtcMinus3 } from '../util/time';
-import { batchRuns, batchItems } from './schema';
+import { batchRuns, batchItems, businesses } from './schema';
 
 export type BatchRunRow = typeof batchRuns.$inferSelect;
 export type BatchItemRow = typeof batchItems.$inferSelect;
+// Item row joined with its business name + country for the Automate outcome list (slice 0019).
+export type BatchItemWithBusiness = BatchItemRow & { name: string | null; locCountry: string | null };
 export type BatchItemState = BatchItemRow['state'];
 export type BatchRunStatus = BatchRunRow['status'];
 
@@ -57,8 +59,16 @@ export function getBatchRun(id: string): BatchRunRow | null {
   return db.select().from(batchRuns).where(eq(batchRuns.id, id)).get() ?? null;
 }
 
-export function getBatchItems(batchId: string): BatchItemRow[] {
-  return db.select().from(batchItems).where(eq(batchItems.batchId, batchId)).all();
+export function getBatchItems(batchId: string): BatchItemWithBusiness[] {
+  return db.select({
+    ...getTableColumns(batchItems),
+    name: businesses.name,
+    locCountry: businesses.locCountry,
+  })
+    .from(batchItems)
+    .leftJoin(businesses, eq(batchItems.businessId, businesses.id))
+    .where(eq(batchItems.batchId, batchId))
+    .all();
 }
 
 export function setRunStatus(id: string, status: BatchRunStatus, reason?: string | null): void {
@@ -101,7 +111,7 @@ export function transitionItem(
 // (resume safety — never create a duplicate scheduled_sends row).
 const enqueueTxn = sqlite.transaction((args: {
   item: { id: string; batchId: string };
-  scheduled: { businessId: string; scheduledAtUtc: string; businessType: string | null; windowLabel: string | null; dryRun: boolean };
+  scheduled: { businessId: string; scheduledAtUtc: string; businessType: string | null; windowLabel: string | null; dryRun: boolean; origin: 'manual' | 'auto' };
 }): { scheduledId: string | null; alreadyQueued: boolean } => {
   const cur = db.select({ state: batchItems.state }).from(batchItems).where(eq(batchItems.id, args.item.id)).get();
   if (cur?.state === 'queued_for_send') return { scheduledId: null, alreadyQueued: true };
@@ -113,7 +123,7 @@ const enqueueTxn = sqlite.transaction((args: {
 
 export function enqueueForSend(args: {
   item: { id: string; batchId: string };
-  scheduled: { businessId: string; scheduledAtUtc: string; businessType: string | null; windowLabel: string | null; dryRun: boolean };
+  scheduled: { businessId: string; scheduledAtUtc: string; businessType: string | null; windowLabel: string | null; dryRun: boolean; origin: 'manual' | 'auto' };
 }): { scheduledId: string | null; alreadyQueued: boolean } {
   return enqueueTxn(args);
 }

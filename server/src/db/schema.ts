@@ -14,6 +14,12 @@ export const scrapeJobs = sqliteTable('scrape_jobs', {
   // Persisted for boot-time resume of interrupted jobs; NULL on legacy rows (not resumable)
   geometryJson: text('geometry_json'),
   extractEmails: integer('extract_emails').notNull().default(1),
+  // Active-runs read-model (slice 0012). NULL = polygon scrape (legacy/default).
+  // 'keyword' marks an instant keyword run so it can be tracked as a durable,
+  // rehydratable run without being treated as a resumable polygon job.
+  runKind: text('run_kind'),
+  keywordStage: text('keyword_stage'),
+  keywordRunId: text('keyword_run_id'),
   errorMessage: text('error_message'),
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),

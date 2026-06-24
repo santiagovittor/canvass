@@ -16,7 +16,7 @@ export function ResultsPanel({ jobId, results, status, cellsDone, totalCells }: 
 
   return (
     <div style={{
-      height: '100vh',
+      height: '100%',
       display: 'flex',
       flexDirection: 'column',
       background: 'var(--bg-panel)',

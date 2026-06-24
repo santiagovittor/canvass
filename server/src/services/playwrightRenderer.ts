@@ -131,7 +131,11 @@ export async function renderSite(url: string): Promise<RenderResult> {
 
     const cookieWallDetected = await dismissCookieWall(page);
     const html = await page.content();
-    const desktopScreenshot = await page.screenshot({ fullPage: true, type: 'png' }).catch(() => null);
+    // Viewport-only (above-the-fold), NOT fullPage. A full-page PNG of a long site tiles
+    // into thousands of Gemini image tokens — the single biggest cost line. Above-the-fold
+    // is enough for the vision rubric (design era, visible widgets, mobile layout); DOM +
+    // network scanners already cover below-the-fold forms/widgets.
+    const desktopScreenshot = await page.screenshot({ fullPage: false, type: 'png' }).catch(() => null);
 
     // Mobile pass: separate context; failure is non-fatal and never changes outcome
     let mobileScreenshot: Buffer | null = null;
@@ -146,7 +150,7 @@ export async function renderSite(url: string): Promise<RenderResult> {
       await mobilePage.goto(url, { waitUntil: 'domcontentloaded', timeout: MOBILE_TIMEOUT_MS });
       await mobilePage.waitForLoadState('networkidle', { timeout: NETWORK_SETTLE_TIMEOUT_MS }).catch(() => {});
       await dismissCookieWall(mobilePage);
-      mobileScreenshot = await mobilePage.screenshot({ fullPage: true, type: 'png' });
+      mobileScreenshot = await mobilePage.screenshot({ fullPage: false, type: 'png' });
       await mobileContext.close();
     } catch {
       mobileScreenshot = null;

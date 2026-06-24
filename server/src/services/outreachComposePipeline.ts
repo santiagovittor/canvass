@@ -5,8 +5,13 @@ import { verifyDraft, type VerificationBundle, type VerificationResult, type Ver
 import type { DetectedSig, SignalMap } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from './visionClient';
-import { getNumber } from './appSettings';
-import { withAnalysis, stage, setSummary } from './stageTracker';
+import { getNumber, getBool } from './appSettings';
+import { withAnalysis, stage, stageCached, setSummary } from './stageTracker';
+
+// Anchor kinds grounded in deterministic detectors (not free LLM text). Eligible for
+// the opt-in verifier skip: a PSI number, a 4-detector ABSENT_VERIFIED, or the
+// Meta-Pixel + verified-no-assistant compound — all machine-checked, not asserted.
+const TRUSTED_ANCHOR_KINDS = new Set(['psi', 'absent_verified', 'meta_pixel_no_assistant']);
 
 // Bounded anchor attempts. Assertable candidates rarely exceed ~3 strong ones
 // (PSI + one vision + one absent_verified); each attempt costs 1 compose + up to
@@ -87,7 +92,26 @@ async function composeVerifiedEmailInner(
 
     const subject = composed.subject;
     let body = composed.body;
-    let verdict = await stage('verify', () => verifyDraft({ subject, body }, composed.claims, bundle));
+
+    // Opt-in verifier skip (default off): a deterministic anchor whose draft declares
+    // ONLY that one anchor claim has nothing for the fact-check to grade — synthesize an
+    // ok verdict and save the verify call. Any secondary declared claim ⇒ verify runs.
+    const canSkipVerify =
+      getBool('VERIFIER_SKIP_TRUSTED_ANCHORS') &&
+      TRUSTED_ANCHOR_KINDS.has(anchor.kind) &&
+      composed.claims.length === 1 &&
+      !!declaredAnchor;
+
+    let verdict: VerificationResult;
+    if (canSkipVerify) {
+      stageCached('verify');
+      verdict = {
+        status: 'ok',
+        claims: [{ claim: declaredAnchor!.text, supported: true, evidence: `trusted-anchor-skip: ${anchor.evidenceRef}` }],
+      };
+    } else {
+      verdict = await stage('verify', () => verifyDraft({ subject, body }, composed.claims, bundle));
+    }
 
     // Specificity guard: the anchor's declared claim must survive as supported.
     const anchorSurvived = (v: VerificationResult): boolean =>

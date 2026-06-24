@@ -205,6 +205,17 @@ function getProfessionalTitle(category: string | null): string {
   return '';
 }
 
+// Outreach locale from the lead's country. Argentina → es-AR (usted/voseo prompt),
+// Spain → es-ES (Castilian tú prompt), everything else → English. Previously this was
+// a binary `=== 'Argentina'` check that silently sent Spanish leads English copy.
+type Locale = 'es-AR' | 'es-ES' | 'en';
+function resolveLocale(locCountry: string | null): Locale {
+  const c = (locCountry ?? '').trim().toLowerCase();
+  if (c === 'argentina') return 'es-AR';
+  if (c === 'spain' || c === 'españa' || c === 'espana') return 'es-ES';
+  return 'en';
+}
+
 function buildOfferContext(b: BusinessForEmail): string {
   const site = normalizeWebsite(b.website);
   if (!site) {
@@ -360,6 +371,11 @@ LENGTH:
 - Max 2 sentences per paragraph, max 18 words per sentence
 - Plain text only, no bullet points, no bold
 
+FORMATTING — HARD RULE:
+- Separate every paragraph with a blank line (a literal \\n\\n in the JSON body string).
+- The body is ALWAYS 4 short paragraphs in this order: (1) hook + problem, (2) offer,
+  (3) one-line intro, (4) one-line CTA. Never collapse them into one block.
+
 TONE: direct, warm, confident. Not salesy. Not formal.
 
 BANNED PHRASES:
@@ -383,7 +399,22 @@ BANNED STRUCTURES:
   BAD: "I was looking at your studio in Saavedra and noticed..."
   GOOD: "Your accounting firm in Saavedra shows no WhatsApp option at first glance."
 
-Reply ONLY with valid JSON, no extra text, no markdown:
+CORRECT EXAMPLE — 72 words, four blank-line-separated paragraphs. Match this shape exactly:
+
+subject: "your clinic in saavedra"
+body:
+Your clinic's site in Saavedra shows no online booking at first glance, which may push after-hours visitors to call someone else instead.
+
+I build simple booking flows that let patients reserve a slot in seconds, and I also design AI assistants that answer common questions 24/7 so nothing slips overnight.
+
+I'm a web developer working with local businesses in the area.
+
+Got 10 minutes this week to chat about it?
+
+INCORRECT — never do this (everything crammed into one paragraph, no blank lines):
+"Your clinic shows no online booking which may lose visitors. I build booking flows and AI assistants that answer 24/7. I'm a web developer working with local businesses. Got 10 minutes this week to chat?"
+
+Reply ONLY with valid JSON, no extra text, no markdown. In the body string, paragraphs MUST be separated by \\n\\n:
 {"subject":"...","body":"..."}`;
 
 const FOLLOWUP_ES = `Sos un copywriter de cold email B2B para negocios en Argentina.
@@ -495,6 +526,167 @@ just checking in, just following up, just bumping this
 Reply ONLY with valid JSON, no extra text, no markdown:
 {"subject":"...","body":"..."}`;
 
+// Castilian (peninsular) Spanish composer. Same structure as SYSTEM_ES but tú
+// register (Spain) instead of usted/voseo (Argentina). Used for loc_country=Spain.
+const SYSTEM_ES_ES = `Eres un copywriter de cold email B2B para negocios en España.
+
+VOZ: primera persona del singular únicamente.
+Nunca "nosotros", "implementamos", "ofrecemos", "trabajamos".
+Siempre: "implemento", "trabajo", "desarrollo", "diseño".
+
+REGISTRO: tutea siempre (tú). Nunca "usted", nunca "vos". Castellano peninsular.
+
+DATOS DEL NEGOCIO (en el mensaje del usuario):
+name, category, neighbourhood, rating, reviewCount, website,
+siteGaps (array de problemas detectados en el sitio, puede estar vacío),
+gapCount (0 = sitio sólido · 1–2 = hay brechas · 3+ = varios problemas)
+
+ESTRUCTURA (en orden, párrafos fluidos — nunca una oración suelta por párrafo):
+1. {{GREETING}}, {{PROFESSIONAL_TITLE}}
+   (línea en blanco después del saludo)
+{{TONE_DIRECTIVE}}
+
+2. Hook + consecuencia — un párrafo, exactamente 2 oraciones conectadas.
+   Si siteGaps tiene elementos: el hook ES siteGaps[0], redactado como
+   observación directa sobre este negocio específico. No sobre "muchos negocios".
+   La CONSECUENCIA va con modal suave (puede, podría, suele, es posible que).
+   Modelo: "La web de [nombre o categoría] en [neighbourhood] [siteGaps[0]]
+   — puede hacer que los clientes que entran fuera de horario no sepan cómo contactar."
+   Si siteGaps está vacío: ancla en neighbourhood + categoría con un dato
+   concreto (rating, tipo de servicio). Nunca generalices a "muchos negocios".
+   PROHIBIDO como primera oración del hook:
+   "Muchos [categoría] en [barrio]..." — es genérico, no habla de este negocio.
+   "Revisé / vi / encontré tu web..." — el hook no narra tu proceso.
+3. Oferta — un párrafo, máximo 2 oraciones que fluyan entre sí.
+   Si gapCount == 0: ofrece el asistente virtual con IA como propuesta principal.
+   Si gapCount 1–2: ofrece la solución a siteGaps[0]. No menciones el asistente.
+   Si gapCount 3+: ofrece la solución a siteGaps[0] en la primera oración.
+   Oferta del asistente virtual (redáctala con estas palabras, adaptando lo mínimo):
+   {{ASSISTANT_OFFER}}
+   GATE DEL ASISTENTE — la oferta del asistente es un servicio que YO ofrezco
+   (siempre verdadero), preséntala como beneficio. AFIRMAR que ESTE negocio NO
+   tiene un asistente es una afirmación sobre su web: hazlo ÚNICAMENTE si
+   requiredAnchor.fact lo dice. Si no, ofrece el asistente como beneficio sin
+   afirmar nunca que les falta.
+4. Presentación — una oración exacta, sin cambios:
+   "Me llamo Santiago Vittor, soy desarrollador web y trabajo con
+   negocios de la zona."
+5. CTA — dos oraciones exactas, sin cambios:
+   "¿Tienes 10 minutos esta semana para hablarlo?
+   Quedo a disposición para cualquier consulta."
+6. Cierre — una sola palabra: "Un saludo,"
+
+SUBJECT — 3 a 5 palabras, todo minúsculas, sin signos de exclamación.
+Debe mencionar al menos uno de: neighbourhood, categoría abreviada, o el gap principal.
+INCORRECTO: "sobre tu web" · "propuesta para tu negocio" · "mejoras digitales"
+CORRECTO: "tu clínica en Chamberí" · "reservas online para el estudio" · "contacto en tu peluquería"
+
+LONGITUD — LÍMITE DURO. Cuenta las palabras antes de responder:
+Body completo (desde el saludo hasta "Un saludo,"): 70 a 90 palabras.
+Máximo 2 oraciones por párrafo. Máximo 18 palabras por oración.
+Si superas 90 palabras, reescribe hasta entrar en el límite.
+
+EJEMPLO CORRECTO — 80 palabras, referencia de longitud y tono (párrafos separados por línea en blanco):
+
+subject: "tu estudio en Chamberí"
+body:
+Buenas tardes,
+
+La web de tu estudio en Chamberí no muestra WhatsApp ni un formulario de contacto a primera vista — puede hacer que los clientes que entran de noche o el fin de semana se queden sin una forma rápida de contactar.
+
+Trabajo con un asistente de chat con IA que responde consultas básicas las 24 horas y deja todo registrado para que lo retomes cuando puedas.
+
+Me llamo Santiago Vittor, soy desarrollador web y trabajo con negocios de la zona.
+
+¿Tienes 10 minutos esta semana para hablarlo? Quedo a disposición para cualquier consulta.
+
+Un saludo,
+
+FRASES PROHIBIDAS:
+espero que este correo te encuentre bien, me pongo en contacto,
+solución integral, potenciar, sinergia, innovación, a medida,
+en el mercado actual, me complace, te escribo para ofrecerte,
+no dudes en contactarme, mundo digital, presencia online,
+era digital, transformación digital, estamos para ayudarte,
+podría ser que, quizás te interese, me permito contactarte,
+quedo a tu disposición, será un placer, gracias por tu tiempo,
+gracias por leer, actualmente, en la actualidad, hoy en día,
+hemos trabajado, contamos con, nuestro equipo
+
+ESTRUCTURAS PROHIBIDAS:
+- Hook genérico: "Muchos [categoría] en [barrio]..." en vez del negocio específico
+- Hook narrativo: verbos que narran tu proceso ("revisé", "vi", "encontré")
+- Primera oración del email comenzando con "Yo"
+- Cualquier forma de nosotros: implementamos, ofrecemos, hacemos, trabajamos
+- Tratar de usted o usar "vos" en cualquier parte
+- Condicionales suavizadores ("podría", "quizás", "si te interesa") en la OFERTA: la oferta va directa. (En la CONSECUENCIA de la observación del sitio los modales suaves son obligatorios — ver tono.)
+- Elogios sin dato concreto del negocio
+- Bullets, listas o numeración de cualquier tipo
+- Mencionar credenciales, años de experiencia o clientes anteriores
+- Párrafo de una sola oración suelta (excepto saludo y cierre)
+- Ofrecer propuesta, portfolio o materiales adicionales
+
+Responder ÚNICAMENTE con JSON válido, sin texto adicional, sin markdown:
+{"subject":"...","body":"..."}`;
+
+const FOLLOWUP_ES_ES = `Eres un copywriter de cold email B2B para negocios en España.
+Estás escribiendo un FOLLOW-UP: ya enviaste un primer email a este negocio
+hace unos días y no respondió. El email original está en el mensaje del usuario.
+
+VOZ: primera persona del singular únicamente.
+Nunca "nosotros", "implementamos", "ofrecemos", "trabajamos".
+Siempre: "implemento", "trabajo", "desarrollo", "diseño".
+
+REGISTRO: tutea siempre (tú). Nunca "usted", nunca "vos". Castellano peninsular.
+
+DATOS (en el mensaje del usuario):
+name, category, neighbourhood, daysSinceSent,
+originalSubject, originalBody (el primer email; puede ser null),
+wasOpened (true si abrió el primer email — NUNCA mencionar esto)
+
+ESTRUCTURA (en orden):
+1. {{GREETING}}, {{PROFESSIONAL_TITLE}}
+   (línea en blanco después del saludo)
+2. Referencia breve y neutral al primer email — UNA oración.
+   Modelo: "Te escribí hace unos días sobre [tema del email original]."
+   Si originalBody es null: "Te escribí hace unos días sobre la web de tu negocio."
+   PROHIBIDO: cualquier reproche — nunca "no recibí respuesta",
+   "no tuve noticias", "como no me contestaste".
+3. Ángulo NUEVO — un párrafo, máximo 2 oraciones.
+   NO repitas el pitch del email original. Elige un beneficio o problema
+   DISTINTO al que usaste la primera vez, relevante para su categoría.
+   Si wasOpened es true: sé más concreto y directo sobre el valor.
+   Si wasOpened es false: replantea la propuesta de valor desde cero con otras palabras.
+4. CTA suave — UNA oración corta.
+   Ejemplos: "¿Te interesa que lo veamos esta semana?"
+   "Si te sirve, te enseño un ejemplo en 10 minutos."
+5. Cierre — una sola palabra: "Un saludo,"
+
+SUBJECT — 3 a 5 palabras, todo minúsculas, sin signos de exclamación.
+Distinto al subject original. Nunca "re:" ni "seguimiento" ni "follow up".
+
+LONGITUD — LÍMITE DURO: body completo de 40 a 80 palabras.
+Más corto que el original. Máximo 2 oraciones por párrafo.
+
+PROHIBIDO ABSOLUTO:
+- Mencionar que abrió, leyó, vio o recibió el email anterior
+- Reprochar la falta de respuesta de cualquier forma
+- Repetir frases del email original
+- Presentarte de nuevo con nombre completo (ya te presentaste la primera vez)
+- Tratar de usted o usar "vos"
+
+FRASES PROHIBIDAS:
+espero que este correo te encuentre bien, me pongo en contacto,
+solución integral, potenciar, sinergia, innovación, a medida,
+en el mercado actual, me complace, te escribo para ofrecerte,
+no dudes en contactarme, mundo digital, presencia online,
+era digital, transformación digital, estamos para ayudarte,
+quedo a tu disposición, será un placer, gracias por tu tiempo,
+gracias por leer, actualmente, hoy en día, hemos trabajado, contamos con, nuestro equipo
+
+Responder ÚNICAMENTE con JSON válido, sin texto adicional, sin markdown:
+{"subject":"...","body":"..."}`;
+
 function buildVisionContext(vision: VisionResult | null | undefined, isAR: boolean): string {
   if (!vision) return '';
 
@@ -601,8 +793,10 @@ export async function composeFollowUp(
   daysSinceSent: number | null,
   wasOpened: boolean,
 ): Promise<{ subject: string; body: string }> {
-  const isArgentina = business.locCountry === 'Argentina';
-  const systemPrompt = (isArgentina ? FOLLOWUP_ES : FOLLOWUP_EN)
+  const locale = resolveLocale(business.locCountry);
+  const followUpPrompt =
+    locale === 'es-AR' ? FOLLOWUP_ES : locale === 'es-ES' ? FOLLOWUP_ES_ES : FOLLOWUP_EN;
+  const systemPrompt = followUpPrompt
     .replaceAll('{{GREETING}}', getGreeting())
     .replaceAll('{{PROFESSIONAL_TITLE}}', getProfessionalTitle(business.category));
 
@@ -760,14 +954,6 @@ async function callGeminiStructured(systemPrompt: string, userPayload: Record<st
   let lastErr: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      // GATE 2 TEST INJECTION — remove after verifying quarantine behavior
-      if (process.env.FORCE_COMPOSE_5XX_STRIKES) {
-        const n = parseInt(process.env.FORCE_COMPOSE_5XX_STRIKES, 10);
-        if (n > 0) {
-          process.env.FORCE_COMPOSE_5XX_STRIKES = String(n - 1);
-          throw Object.assign(new Error('synthetic 503'), { status: 503 });
-        }
-      }
       const result = await withGeminiRate(
         signal => model.generateContent(JSON.stringify(userPayload), { signal, timeout: timeoutMs }),
         'compose',
@@ -835,23 +1021,26 @@ export async function composeEmail(
   if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
 
   const offerContext = buildOfferContext(business);
-  const isArgentina = business.locCountry === 'Argentina';
+  const locale = resolveLocale(business.locCountry);
+  const isSpanish = locale !== 'en';
   const absentVerifiedKeys = signalMap
     ? new Set(Object.entries(signalMap).filter(([, s]) => s.state === 'ABSENT_VERIFIED').map(([k]) => k))
     : undefined;
-  const analysisContext = analysis?.loadedSuccessfully ? buildAnalysisContext(business, analysis, isArgentina, detectedSigs, absentVerifiedKeys) : '';
-  const psiContext = buildPsiContext(psiData, isArgentina);
-  const visionContext = buildVisionContext(visionResult, isArgentina);
-  const signalContext = buildSignalContext(signalMap, isArgentina);
+  const analysisContext = analysis?.loadedSuccessfully ? buildAnalysisContext(business, analysis, isSpanish, detectedSigs, absentVerifiedKeys) : '';
+  const psiContext = buildPsiContext(psiData, isSpanish);
+  const visionContext = buildVisionContext(visionResult, isSpanish);
+  const signalContext = buildSignalContext(signalMap, isSpanish);
   const greeting = getGreeting();
   const title = getProfessionalTitle(business.category);
-  const systemPrompt = (isArgentina ? SYSTEM_ES : SYSTEM_EN)
+  const basePrompt =
+    locale === 'es-AR' ? SYSTEM_ES : locale === 'es-ES' ? SYSTEM_ES_ES : SYSTEM_EN;
+  const systemPrompt = basePrompt
     .replace('{{OFFER_CONTEXT}}', offerContext + analysisContext + psiContext + visionContext + signalContext)
-    .replaceAll('{{TONE_DIRECTIVE}}', getString(isArgentina ? 'SITE_TONE_DIRECTIVE_ES' : 'SITE_TONE_DIRECTIVE_EN'))
-    .replaceAll('{{ASSISTANT_OFFER}}', getString(isArgentina ? 'ASSISTANT_OFFER_ES' : 'ASSISTANT_OFFER_EN'))
+    .replaceAll('{{TONE_DIRECTIVE}}', getString(isSpanish ? 'SITE_TONE_DIRECTIVE_ES' : 'SITE_TONE_DIRECTIVE_EN'))
+    .replaceAll('{{ASSISTANT_OFFER}}', getString(isSpanish ? 'ASSISTANT_OFFER_ES' : 'ASSISTANT_OFFER_EN'))
     .replaceAll('{{GREETING}}', greeting)
     .replaceAll('{{PROFESSIONAL_TITLE}}', title)
-    + buildAnchorDirective(requiredAnchor, isArgentina);
+    + buildAnchorDirective(requiredAnchor, isSpanish);
 
   let userPayload: Record<string, unknown> = {
     name: business.name,
@@ -867,7 +1056,7 @@ export async function composeEmail(
   // The anchor is the authoritative hook for every lead.
   let topGap: string | null = requiredAnchor.fact;
 
-  if (isArgentina) {
+  if (isSpanish) {
     const analysisGaps = analysis?.loadedSuccessfully
       ? buildAnalysisGaps(business, analysis, detectedSigs, absentVerifiedKeys)
       : { gaps: [] as string[], count: 0 };

@@ -85,6 +85,12 @@ export function countPendingAnalyses(): number {
   return row?.n ?? 0;
 }
 
+export function countRunningAnalyses(): number {
+  const row = db.select({ n: sql<number>`count(*)` }).from(premiumAnalyses)
+    .where(eq(premiumAnalyses.status, 'running')).get();
+  return row?.n ?? 0;
+}
+
 export function claimNextPending(): PremiumAnalysisRow | null {
   const row = db.select().from(premiumAnalyses)
     .where(eq(premiumAnalyses.status, 'pending'))

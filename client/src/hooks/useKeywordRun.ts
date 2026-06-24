@@ -25,6 +25,7 @@ export interface KeywordRun {
   deduped: number | null;
   error: string | null;
   start: (runId: string) => void;
+  adopt: (runId: string, stage: KeywordStage, startedAt: number) => void;
   reset: () => void;
 }
 
@@ -92,6 +93,19 @@ export function useKeywordRun(): KeywordRun {
     setError(null);
   }, []);
 
+  // Adopt an in-flight run rehydrated from the server (slice 0012). The persisted
+  // runId means subsequent keyword:stage events still match, and the elapsed clock
+  // resumes from the server's start time so a returned-to tab shows live progress.
+  const adopt = useCallback((runId: string, stage: KeywordStage, startedAt: number) => {
+    runIdRef.current = runId;
+    startedAtRef.current = startedAt;
+    setStage(stage);
+    setElapsedMs(Date.now() - startedAt);
+    setAdded(null);
+    setDeduped(null);
+    setError(null);
+  }, []);
+
   const reset = useCallback(() => {
     runIdRef.current = null;
     startedAtRef.current = null;
@@ -102,5 +116,5 @@ export function useKeywordRun(): KeywordRun {
     setError(null);
   }, []);
 
-  return { stage, elapsedMs, added, deduped, error, start, reset };
+  return { stage, elapsedMs, added, deduped, error, start, adopt, reset };
 }

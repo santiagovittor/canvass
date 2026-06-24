@@ -149,17 +149,17 @@ async function main() {
   const before = schedRowsFor(GATE_PREFIX + 'crash').length;
   try {
     sqlite.transaction(() => {
-      createScheduledSend({ businessId: GATE_PREFIX + 'crash', scheduledAtUtc: new Date().toISOString(), businessType: 'generic', windowLabel: 'g', dryRun: true });
+      createScheduledSend({ businessId: GATE_PREFIX + 'crash', scheduledAtUtc: new Date().toISOString(), businessType: 'generic', windowLabel: 'g', dryRun: true, origin: 'auto' });
       throw new Error('simulated crash mid-transaction');
     })();
   } catch { /* expected */ }
   assert('crash mid-txn rolled back the scheduled_sends insert', schedRowsFor(GATE_PREFIX + 'crash').length === before);
   assert('item state unchanged by rolled-back crash', getBatchItems(craRun.id)[0].state === 'pending');
   // now enqueue properly → exactly one row, item queued
-  const r1 = enqueueForSend({ item: itemRef, scheduled: { businessId: GATE_PREFIX + 'crash', scheduledAtUtc: new Date().toISOString(), businessType: 'generic', windowLabel: 'g', dryRun: true } });
+  const r1 = enqueueForSend({ item: itemRef, scheduled: { businessId: GATE_PREFIX + 'crash', scheduledAtUtc: new Date().toISOString(), businessType: 'generic', windowLabel: 'g', dryRun: true, origin: 'auto' } });
   assert('enqueueForSend created one sched row + queued the item', !r1.alreadyQueued && schedRowsFor(GATE_PREFIX + 'crash').length === before + 1 && getBatchItems(craRun.id)[0].state === 'queued_for_send');
   // resume idempotency: a second enqueue (as a restart would attempt) creates no dup
-  const r2 = enqueueForSend({ item: itemRef, scheduled: { businessId: GATE_PREFIX + 'crash', scheduledAtUtc: new Date().toISOString(), businessType: 'generic', windowLabel: 'g', dryRun: true } });
+  const r2 = enqueueForSend({ item: itemRef, scheduled: { businessId: GATE_PREFIX + 'crash', scheduledAtUtc: new Date().toISOString(), businessType: 'generic', windowLabel: 'g', dryRun: true, origin: 'auto' } });
   assert('re-enqueue is a no-op (no duplicate scheduled_sends)', r2.alreadyQueued && schedRowsFor(GATE_PREFIX + 'crash').length === before + 1);
 
   // ── 6. RPD ceiling → pause → reset → resume ───────────────────────────────────

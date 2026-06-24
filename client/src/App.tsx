@@ -4,9 +4,11 @@ import { Sidebar } from './components/Sidebar/Sidebar';
 import { ResultsPanel } from './components/Results/ResultsPanel';
 import { BusinessExplorer } from './components/Explorer/BusinessExplorer';
 import { Outreach } from './pages/Outreach';
+import { AutomatePage } from './components/Automate/AutomatePage';
 import { Analytics } from './pages/Analytics';
 import { Settings } from './pages/Settings';
 import { KeywordPanel } from './components/Scraper/KeywordPanel';
+import { ActiveRunsStrip } from './components/ActiveRuns/ActiveRunsStrip';
 import { useSSE } from './hooks/useSSE';
 import { useScrape } from './hooks/useScrape';
 import { useResults } from './hooks/useResults';
@@ -126,7 +128,7 @@ export default function App() {
   const sidebarVisible = geometry !== null || jobActive;
   const displayCellCount = count || hydratedCellCount;
 
-  const [view, setView] = useState<'scraper' | 'explorer' | 'outreach' | 'analytics' | 'settings'>('scraper');
+  const [view, setView] = useState<'scraper' | 'explorer' | 'outreach' | 'automate' | 'analytics' | 'settings'>('scraper');
   const [outreachSentAt, setOutreachSentAt] = useState(0);
   const [scraperMode, setScraperMode] = useState<'map' | 'keyword'>('map');
 
@@ -175,6 +177,12 @@ export default function App() {
           Outreach
         </button>
         <button
+          className={`tab-btn${view === 'automate' ? ' tab-btn--active' : ''}`}
+          onClick={() => setView('automate')}
+        >
+          Automate
+        </button>
+        <button
           className={`tab-btn${view === 'analytics' ? ' tab-btn--active' : ''}`}
           onClick={() => setView('analytics')}
         >
@@ -187,6 +195,8 @@ export default function App() {
           Settings
         </button>
       </div>
+
+      <ActiveRunsStrip onNavigate={setView} />
 
       {view === 'scraper' ? (
         <div className="app-grid">
@@ -241,6 +251,10 @@ export default function App() {
       ) : view === 'outreach' ? (
         <div className="view-fill">
           <Outreach onEmailSent={() => setOutreachSentAt(Date.now())} />
+        </div>
+      ) : view === 'automate' ? (
+        <div className="view-fill">
+          <AutomatePage />
         </div>
       ) : view === 'analytics' ? (
         <div className="view-fill">

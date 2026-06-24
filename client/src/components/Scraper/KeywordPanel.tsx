@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { instantKeywordScrape, type InstantScrapeResult } from '../../lib/keywordScrapeApi';
 import { createScrapeSchedule } from '../../lib/scrapeSchedulesApi';
 import { useKeywordRun, type KeywordStage } from '../../hooks/useKeywordRun';
+import { useActiveRuns } from '../../hooks/useActiveRuns';
 
 const LANGS = ['en', 'es', 'pt', 'de', 'fr', 'it'];
 
@@ -38,6 +39,18 @@ export function KeywordPanel() {
   const [enqueued, setEnqueued] = useState(false);
   const [bulkRunning, setBulkRunning] = useState(false);
   const run = useKeywordRun();
+  const activeRuns = useActiveRuns();
+
+  // Resume an in-flight keyword run after a tab switch (slice 0012): if the server
+  // reports one and the local tracker is idle, adopt it so the stage tracker picks
+  // up live instead of showing idle.
+  useEffect(() => {
+    if (run.stage !== 'idle') return;
+    const kw = activeRuns.find(r => r.type === 'keyword');
+    if (kw && kw.type === 'keyword' && kw.runId) {
+      run.adopt(kw.runId, (kw.stage ?? 'scraping') as KeywordStage, Date.parse(kw.startedAt));
+    }
+  }, [activeRuns, run]);
 
   const geoBias =
     geoLat && geoLng

@@ -27,11 +27,24 @@ export interface BatchProgress {
   pauseReason: string | null;
 }
 
+// One row from GET /batch/:id — the batch_items state machine plus the business name
+// + country joined in (slice 0019) so the outcome list reads as names, not ids.
+export interface BatchItem {
+  id: string;
+  batchId: string;
+  businessId: string;
+  state: string;
+  disposition: string | null;
+  lastError: string | null;
+  name: string | null;
+  locCountry: string | null;
+}
+
 export function startBatch(businessIds: string[], dryRun: boolean): Promise<{ runId: string }> {
   return request('/batch', { method: 'POST', body: JSON.stringify({ businessIds, dryRun }) });
 }
 
-export function getBatch(runId: string): Promise<{ run: BatchProgress; items: unknown[] }> {
+export function getBatch(runId: string): Promise<{ run: BatchProgress; items: BatchItem[] }> {
   return request(`/batch/${runId}`);
 }
 

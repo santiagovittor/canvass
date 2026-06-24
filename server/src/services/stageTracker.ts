@@ -128,6 +128,14 @@ export function addCost(usd: number): void {
   if (ctx) ctx.costUsd += usd;
 }
 
+// Identify the active analysis/lead for the cost ledger. Null when a Gemini call
+// runs outside an analysis context (e.g. a one-off script), in which case the
+// ledger row is still written, just without lead attribution.
+export function currentCostMeta(): { analysisId: string; businessId: string } | null {
+  const ctx = als.getStore();
+  return ctx ? { analysisId: ctx.id, businessId: ctx.businessId } : null;
+}
+
 export function setSummary(partial: { anchor?: string | null; disposition?: string | null }): void {
   const ctx = als.getStore();
   if (ctx) ctx.summary = { ...ctx.summary, ...partial };

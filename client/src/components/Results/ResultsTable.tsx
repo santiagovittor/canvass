@@ -79,7 +79,7 @@ export function ResultsTable({ results, filter }: ResultsTableProps) {
   }
 
   return (
-    <div style={{ overflowX: 'auto', overflowY: 'auto', flex: 1 }}>
+    <div style={{ overflowX: 'auto', overflowY: 'auto', flex: 1, minHeight: 0 }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>

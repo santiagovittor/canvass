@@ -225,7 +225,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
         background: 'var(--bg-elevated)',
       }}>
         {/* Row 0: queue mode */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' as const, rowGap: 4 }}>
           <button style={mode === 'new' ? PILL_ACTIVE : PILL_BASE} onClick={() => onModeChange('new')}>
             Nuevos
           </button>
@@ -261,7 +261,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
         )}
 
         {mode === 'followup' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const, rowGap: 4 }}>
             <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>Esperar</span>
             <input
               type="number"

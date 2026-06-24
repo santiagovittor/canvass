@@ -59,6 +59,11 @@
   --space-lg:   22px;
   --space-xl:   28px;
   --gap-filter: 12px;
+
+  /* Automate redesign — full-width pipeline lanes (ingest → prepare → send) */
+  --automate-max: 1200px;  /* centered content width on wide screens */
+  --space-lane:   20px;    /* inner padding of a lane panel */
+  --gap-lane:     16px;    /* vertical gap between lanes */
 }
 
 *, *::before, *::after {

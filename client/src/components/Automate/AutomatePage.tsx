@@ -1,8 +1,10 @@
+import { IngestLane } from './IngestLane';
 import { PrepareLane } from './PrepareLane';
+import { SendLane } from './SendLane';
 
 // Automate tab — the lead pipeline as a full-width vertical narrative:
 // ① Ingest (scrape schedules) → ② Prepare (stage + run batch) → ③ Send (review +
-// schedule/send). Lanes are added as they're built; Prepare is the centerpiece.
+// schedule/send). One story, top to bottom.
 export function AutomatePage() {
   return (
     <div style={{ flex: 1, overflowY: 'auto', background: 'var(--bg-base)' }}>
@@ -14,7 +16,9 @@ export function AutomatePage() {
         flexDirection: 'column',
         gap: 'var(--gap-lane)',
       }}>
+        <IngestLane />
         <PrepareLane />
+        <SendLane />
       </div>
     </div>
   );

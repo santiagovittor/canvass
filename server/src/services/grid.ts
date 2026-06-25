@@ -17,6 +17,24 @@ export function bboxFromGeoJSON(geometry: { type: string; coordinates: number[][
   };
 }
 
+// bbox → GeoJSON rectangle polygon in [lng, lat] order (slice 0037). Closed ring
+// (first vertex repeated last), CCW winding. Feeds StartJobParams.geometry so a
+// resolved city box runs through the same grid scraper as a map-drawn polygon.
+// pointInPolygon (jobRunner.ts) is winding-agnostic; the closed ring is what matters.
+export function polygonFromBbox(bbox: Bbox): { type: 'Polygon'; coordinates: number[][][] } {
+  const { minLat, maxLat, minLon, maxLon } = bbox;
+  return {
+    type: 'Polygon',
+    coordinates: [[
+      [minLon, minLat],
+      [maxLon, minLat],
+      [maxLon, maxLat],
+      [minLon, maxLat],
+      [minLon, minLat],
+    ]],
+  };
+}
+
 function dLat(cellKm: number): number {
   return cellKm / 111;
 }

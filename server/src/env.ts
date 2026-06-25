@@ -79,6 +79,10 @@ const schema = z.object({
   EMAIL_VERIFY_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
   // Re-probe TTL: a cached validity result older than this is re-checked.
   EMAIL_VERIFY_CACHE_TTL_DAYS: z.coerce.number().int().positive().default(30),
+  // Name→bbox geocoder for city-tiling keyword scrapes (slice 0037). Public
+  // Nominatim by default (ODbL, 1 req/s policy — serialized + cached in geocoder.ts).
+  // Point at a self-hosted instance if lookup volume grows.
+  GEOCODER_URL: z.string().url().default('https://nominatim.openstreetmap.org'),
 }).refine(
   d => (d.APP_AUTH_USER == null) === (d.APP_AUTH_PASS == null),
   { message: 'AUTH_USER and AUTH_PASS must both be set or both be unset' },

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { instantKeywordScrape, type InstantScrapeResult } from '../../lib/keywordScrapeApi';
 import { createScrapeSchedule } from '../../lib/scrapeSchedulesApi';
+import { resolveCityArea, startCityScrape, type CityResolveResult } from '../../lib/api';
 import { useKeywordRun, type KeywordStage } from '../../hooks/useKeywordRun';
 import { useActiveRuns } from '../../hooks/useActiveRuns';
 
@@ -25,6 +26,7 @@ function formatElapsed(ms: number): string {
 }
 
 export function KeywordPanel() {
+  const [panelMode, setPanelMode] = useState<'instant' | 'city'>('instant');
   const [query, setQuery] = useState('');
   const [lang, setLang] = useState('en');
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -40,6 +42,53 @@ export function KeywordPanel() {
   const [bulkRunning, setBulkRunning] = useState(false);
   const run = useKeywordRun();
   const activeRuns = useActiveRuns();
+
+  // Whole-city mode (slice 0037): resolve an area name to a bbox, then sweep it
+  // through the same grid scraper as a map-drawn polygon. Progress flows over the
+  // existing job:* SSE + active-runs strip — no per-run tracker needed here.
+  const [cityArea, setCityArea] = useState('');
+  const [cityKeyword, setCityKeyword] = useState('');
+  const [cityCellKm, setCityCellKm] = useState('2');
+  const [cityPreview, setCityPreview] = useState<CityResolveResult | null>(null);
+  const [cityPreviewing, setCityPreviewing] = useState(false);
+  const [cityDispatching, setCityDispatching] = useState(false);
+  const [cityError, setCityError] = useState<string | null>(null);
+  const [cityDispatched, setCityDispatched] = useState(false);
+
+  async function handlePreviewCity() {
+    if (!cityArea.trim()) return;
+    setCityPreviewing(true);
+    setCityError(null);
+    setCityPreview(null);
+    setCityDispatched(false);
+    try {
+      const r = await resolveCityArea({ area: cityArea.trim(), gridCellKm: parseFloat(cityCellKm) || 2 });
+      setCityPreview(r);
+    } catch (e) {
+      setCityError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCityPreviewing(false);
+    }
+  }
+
+  async function handleRunCity() {
+    if (!cityArea.trim() || !cityKeyword.trim()) return;
+    setCityDispatching(true);
+    setCityError(null);
+    try {
+      await startCityScrape({
+        area: cityArea.trim(),
+        keyword: cityKeyword.trim(),
+        language: lang,
+        gridCellKm: parseFloat(cityCellKm) || 2,
+      });
+      setCityDispatched(true);
+    } catch (e) {
+      setCityError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCityDispatching(false);
+    }
+  }
 
   // Resume an in-flight keyword run after a tab switch (slice 0012): if the server
   // reports one and the local tracker is idle, adopt it so the stage tracker picks
@@ -143,6 +192,90 @@ export function KeywordPanel() {
 
   return (
     <div className="keyword-panel">
+      <div className="scraper-mode-toggle kp-submode">
+        <button
+          className={`scraper-mode-btn${panelMode === 'instant' ? ' scraper-mode-btn--active' : ''}`}
+          onClick={() => setPanelMode('instant')}
+        >Instant</button>
+        <button
+          className={`scraper-mode-btn${panelMode === 'city' ? ' scraper-mode-btn--active' : ''}`}
+          onClick={() => setPanelMode('city')}
+        >Whole city</button>
+      </div>
+
+      {panelMode === 'city' && (
+        <div className="kp-single">
+          <input
+            autoFocus
+            className="input-field kp-query"
+            placeholder="area — e.g. Mar del Plata, Argentina"
+            value={cityArea}
+            onChange={(e) => { setCityArea(e.target.value); setCityPreview(null); setCityDispatched(false); }}
+            onKeyDown={(e) => e.key === 'Enter' && !cityPreviewing && handlePreviewCity()}
+          />
+          <input
+            className="input-field kp-query"
+            placeholder="keyword — e.g. abogados"
+            value={cityKeyword}
+            onChange={(e) => setCityKeyword(e.target.value)}
+          />
+          <div className="kp-row">
+            <select className="input-field kp-lang" value={lang} onChange={(e) => setLang(e.target.value)}>
+              {LANGS.map((l) => <option key={l} value={l}>{l}</option>)}
+            </select>
+            <label className="kp-cell-label">
+              cell
+              <input
+                className="input-field kp-mono kp-depth"
+                type="number" min={0.5} max={10} step={0.5}
+                value={cityCellKm}
+                onChange={(e) => { setCityCellKm(e.target.value); setCityPreview(null); }}
+              />
+              km
+            </label>
+            <button
+              className="btn-secondary kp-btn"
+              onClick={handlePreviewCity}
+              disabled={cityPreviewing || !cityArea.trim()}
+            >
+              {cityPreviewing ? 'Resolving…' : 'Preview'}
+            </button>
+          </div>
+
+          <p className="kp-hint">
+            Sweeps the whole area in grid cells (not one viewport), so one query returns
+            far more than ~50 leads. Smaller cells = more leads but more jobs and longer
+            runs. Area data © OpenStreetMap (ODbL).
+          </p>
+
+          {cityPreview && (
+            <div className="kp-result kp-city-preview">
+              <span className="kp-result-stat">{cityPreview.displayName}</span>
+              <span className="kp-result-stat">
+                Cells <span className="kp-result-num">{cityPreview.cellCount}</span>
+              </span>
+              <span className="kp-result-stat">{cityPreview.kind}</span>
+            </div>
+          )}
+
+          <button
+            className="btn-primary kp-btn"
+            onClick={handleRunCity}
+            disabled={cityDispatching || !cityArea.trim() || !cityKeyword.trim()}
+          >
+            {cityDispatching ? 'Dispatching…' : 'Scrape whole city'}
+          </button>
+
+          {cityDispatched && (
+            <p className="kp-queued">
+              Dispatched ✓ — track progress in the active-runs strip; leads fill the Explorer tab.
+            </p>
+          )}
+          {cityError && <p className="kp-error">{cityError}</p>}
+        </div>
+      )}
+
+      {panelMode === 'instant' && (
       <div className="kp-single">
         <input
           autoFocus
@@ -296,6 +429,7 @@ export function KeywordPanel() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

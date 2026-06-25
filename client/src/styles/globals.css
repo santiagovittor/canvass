@@ -734,6 +734,10 @@ select option {
 
 .keyword-panel { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
 
+.kp-submode { margin-bottom: 8px; }
+.kp-cell-label { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-ui); font-size: 13px; color: var(--text-secondary); }
+.kp-city-preview { flex-wrap: wrap; align-items: baseline; }
+
 .kp-single { display: flex; flex-direction: column; gap: 8px; }
 .kp-query { width: 100%; }
 .kp-textarea { width: 100%; resize: vertical; font-family: var(--font-mono); font-size: 13px; }

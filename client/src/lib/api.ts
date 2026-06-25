@@ -27,6 +27,36 @@ export function startScrape(payload: {
   });
 }
 
+// City tiling (slice 0037): resolve an area name to a bbox preview, then dispatch
+// the whole-city sweep through the same async job pipeline as a map-drawn polygon.
+export interface CityResolveResult {
+  bbox: { minLat: number; maxLat: number; minLon: number; maxLon: number };
+  displayName: string;
+  kind: string;
+  cellCount: number;
+  totalJobs: number;
+}
+
+export function resolveCityArea(payload: { area: string; countryHint?: string; gridCellKm?: number }) {
+  return request<CityResolveResult>('/scrape/city/resolve', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function startCityScrape(payload: {
+  area: string;
+  keyword: string;
+  language: string;
+  gridCellKm?: number;
+  countryHint?: string;
+}) {
+  return request<{ jobId: string }>('/scrape/city', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getJob(jobId: string) {
   return request<ScrapeJob>(`/jobs/${jobId}`);
 }

@@ -79,6 +79,10 @@
   --space-xl:   28px;
   --gap-filter: 12px;
 
+  /* Outreach scheduled-sends list — bounded so N scheduled rows scroll internally
+     instead of growing the compose rail (slice 0036). ≈3–4 rows. */
+  --scheduled-list-max-h: 168px;
+
   /* Automate redesign — full-width pipeline lanes (ingest → prepare → send) */
   --automate-max: 1200px;  /* centered content width on wide screens */
   --space-lane:   20px;    /* inner padding of a lane panel */

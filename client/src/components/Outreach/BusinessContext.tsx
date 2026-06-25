@@ -3,6 +3,7 @@ import { MapContainer, TileLayer } from 'react-leaflet';
 import type { OutreachLead, WebsiteAnalysis, ScheduledSend, ScheduledQueueStatus } from '../../lib/outreachApi';
 import { countryFlag, formatScheduledAt, baLocalToUtcIso, defaultScheduleLocal } from '../../lib/outreachApi';
 import { SchedulerStatus } from './SchedulerStatus';
+import { Disclosure } from '../ui/Disclosure';
 
 const BOOKABLE_CATS = /salón|salon|gym|gimnasio|clínica|clinica|restaurant|spa|peluquería|peluqueria|consultorio|dentist|fitness|studio|pilates|yoga|médico|medico/i;
 const FOOD_CATS = /restaurant|café|cafe|bar|comida|panadería|panaderia|heladería|heladeria|pizzería|pizzeria|delivery|cocina|sushi|burger|parrilla/i;
@@ -53,7 +54,16 @@ function ScheduledSection({ items, onCancel, onReschedule }: {
         <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>
           Nothing scheduled.
         </span>
-      ) : items.map(s => (
+      ) : (
+        <div style={{
+          maxHeight: 'var(--scheduled-list-max-h)',
+          overflowY: 'auto',
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+        }}>
+        {items.map(s => (
         <div key={s.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
@@ -120,7 +130,9 @@ function ScheduledSection({ items, onCancel, onReschedule }: {
             </div>
           )}
         </div>
-      ))}
+        ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -319,12 +331,6 @@ export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCa
       flexDirection: 'column' as const,
       gap: 12,
     }}>
-      {/* Scheduler health panel + global scheduled-sends list (not lead-scoped) */}
-      {queueStatus && <SchedulerStatus status={queueStatus} onPause={onPauseScheduler ?? (() => Promise.resolve())} onResume={onResumeScheduler ?? (() => Promise.resolve())} onCancelRow={onCancelScheduledById ?? (() => Promise.resolve())} onCancelAllPending={onCancelAllPending ?? (() => Promise.resolve())} />}
-      {scheduled && (
-        <ScheduledSection items={scheduled} onCancel={onCancelScheduled} onReschedule={onRescheduleScheduled} />
-      )}
-
       {/* Name + flag */}
       <div>
         <div style={{
@@ -501,6 +507,19 @@ export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCa
             </svg>
           </div>
         </div>
+      )}
+
+      {/* Scheduler health + global scheduled-sends list (not lead-scoped). Collapsed
+          by default so composing stays unobstructed; bounded + scrollable inside. */}
+      {(queueStatus || scheduled) && (
+        <Disclosure label="Scheduled" count={scheduled?.length ?? 0} defaultOpen={false}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {queueStatus && <SchedulerStatus status={queueStatus} onPause={onPauseScheduler ?? (() => Promise.resolve())} onResume={onResumeScheduler ?? (() => Promise.resolve())} onCancelRow={onCancelScheduledById ?? (() => Promise.resolve())} onCancelAllPending={onCancelAllPending ?? (() => Promise.resolve())} />}
+            {scheduled && (
+              <ScheduledSection items={scheduled} onCancel={onCancelScheduled} onReschedule={onRescheduleScheduled} />
+            )}
+          </div>
+        </Disclosure>
       )}
     </div>
   );

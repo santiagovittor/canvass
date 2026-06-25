@@ -219,23 +219,40 @@ _Filled DURING execution with live evidence._
       outside the context). This is exactly the `withGeminiPriority` →
       `limiter.schedule({priority})` path.
 
-**Requires an operator live run** (each needs a real batch consuming Gemini budget on
-live data — not auto-run to avoid spending budget / interfering with the active scraping
-seen in `recentRuns`). What to look for:
+**Verified by operator live run (2026-06-25).** Two new-code batches ran against a
+draining backlog. Timestamps below are UTC (DB stores `nowUtcMinus3`; server container
+started 18:11:10Z, so both new runs are post-fix). Comparable 30-lead before/after:
 
-- [ ] Log: during a batch `running`, **no** new `[premiumAnalysisQueue] running`
-      lines (queue yielded). After `done`, lines resume (A1 gate + A2 kick).
-- [ ] Log: batch `[gemini]` compose/verify calls interleave **ahead** of backlog
-      vision calls (B priority in the live limiter).
-- [ ] Batch outcome: 30-lead run concurrent with a fresh backlog → failures from
-      `analyze_timeout`/`compose_timeout` ≈ 0 (was 25/30):
-      `SELECT disposition, count(*) FROM batch_items WHERE batch_id=? GROUP BY 1;`
-- [ ] curl: `GET /api/scrape-schedules/status` → `autoAnalyze.deferred=true`
-      mid-batch (already `false` confirmed at rest above).
-- [ ] F2: contrived overlap (enqueue X, manually claim it → 'running', start a batch
-      including X) → exactly one render, one `completePremiumAnalysis(id)`, one bundle
-      dir; the batch item reverts to `pending` and is re-picked on resume via TTL-fresh
-      reuse (no second render, no `EEXIST`, no duplicate cost ledger row).
+| run | UTC | code | total | sent | analyze_timeout | compose_timeout |
+|-----|-----|------|-------|------|-----------------|-----------------|
+| `4b922420` | 17:04 | OLD (pre-fix) | 30 | 1 | **23** | 2 |
+| `75a3fb7c` | 18:13 | NEW | 15 | 13 | 1 | 1 |
+| `0d4a4131` | 18:29 | NEW | 30 | 18 | 2 | 2 |
+
+- [x] **Batch outcome: timeouts 25 → 4 on a comparable 30-lead run** (`0d4a4131`: 18
+      `sent_specific`, 4 timeouts, 8 skipped). The disaster `4b922420` was 25/30.
+- [x] **Real contention, not masked:** backlog was actively draining the 10 min before
+      the batch (87 `[gemini]`/`▶ render` lines 18:18–18:28), and RPD was healthy
+      (`323/1000`) — so the improvement isn't budget-pausing in disguise.
+- [x] **Yield working (A):** in-window `[gemini]` calls were dominated by batch-only
+      labels — 21 `compose` / 20 `verify` / 22 `vision` (≈1:1). A non-yielding backlog
+      would flood `vision` far above `compose`; it didn't → the queue stopped claiming.
+      (Note: the slice's suggested grep string `[premiumAnalysisQueue] running` does not
+      exist in code — the real signals are the per-analysis `▶ stage` lines and the
+      `[gemini] <label> call #N` counter used above.)
+- [x] **B priority** confirmed by the isolated mechanism self-check (above); live
+      interleave consistent with the label mix.
+- [x] **A3 `deferred`** field live at rest (`false`, no batch running). Mid-batch `true`
+      not snapshotted (timing); logic is `backlog>0 && isBatchRunning()`.
+
+**Residual / not closed here:**
+
+- ~~≈ 0 timeouts~~ → **4/30 remain.** Almost certainly genuinely slow individual sites
+  tripping the 120s/180s wall-clock with a *clear* lane (not lane starvation — that bug
+  is fixed). A separate concern: raise per-item timeout or skip pathologically slow
+  sites. **Parked, out of 0031 scope.**
+- [ ] **F2 contrived overlap** not exercised (needs a deliberate enqueue→claim→batch
+      setup). Guard is code-reviewed + tsc-clean; live proof deferred.
 
 ## Completion record
 
@@ -258,6 +275,12 @@ seen in `recentRuns`). What to look for:
   - **F2** `db/premium.getRunningAnalysis(businessId)` + guard in `processItem`: if the
     queue/manual already owns an in-flight `running` row, skip → revert item to `pending`
     (resumable) instead of double-rendering the shared row/bundle.
-- Follow-ups / new parked items: live operational verification (4 items above) pending an
-  operator batch run. Unrelated lint left untouched per scope (`useLeadStaging.ts:27`,
-  scratchpad `verify-live-0028.mjs`).
+- Follow-ups / new parked items:
+  - **Slow-site timeout floor** — `0d4a4131` still showed 4/30 timeouts with a clear
+    lane (contention fixed; these are slow individual sites). Candidate: raise per-item
+    timeout or pre-skip pathologically slow renders. Not 0031 scope.
+  - **F2 contrived-overlap** live proof still pending (guard is code-reviewed + tsc-clean).
+  - Unrelated lint left untouched per scope (`useLeadStaging.ts:27`, scratchpad
+    `verify-live-0028.mjs`).
+- Outcome: validated by operator run 2026-06-25 — contention mass-failure eliminated
+  (25→4 timeouts on a comparable 30-lead run, draining backlog present, RPD healthy).

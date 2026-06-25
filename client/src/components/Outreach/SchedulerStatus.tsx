@@ -61,7 +61,7 @@ export function SchedulerStatus({ status, onPause, onResume, onCancelRow, onCanc
   }
 
   const ghostBtn = {
-    fontFamily: 'var(--font-ui)', fontSize: 10, padding: '2px 8px', borderRadius: 6,
+    fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', padding: '2px 8px', borderRadius: 6,
     border: '1px solid var(--border-strong)', background: 'transparent',
     color: 'var(--text-secondary)', cursor: 'pointer',
   } as const;
@@ -76,14 +76,14 @@ export function SchedulerStatus({ status, onPause, onResume, onCancelRow, onCanc
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600,
+            fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', fontWeight: 600,
             color: 'var(--text-muted)', letterSpacing: '0.11em', textTransform: 'uppercase',
           }}>Scheduler</span>
           {paused && (
             <span
               title={health.pausedReason ?? undefined}
               style={{
-                fontFamily: 'var(--font-ui)', fontSize: 9, fontWeight: 600,
+                fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', fontWeight: 600,
                 color: 'var(--accent-ink)', background: 'var(--accent)',
                 borderRadius: 100, padding: '1px 6px', letterSpacing: '0.06em',
                 textTransform: 'uppercase', cursor: health.pausedReason ? 'help' : 'default',
@@ -97,7 +97,7 @@ export function SchedulerStatus({ status, onPause, onResume, onCancelRow, onCanc
             borderRadius: '50%', background: dotColor, flexShrink: 0,
           }} />
           <span style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10,
+            fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)',
             color: isAlive && !paused ? 'var(--text-muted)' : 'var(--error)',
           }}>
             {health.lastTickAt ? `${msAgo(health.lastTickAt)} ago` : 'no tick yet'}
@@ -130,7 +130,7 @@ export function SchedulerStatus({ status, onPause, onResume, onCancelRow, onCanc
           { label: 'fail·today',    value: counts.failed_today,     color: 'var(--error)' },
         ].map(({ label, value, color }) => (
           <span key={label} style={{
-            fontFamily: 'var(--font-mono)', fontSize: 10,
+            fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)',
             color: 'var(--text-secondary)', whiteSpace: 'nowrap',
           }}>
             {label} <span style={{ color, fontWeight: 600 }}>{value}</span>
@@ -142,7 +142,7 @@ export function SchedulerStatus({ status, onPause, onResume, onCancelRow, onCanc
       {next.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           <span style={{
-            fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 600,
+            fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', fontWeight: 600,
             color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.09em',
           }}>Next</span>
           {shown.map((row: ScheduledSend) => (
@@ -151,13 +151,13 @@ export function SchedulerStatus({ status, onPause, onResume, onCancelRow, onCanc
               justifyContent: 'space-between', gap: 8,
             }}>
               <span style={{
-                fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-secondary)',
+                fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--text-secondary)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 minWidth: 0, flex: 1,
               }}>{row.business_name}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                 <span style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 10,
+                  fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)',
                   color: 'var(--text-muted)',
                 }}>{formatScheduledAt(row.scheduled_at)}</span>
                 <button
@@ -165,7 +165,7 @@ export function SchedulerStatus({ status, onPause, onResume, onCancelRow, onCanc
                   disabled={busy || row.status === 'claimed'}
                   title={row.status === 'claimed' ? 'in-flight' : undefined}
                   style={{
-                    fontFamily: 'var(--font-ui)', fontSize: 9, padding: '1px 6px', borderRadius: 100,
+                    fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', padding: '1px 6px', borderRadius: 100,
                     border: '1px solid var(--border)', background: 'transparent',
                     color: row.status === 'claimed' ? 'var(--text-muted)' : 'var(--error)',
                     cursor: row.status === 'claimed' ? 'not-allowed' : 'pointer',
@@ -177,7 +177,7 @@ export function SchedulerStatus({ status, onPause, onResume, onCancelRow, onCanc
           ))}
           {next.length > 5 && (
             <button onClick={() => setExpanded(e => !e)} style={{
-              fontFamily: 'var(--font-ui)', fontSize: 10, color: 'var(--accent)',
+              fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--accent)',
               background: 'transparent', border: 'none', cursor: 'pointer',
               textAlign: 'left', padding: 0,
             }}>
@@ -189,16 +189,16 @@ export function SchedulerStatus({ status, onPause, onResume, onCancelRow, onCanc
               {cancelAllConfirm ? (
                 <button onClick={handleCancelAll} disabled={busy} style={{
                   ...ghostBtn,
-                  color: 'var(--error)', border: '1px solid rgba(255,77,109,0.3)',
-                  background: 'rgba(255,77,109,0.08)',
+                  color: 'var(--error)', border: '1px solid var(--error-border)',
+                  background: 'var(--error-dim)',
                 }}>
                   Confirm cancel all?
                 </button>
               ) : (
                 <button onClick={handleCancelAll} disabled={busy} style={{
                   ...ghostBtn,
-                  color: 'var(--error)', border: '1px solid rgba(255,77,109,0.3)',
-                  background: 'rgba(255,77,109,0.08)',
+                  color: 'var(--error)', border: '1px solid var(--error-border)',
+                  background: 'var(--error-dim)',
                 }}>
                   Cancel all pending
                 </button>

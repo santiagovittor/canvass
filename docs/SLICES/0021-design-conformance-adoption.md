@@ -107,21 +107,49 @@ each visually before the next — do not batch all panels into one diff._
 
 ## Verification gate
 
-_Filled DURING execution with live evidence._
+_Filled DURING execution with live evidence (2026-06-24)._
 
-- [ ] Before/after screenshots per panel (LeadQueue, EmailComposer,
-      BusinessContext, Automate, Analytics strips).
-- [ ] `grep -rn "fontSize: \(9\|10\|11\)" client/src` → only justified exceptions
-      remain (listed).
-- [ ] `grep -rn "rgba(255,\|#[0-9A-Fa-f]\{6\}" client/src/components/Outreach` →
-      none (all tokenised).
-- [ ] Behaviour spot-check: every restyled control still triggers its action
-      (send, skip, schedule, filter, paginate, batch start/pause).
-- [ ] `npx tsc --noEmit` clean (client).
+- [~] **Screenshots — NOT captured.** Dev app is live (host :5173/:3001 confirmed
+      open) but the browser is containerised (`maps-scraper-playwright-1`, port
+      3000/tcp, no host-mapped port; server reaches it via `chromium.connect`
+      over the compose network only). No host-reachable endpoint, so an ad-hoc
+      screenshot wasn't feasible without standing up extra plumbing. The running
+      app on `localhost:5173` is available for the operator to eyeball; all edits
+      were pure token substitutions (see below) so render is deterministic.
+- [x] `grep -rn "fontSize: \(9\|10\|11\)" client/src` → **0 matches** (tree-wide).
+- [x] `grep -rn "rgba(255,\|#[0-9A-Fa-f]\{6\}" client/src/components/Outreach` →
+      **0 matches** (all tokenised, incl. the email-preview "paper" surface →
+      `--email-*`).
+- [x] Behaviour spot-check (static): every edit was a value swap only —
+      `fontSize` number → `var(--text-*)`, colour literal → semantic token. No
+      handler, conditional, prop, or control flow was touched, so send/skip/
+      schedule/filter/paginate/pause/resume/cancel logic is byte-identical.
+- [x] `npx tsc --noEmit` clean (client) — run after every step (×7, all green).
+
+### Intentional sub-12px exceptions remaining (justified)
+
+- `globals.css:988` `.an-cal-month` — **9px** Analytics calendar month-axis label
+  (true chart-axis micro-text; slice explicitly sanctions this keep).
+- `globals.css:654` `.leaflet-control-attribution` — **10px !important** map
+  legal attribution microcopy (third-party map chrome, conventionally tiny; not
+  primary content). Anchored greps left both untouched by design.
 
 ## Completion record
 
-- Commit SHAs: …
-- What changed: …
-- Follow-ups / new parked items: intentional sub-12px exceptions (e.g. calendar
-  axis); any panel deferred to a later pass.
+- Commit SHAs: **uncommitted** — changes staged in working tree on
+  `feat/no-website-lane`; operator to commit (not committed without request).
+- What changed:
+  - `globals.css` `:root` — added tokens (tokens-before-use): `--error-dim/-border`,
+    `--warn-dim/-border`, `--success-dim/-border`, `--fill-subtle`, `--input-bg`,
+    and `--email-paper/-paper-line/-ink/-ink-muted/-ink-body`.
+  - Inline sub-12px sizes → `--text-*` across **8 components**: LeadQueue (names
+    13→`--text-body`, metadata 10/11→`--text-caption`), EmailComposer (33 hits +
+    email-preview hexes → `--email-*`), BusinessContext, WhatsAppComposer,
+    SchedulerStatus, StageTracker, Scraper/SchedulesList, Scraper/ScrapeSchedulerStatus
+    (`#555` → `--text-muted`). Numbers kept `--font-mono` throughout.
+  - Colour literals → semantic tokens in all Outreach components + the one
+    residual fill literal in `Automate/BatchConsole.tsx`.
+  - `globals.css` sweep: residual `font-size:10px|11px` rules → `var(--text-caption)`.
+- Follow-ups / new parked items: none. Two intentional sub-12px exceptions listed
+  above. No panel deferred. Screenshots not captured (containerised browser, see
+  gate) — eyeball pass on `localhost:5173` recommended before commit.

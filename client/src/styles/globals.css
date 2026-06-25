@@ -24,6 +24,25 @@
   --error:   #FF4D6D;
   --success: #4ADE80;
 
+  /* Semantic colour fills/borders (slice 0021 adoption) — parallels --accent-dim.
+     Warm-white neutrals match the --border family so the dark UI stays on-brand. */
+  --error-dim:      rgba(255,77,109,0.12);
+  --error-border:   rgba(255,77,109,0.30);
+  --warn-dim:       rgba(245,183,0,0.12);
+  --warn-border:    rgba(245,183,0,0.30);
+  --success-dim:    rgba(74,222,128,0.12);
+  --success-border: rgba(74,222,128,0.40);
+  --fill-subtle:    rgba(255,245,235,0.05);  /* neutral tag/hover fill */
+  --input-bg:       rgba(255,245,235,0.04);  /* translucent input fill */
+
+  /* Email-preview "paper" surface — deliberate light client simulation, NOT app
+     chrome (a restrained utility palette is allowed in globals.css per ui.md). */
+  --email-paper:      #F5F0E8;
+  --email-paper-line: #DDD8CE;
+  --email-ink:        #1A1612;
+  --email-ink-muted:  #6B6258;
+  --email-ink-body:   #2A2218;
+
   /* Elevation — additive, modern layered dark surfaces. Depth marks ELEVATION
      only; the root canvas stays flat. Warm near-black shadow (not pure black),
      so depth reads on-brand against the amber-tinted surfaces. Per-element rule:
@@ -161,7 +180,7 @@ html, body, #root {
 }
 .active-runs-label {
   font-family: var(--font-ui);
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 700;
   letter-spacing: 0.12em;
   color: var(--text-muted);
@@ -209,7 +228,7 @@ html, body, #root {
 }
 .active-run-meta {
   font-family: var(--font-ui);
-  font-size: 11px;
+  font-size: var(--text-caption);
   color: var(--text-secondary);
   white-space: nowrap;
 }
@@ -487,7 +506,7 @@ select option {
 .pill--error .pill-dot { background: var(--error); }
 .pill--pending   { background: var(--bg-elevated); color: var(--text-muted); }
 .pill--pending .pill-dot { background: var(--text-muted); }
-.pill--keyword { background: var(--accent-dim); color: var(--accent); padding: 2px 7px; font-size: 10px; font-weight: 600; margin-left: 6px; }
+.pill--keyword { background: var(--accent-dim); color: var(--accent); padding: 2px 7px; font-size: var(--text-caption); font-weight: 600; margin-left: 6px; }
 
 /* Disclosure primitive (slice 0016) — progressive disclosure for secondary filters */
 .disclosure { display: flex; flex-direction: column; }
@@ -516,7 +535,7 @@ select option {
 .disclosure-badge {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 600;
   color: var(--accent);
   background: var(--accent-dim);
@@ -556,7 +575,7 @@ select option {
 .bento-label {
   font-family: var(--font-ui);
   font-weight: 500;
-  font-size: 11px;
+  font-size: var(--text-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-secondary);
@@ -572,7 +591,7 @@ select option {
 /* Event log */
 .event-log {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-caption);
   color: var(--text-muted);
   background: var(--bg-base);
   border: 1px solid var(--border);
@@ -684,13 +703,13 @@ select option {
 .kp-unit { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
 
 /* Email-provenance microcopy (slice 0005) */
-.kp-hint { margin: 0; font-family: var(--font-ui); font-size: 11px; line-height: 1.5; color: var(--text-secondary); max-width: 52ch; }
+.kp-hint { margin: 0; font-family: var(--font-ui); font-size: var(--text-caption); line-height: 1.5; color: var(--text-secondary); max-width: 52ch; }
 
 /* Queue subsection inside Advanced / Queue (slice 0005) */
 .kp-queue { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; margin-top: 2px; border-top: 1px solid var(--border); }
 .kp-queue-label { margin-bottom: 0; }
 .kp-queue-btn { width: 100%; }
-.kp-queue-div { font-family: var(--font-ui); font-size: 11px; color: var(--text-muted); text-align: center; letter-spacing: 0.04em; }
+.kp-queue-div { font-family: var(--font-ui); font-size: var(--text-caption); color: var(--text-muted); text-align: center; letter-spacing: 0.04em; }
 .kp-btn-count { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .kp-queued { margin: 0; font-family: var(--font-ui); font-size: 12px; line-height: 1.5; color: var(--success); }
 .kp-queued-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
@@ -703,14 +722,14 @@ select option {
 /* Keyword run stage tracker (slice 0003) */
 .kp-stages { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; background: var(--bg-base); border: 1px solid var(--border); border-radius: 8px; }
 .kp-stages-row { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; flex-wrap: wrap; }
-.kp-stage { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-ui); font-size: 11px; font-weight: 500; letter-spacing: 0.04em; color: var(--text-muted); }
+.kp-stage { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-ui); font-size: var(--text-caption); font-weight: 500; letter-spacing: 0.04em; color: var(--text-muted); }
 .kp-stage-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
 .kp-stage--done { color: var(--text-secondary); }
 .kp-stage--done .kp-stage-dot { background: var(--success); }
 .kp-stage--active { color: var(--accent); }
 .kp-stage--active .kp-stage-dot { background: var(--accent); animation: kpStageGlow 1.4s ease-in-out infinite; }
 .kp-elapsed { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--accent); flex-shrink: 0; }
-.kp-stage-hint { font-family: var(--font-ui); font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+.kp-stage-hint { font-family: var(--font-ui); font-size: var(--text-caption); color: var(--text-muted); flex-shrink: 0; }
 
 @keyframes kpStageGlow {
   0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); opacity: 0.6; }
@@ -765,7 +784,7 @@ select option {
 .an-kpi-label {
   font-family: var(--font-ui);
   font-weight: 500;
-  font-size: 11px;
+  font-size: var(--text-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -773,7 +792,7 @@ select option {
 .an-kpi-sub {
   font-family: var(--font-ui);
   font-weight: 400;
-  font-size: 10px;
+  font-size: var(--text-caption);
   color: var(--text-muted);
 }
 
@@ -927,7 +946,7 @@ select option {
   color: var(--accent);
 }
 .an-funnel-conv-label {
-  font-size: 11px;
+  font-size: var(--text-caption);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -1006,7 +1025,7 @@ select option {
 .an-cal-stat { display: flex; flex-direction: column; gap: 3px; }
 .an-cal-stat-value { font-size: 18px; font-weight: 500; color: var(--text-primary); }
 .an-cal-stat-label {
-  font-size: 11px;
+  font-size: var(--text-caption);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -1022,7 +1041,7 @@ select option {
 .an-matrix th {
   font-family: var(--font-ui);
   font-weight: 500;
-  font-size: 11px;
+  font-size: var(--text-caption);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -1077,7 +1096,7 @@ select option {
   gap: 5px;
 }
 .an-insight-title {
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;

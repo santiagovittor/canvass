@@ -46,11 +46,11 @@ const mono = { fontFamily: 'var(--font-mono)' } as const;
 
 function StepDot({ status }: { status: StepStatus }) {
   if (status === 'done' || status === 'cached') {
-    return <span style={{ ...mono, fontSize: 11, color: status === 'cached' ? 'var(--text-muted)' : 'var(--success)' }}>✓</span>;
+    return <span style={{ ...mono, fontSize: 'var(--text-caption)', color: status === 'cached' ? 'var(--text-muted)' : 'var(--success)' }}>✓</span>;
   }
-  if (status === 'failed') return <span style={{ ...mono, fontSize: 11, color: 'var(--error)' }}>✕</span>;
+  if (status === 'failed') return <span style={{ ...mono, fontSize: 'var(--text-caption)', color: 'var(--error)' }}>✕</span>;
   if (status === 'retrying') {
-    return <span style={{ ...mono, fontSize: 11, color: 'var(--warn)', animation: 'dotPulse 1s ease-in-out infinite' }}>⟳</span>;
+    return <span style={{ ...mono, fontSize: 'var(--text-caption)', color: 'var(--warn)', animation: 'dotPulse 1s ease-in-out infinite' }}>⟳</span>;
   }
   if (status === 'active') {
     return (
@@ -125,7 +125,7 @@ export function StageTracker({ lead, mode, active }: { lead: { id: string; locCo
     caption = (
       <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8 }}>
         <span style={{ fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--accent)', fontWeight: 500 }}>{WITTY[lang][progress.activeStage]}</span>
-        <span style={{ ...mono, fontSize: 11, color: 'var(--text-muted)' }}>{activeElapsed.toFixed(1)}s</span>
+        <span style={{ ...mono, fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>{activeElapsed.toFixed(1)}s</span>
       </span>
     );
   } else {
@@ -162,7 +162,7 @@ export function StageTracker({ lead, mode, active }: { lead: { id: string; locCo
           return (
             <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <StepDot status={st} />
-              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color, fontWeight: isActive ? 500 : 400 }}>{SHORT[lang][s]}</span>
+              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color, fontWeight: isActive ? 500 : 400 }}>{SHORT[lang][s]}</span>
             </span>
           );
         })}

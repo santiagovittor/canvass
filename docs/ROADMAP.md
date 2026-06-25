@@ -29,6 +29,16 @@ Status legend: `planned` · `in-progress` · `done`.
 | fix·2 | `0019-batch-runner-relocate-and-legibility` | Move batch runner to a new Automate tab; wire live stage + ETA + per-lead failures | planned | [0019](SLICES/0019-batch-runner-relocate-and-legibility.md) |
 | fix·3 | `0020-gemini-provider-quota-visibility` | Surface provider 429 RESOURCE_EXHAUSTED as an auto-resuming paused/banner state, not silent failures | planned | [0020](SLICES/0020-gemini-provider-quota-visibility.md) |
 | fix·4 | `0021-design-conformance-adoption` | Adopt 0016 tokens in rendered surfaces: kill sub-12px/raw-hex/inline-style sprawl | planned | [0021](SLICES/0021-design-conformance-adoption.md) |
+| — | `0022-outreach-queue-reliability-and-deliverability-audit` | Diagnosis: batch stall, bad_email false-positives, multi-email, blacklist/zero-reply, second sender, Gemini reliability, Explorer scroll-clip | diagnosis done | [0022](SLICES/0022-outreach-queue-reliability-and-deliverability-audit.md) |
+| rel·1 | `0023-batch-compose-timeout-and-watchdog` | Per-item compose timeout + run-level stall watchdog so a wedged Gemini call can't freeze the batch (F1) | planned | [0023](SLICES/0023-batch-compose-timeout-and-watchdog.md) |
+| rel·2 | `0024-validity-gate-microsoft-rejectall-fix` | Reject-all MX (M365) → `unknown`/proceed, not `invalid`; stop discarding real corporate leads (F2) | planned | [0024](SLICES/0024-validity-gate-microsoft-rejectall-fix.md) |
+| rel·3 | `0028-explorer-scroll-clip-fix` | Add `min-height:0` to the two Explorer flex containers; reach the bottom of the leads list (F7) | planned | [0028](SLICES/0028-explorer-scroll-clip-fix.md) |
+| rel·4 | `0014-reply-visibility-and-reclassification` | Surface the 9 hidden replies; one-tap reclassify (F4 — promoted) | planned | [0014](SLICES/0014-reply-visibility-and-reclassification.md) |
+| rel·5 | `0025-best-reachable-email-selection` | Pick the best reachable single address per lead; never multi-send (F3) | planned | [0025](SLICES/0025-best-reachable-email-selection.md) |
+| rel·6 | `0026-gemini-503-resilience-and-provider-switch` | Survive 503 storms + Settings-driven provider/model switch; NVIDIA NIM fallback/offload behind a quality bar (F6) | planned | [0026](SLICES/0026-gemini-503-resilience-and-provider-switch.md) |
+| rel·7 | `0027-second-sender-rotation` | Add santiagovittordev@gmail.com as a 2nd rotating sender; per-sender cap + dual-inbox scan (F5) | planned | [0027](SLICES/0027-second-sender-rotation.md) |
+
+> **Suggested order (from `0022`):** 0023 → 0024 → 0028 → 0014 → 0025 → 0026 → 0027.
 
 ---
 

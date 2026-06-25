@@ -42,11 +42,11 @@ const DAILY_CAP = 30;
 
 function PsiChip({ label, value, bad, warn }: { label: string; value: string; bad: boolean; warn: boolean }) {
   const color = bad ? 'var(--error)' : warn ? 'var(--warn)' : 'var(--success)';
-  const bg = bad ? 'rgba(255,77,109,0.1)' : warn ? 'rgba(245,183,0,0.1)' : 'rgba(74,222,128,0.1)';
+  const bg = bad ? 'var(--error-dim)' : warn ? 'var(--warn-dim)' : 'var(--success-dim)';
   return (
     <span style={{
       fontFamily: 'var(--font-mono)',
-      fontSize: 11,
+      fontSize: 'var(--text-caption)',
       padding: '2px 8px',
       borderRadius: 100,
       background: bg,
@@ -74,7 +74,7 @@ function VerificationPanel({ verdict }: { verdict: VerificationVerdict }) {
   if (isOk) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--success)' }}>✓ Claims verified</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--success)' }}>✓ Claims verified</span>
       </div>
     );
   }
@@ -82,7 +82,7 @@ function VerificationPanel({ verdict }: { verdict: VerificationVerdict }) {
   if (isStripped) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--warn)' }}>⚠ Claims auto-corrected</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--warn)' }}>⚠ Claims auto-corrected</span>
       </div>
     );
   }
@@ -90,7 +90,7 @@ function VerificationPanel({ verdict }: { verdict: VerificationVerdict }) {
   if (isOverride) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>Sent with manual override</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>Sent with manual override</span>
       </div>
     );
   }
@@ -100,7 +100,7 @@ function VerificationPanel({ verdict }: { verdict: VerificationVerdict }) {
     return (
       <div style={{
         background: 'var(--bg-elevated)',
-        border: '1px solid rgba(245,183,0,0.2)',
+        border: '1px solid var(--warn-border)',
         borderRadius: 8,
         padding: '10px 12px',
         display: 'flex',
@@ -114,13 +114,13 @@ function VerificationPanel({ verdict }: { verdict: VerificationVerdict }) {
         {violations.length > 0 && (
           <ul style={{ margin: 0, padding: '0 0 0 16px', display: 'flex', flexDirection: 'column', gap: 4 }}>
             {violations.map((v, i) => (
-              <li key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)' }}>
+              <li key={i} style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--text-secondary)' }}>
                 "{v.claim}"
               </li>
             ))}
           </ul>
         )}
-        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>
+        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>
           Regenerate to fix, or use "Send anyway" to override.
         </span>
       </div>
@@ -133,7 +133,7 @@ function VerificationPanel({ verdict }: { verdict: VerificationVerdict }) {
 // Tier 1 — uppercase-mono section header, one treatment across DETECTED / PAGESPEED / VISION.
 const sectionHeaderStyle = {
   fontFamily: 'var(--font-mono)',
-  fontSize: 10,
+  fontSize: 'var(--text-caption)',
   fontWeight: 600,
   color: 'var(--text-muted)',
   letterSpacing: '0.11em',
@@ -144,7 +144,7 @@ const sectionHeaderStyle = {
 // separates it from the mono section header above and the bold headline below.
 const visionSubheaderStyle = {
   fontFamily: 'var(--font-ui)',
-  fontSize: 10,
+  fontSize: 'var(--text-caption)',
   fontWeight: 600,
   color: 'var(--text-secondary)',
   letterSpacing: '0.08em',
@@ -159,7 +159,7 @@ const visionMoreBtnStyle = {
   padding: 0,
   cursor: 'pointer',
   fontFamily: 'var(--font-ui)',
-  fontSize: 11,
+  fontSize: 'var(--text-caption)',
   color: 'var(--text-secondary)',
 };
 
@@ -204,7 +204,7 @@ function VisionRow({ obs, kind, index }: { obs: VisionObservation; kind: 'streng
             onClick={longDetail ? () => setOpen(o => !o) : undefined}
             style={{
               fontFamily: 'var(--font-ui)',
-              fontSize: 11,
+              fontSize: 'var(--text-caption)',
               lineHeight: 1.45,
               color: 'var(--text-secondary)',
               cursor: longDetail ? 'pointer' : 'default',
@@ -254,7 +254,7 @@ function VisionSection({ vision }: { vision: VisionResult }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <span style={sectionHeaderStyle}>Vision</span>
         {vision.designEra && (
-          <span style={{ fontFamily: 'var(--font-ui)', fontSize: 10, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+          <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)', fontStyle: 'italic' }}>
             {vision.designEra}
           </span>
         )}
@@ -269,7 +269,7 @@ function VisionSection({ vision }: { vision: VisionResult }) {
           return (
             <span key={k} style={{
               fontFamily: 'var(--font-mono)',
-              fontSize: 10,
+              fontSize: 'var(--text-caption)',
               color,
               padding: '1px 6px',
               borderRadius: 4,
@@ -459,8 +459,8 @@ export function EmailComposer({
             justifyContent: 'space-between',
             gap: 12,
             padding: '10px 14px',
-            background: 'rgba(245,183,0,0.07)',
-            border: '1px solid rgba(245,183,0,0.22)',
+            background: 'var(--warn-dim)',
+            border: '1px solid var(--warn-border)',
             borderRadius: 8,
             boxShadow: 'var(--shadow-sm)',
             flexShrink: 0,
@@ -498,8 +498,8 @@ export function EmailComposer({
                   fontWeight: 500,
                   padding: '5px 12px',
                   borderRadius: 6,
-                  border: '1px solid rgba(245,183,0,0.35)',
-                  background: 'rgba(245,183,0,0.1)',
+                  border: '1px solid var(--warn-border)',
+                  background: 'var(--warn-dim)',
                   color: 'var(--warn)',
                   cursor: 'pointer',
                 }}
@@ -516,7 +516,7 @@ export function EmailComposer({
             onClick={() => setPreviewing(p => !p)}
             style={{
               fontFamily: 'var(--font-ui)',
-              fontSize: 11,
+              fontSize: 'var(--text-caption)',
               fontWeight: 500,
               padding: '3px 10px',
               borderRadius: 100,
@@ -531,7 +531,7 @@ export function EmailComposer({
           </button>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>sent today</span>
+              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>sent today</span>
               <span style={{
                 fontFamily: 'var(--font-mono)',
                 fontSize: 13,
@@ -542,7 +542,7 @@ export function EmailComposer({
               </span>
             </div>
             {sentToday > DAILY_CAP && (
-              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 10, color: 'var(--error)' }}>
+              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--error)' }}>
                 Daily suggestion exceeded — proceed with care
               </span>
             )}
@@ -552,7 +552,7 @@ export function EmailComposer({
         {/* Shortcut legend */}
         <div style={{
           fontFamily: 'var(--font-ui)',
-          fontSize: 11,
+          fontSize: 'var(--text-caption)',
           color: 'var(--text-muted)',
           letterSpacing: '0.04em',
           flexShrink: 0,
@@ -585,7 +585,7 @@ export function EmailComposer({
           <>
             <div style={{
               fontFamily: 'var(--font-ui)',
-              fontSize: 11,
+              fontSize: 'var(--text-caption)',
               fontWeight: 600,
               color: 'var(--text-muted)',
               letterSpacing: '0.06em',
@@ -595,9 +595,9 @@ export function EmailComposer({
               Email preview
             </div>
             <div style={{
-              background: '#F5F0E8',
+              background: 'var(--email-paper)',
               borderRadius: 8,
-              border: '1px solid #DDD8CE',
+              border: '1px solid var(--email-paper-line)',
               padding: '24px',
               height: 480,
               overflowY: 'auto' as const,
@@ -605,21 +605,21 @@ export function EmailComposer({
               flexDirection: 'column' as const,
               gap: 0,
             }}>
-              <div style={{ borderBottom: '1px solid #DDD8CE', paddingBottom: 14, marginBottom: 20 }}>
-                <div style={{ fontSize: 17, fontWeight: 500, color: '#1A1612', fontFamily: 'Outfit, system-ui, sans-serif', marginBottom: 10, lineHeight: 1.3 }}>
+              <div style={{ borderBottom: '1px solid var(--email-paper-line)', paddingBottom: 14, marginBottom: 20 }}>
+                <div style={{ fontSize: 17, fontWeight: 500, color: 'var(--email-ink)', fontFamily: 'Outfit, system-ui, sans-serif', marginBottom: 10, lineHeight: 1.3 }}>
                   {draft.subject || '(sin asunto)'}
                 </div>
-                <div style={{ fontSize: 12, color: '#6B6258', fontFamily: 'Outfit, system-ui, sans-serif', lineHeight: 1.8 }}>
+                <div style={{ fontSize: 12, color: 'var(--email-ink-muted)', fontFamily: 'Outfit, system-ui, sans-serif', lineHeight: 1.8 }}>
                   <span style={{ fontWeight: 600 }}>De:</span>{' '}{senderName} {`<${senderEmail}>`}<br />
                   <span style={{ fontWeight: 600 }}>Para:</span>{' '}{lead.first_email ?? '—'}
                 </div>
               </div>
-              <div style={{ fontSize: 14, color: '#2A2218', fontFamily: 'Outfit, system-ui, sans-serif', lineHeight: 1.7, whiteSpace: 'pre-wrap' as const, marginBottom: 24 }}>
+              <div style={{ fontSize: 14, color: 'var(--email-ink-body)', fontFamily: 'Outfit, system-ui, sans-serif', lineHeight: 1.7, whiteSpace: 'pre-wrap' as const, marginBottom: 24 }}>
                 {draft.body || ''}
               </div>
               {signatureHtml && (
                 <>
-                  <div style={{ borderTop: '1px solid #DDD8CE', marginBottom: 20 }} />
+                  <div style={{ borderTop: '1px solid var(--email-paper-line)', marginBottom: 20 }} />
                   <div dangerouslySetInnerHTML={{ __html: signatureHtml }} />
                 </>
               )}
@@ -632,7 +632,7 @@ export function EmailComposer({
               <label htmlFor="email-subject" style={{
                 display: 'block',
                 fontFamily: 'var(--font-ui)',
-                fontSize: 11,
+                fontSize: 'var(--text-caption)',
                 fontWeight: 600,
                 color: 'var(--text-secondary)',
                 marginBottom: 6,
@@ -669,7 +669,7 @@ export function EmailComposer({
               <label htmlFor="email-body" style={{
                 display: 'block',
                 fontFamily: 'var(--font-ui)',
-                fontSize: 11,
+                fontSize: 'var(--text-caption)',
                 fontWeight: 600,
                 color: 'var(--text-secondary)',
                 marginBottom: 6,
@@ -704,12 +704,12 @@ export function EmailComposer({
               />
               {/* Word count + draft badge row */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6, flexShrink: 0 }}>
-                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>
+                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>
                   <span style={{ fontFamily: 'var(--font-mono)', color: wordColor }}>{words}</span>
                   {mode === 'followup' ? ' words · target ≤80' : ' words · target 60–90'}
                 </span>
                 {(() => {
-                  const base = { fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 100, letterSpacing: '0.04em' } as const;
+                  const base = { fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', fontWeight: 500, padding: '2px 8px', borderRadius: 100, letterSpacing: '0.04em' } as const;
                   if (savingState === 'saving') return <span style={{ ...base, background: 'var(--bg-hover)', color: 'var(--text-muted)' }}>Saving…</span>;
                   if (savingState === 'saved' && isAiDraft) return <span style={{ ...base, background: 'var(--accent-dim)', color: 'var(--accent)' }}>AI draft · saved</span>;
                   if (savingState === 'saved' && !isAiDraft) return <span style={{ ...base, background: 'var(--bg-hover)', color: 'var(--text-muted)' }}>Draft saved</span>;
@@ -739,7 +739,7 @@ export function EmailComposer({
             gap: 10,
             padding: '10px 14px',
             background: 'var(--bg-elevated)',
-            border: isVerdictHeld ? '1px solid rgba(245,183,0,0.3)' : '1px solid var(--hairline)',
+            border: isVerdictHeld ? '1px solid var(--warn-border)' : '1px solid var(--hairline)',
             borderRadius: 10,
             boxShadow: 'var(--shadow-md), var(--surface-highlight)',
             flexShrink: 0,
@@ -752,10 +752,10 @@ export function EmailComposer({
                 </span>
                 ?
                 {verificationVerdict?.status === 'ok' && (
-                  <span style={{ marginLeft: 8, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--success)' }}>✓ verified</span>
+                  <span style={{ marginLeft: 8, fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--success)' }}>✓ verified</span>
                 )}
                 {verificationVerdict?.status === 'violations_stripped' && (
-                  <span style={{ marginLeft: 8, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--warn)' }}>⚠ auto-corrected</span>
+                  <span style={{ marginLeft: 8, fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--warn)' }}>⚠ auto-corrected</span>
                 )}
               </span>
               <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -798,18 +798,18 @@ export function EmailComposer({
             {/* Force-send escape hatch when verifier held the draft */}
             {isVerdictHeld && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--warn)' }}>
+                <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--warn)' }}>
                   Draft held — verifier {verificationVerdict?.status === 'verifier_failed' ? 'failed' : 'found unsupported claims'}. Regenerate to fix.
                 </span>
                 <button
                   onClick={handleForceSendConfirm}
                   style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: 11,
+                    fontSize: 'var(--text-caption)',
                     fontWeight: 500,
                     padding: '4px 12px',
                     borderRadius: 6,
-                    border: '1px solid rgba(245,183,0,0.4)',
+                    border: '1px solid var(--warn-border)',
                     background: 'transparent',
                     color: 'var(--warn)',
                     cursor: 'pointer',
@@ -845,7 +845,7 @@ export function EmailComposer({
                   onClick={() => setScheduleChoice(c)}
                   style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: 11,
+                    fontSize: 'var(--text-caption)',
                     fontWeight: 500,
                     padding: '4px 12px',
                     borderRadius: 100,
@@ -877,7 +877,7 @@ export function EmailComposer({
                 }}
               />
             ) : (
-              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.45 }}>
+              <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)', lineHeight: 1.45 }}>
                 Fires at the next business-type-aware window (BA hours). Exact time chosen on the server.
               </span>
             )}
@@ -1000,10 +1000,10 @@ export function EmailComposer({
             {premium && (
               <span style={{
                 fontFamily: 'var(--font-mono)',
-                fontSize: 11,
+                fontSize: 'var(--text-caption)',
                 padding: '2px 8px',
                 borderRadius: 100,
-                background: premium.status === 'failed' ? 'rgba(255,77,109,0.1)' : 'var(--accent-dim)',
+                background: premium.status === 'failed' ? 'var(--error-dim)' : 'var(--accent-dim)',
                 color: premium.status === 'failed' ? 'var(--error)'
                   : premium.status === 'done' && premium.renderOutcome === 'ok' ? 'var(--success)'
                   : premium.status === 'done' ? 'var(--warn)'
@@ -1035,7 +1035,7 @@ export function EmailComposer({
                 <div key={cat} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <span style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: 11,
+                    fontSize: 'var(--text-caption)',
                     color: 'var(--text-muted)',
                     minWidth: 64,
                     flexShrink: 0,
@@ -1048,7 +1048,7 @@ export function EmailComposer({
                           onClick={() => setExpandedSig(expandedSig === sig.id ? null : sig.id)}
                           style={{
                             fontFamily: 'var(--font-ui)',
-                            fontSize: 11,
+                            fontSize: 'var(--text-caption)',
                             padding: '2px 8px',
                             borderRadius: 100,
                             border: expandedSig === sig.id ? '1px solid var(--accent-dim)' : '1px solid var(--border)',
@@ -1069,14 +1069,14 @@ export function EmailComposer({
                             borderRadius: 6,
                             boxShadow: 'var(--shadow-sm)',
                             fontFamily: 'var(--font-mono)',
-                            fontSize: 10,
+                            fontSize: 'var(--text-caption)',
                             color: 'var(--text-muted)',
                             wordBreak: 'break-all' as const,
                             maxWidth: 260,
                           }}>
                             <span style={{
                               color: 'var(--text-secondary)',
-                              fontSize: 9,
+                              fontSize: 'var(--text-caption)',
                               textTransform: 'uppercase' as const,
                               letterSpacing: '0.06em',
                               marginRight: 4,
@@ -1157,7 +1157,7 @@ export function EmailComposer({
                 border: 'none',
                 cursor: busy ? 'default' : 'pointer',
                 fontFamily: 'var(--font-ui)',
-                fontSize: 11,
+                fontSize: 'var(--text-caption)',
                 color: busy ? 'var(--text-muted)' : 'var(--text-secondary)',
                 opacity: busy ? 0.4 : 1,
                 padding: '2px 0',

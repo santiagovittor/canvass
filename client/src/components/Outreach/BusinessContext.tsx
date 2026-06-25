@@ -42,7 +42,7 @@ function ScheduledSection({ items, onCancel, onReschedule }: {
       flexShrink: 0,
     }}>
       <div style={{
-        fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600,
+        fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', fontWeight: 600,
         color: 'var(--text-muted)', letterSpacing: '0.11em', textTransform: 'uppercase',
         display: 'flex', alignItems: 'center', gap: 6,
       }}>
@@ -50,7 +50,7 @@ function ScheduledSection({ items, onCancel, onReschedule }: {
         <span style={{ color: 'var(--accent)' }}>{items.length}</span>
       </div>
       {items.length === 0 ? (
-        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>
+        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>
           Nothing scheduled.
         </span>
       ) : items.map(s => (
@@ -61,7 +61,7 @@ function ScheduledSection({ items, onCancel, onReschedule }: {
                 {formatScheduledAt(s.scheduled_at)}
               </span>
               <span style={{
-                fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-secondary)',
+                fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--text-secondary)',
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
                 {s.business_name}
@@ -72,7 +72,7 @@ function ScheduledSection({ items, onCancel, onReschedule }: {
                 <button
                   onClick={() => { setEditing(editing === s.id ? null : s.id); setLocal(defaultScheduleLocal()); }}
                   style={{
-                    fontFamily: 'var(--font-ui)', fontSize: 10, padding: '2px 8px', borderRadius: 100,
+                    fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', padding: '2px 8px', borderRadius: 100,
                     border: '1px solid var(--border)', background: 'transparent',
                     color: 'var(--text-secondary)', cursor: 'pointer',
                   }}
@@ -84,7 +84,7 @@ function ScheduledSection({ items, onCancel, onReschedule }: {
                 <button
                   onClick={() => onCancel(s.id)}
                   style={{
-                    fontFamily: 'var(--font-ui)', fontSize: 10, padding: '2px 8px', borderRadius: 100,
+                    fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', padding: '2px 8px', borderRadius: 100,
                     border: '1px solid var(--border)', background: 'transparent',
                     color: 'var(--text-muted)', cursor: 'pointer',
                   }}
@@ -101,7 +101,7 @@ function ScheduledSection({ items, onCancel, onReschedule }: {
                 value={local}
                 onChange={e => setLocal(e.target.value)}
                 style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)',
+                  fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--text-primary)',
                   background: 'var(--bg-panel)', border: '1px solid var(--border)', borderRadius: 6,
                   padding: '5px 8px', outline: 'none', colorScheme: 'dark', flex: 1, minWidth: 0,
                 }}
@@ -110,7 +110,7 @@ function ScheduledSection({ items, onCancel, onReschedule }: {
                 onClick={() => { if (local) { onReschedule(s.id, baLocalToUtcIso(local)); setEditing(null); } }}
                 disabled={!local}
                 style={{
-                  fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 600, padding: '4px 10px', borderRadius: 6,
+                  fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', fontWeight: 600, padding: '4px 10px', borderRadius: 6,
                   border: '1px solid var(--border-strong)', background: 'var(--bg-hover)',
                   color: 'var(--text-primary)', cursor: local ? 'pointer' : 'not-allowed', opacity: local ? 1 : 0.4,
                 }}
@@ -228,11 +228,11 @@ function LeadResearch({ analysis, category }: { analysis: WebsiteAnalysis; categ
           {chips.map((chip, i) => (
             <span key={i} style={{
               fontFamily: 'var(--font-ui)',
-              fontSize: 10,
+              fontSize: 'var(--text-caption)',
               fontWeight: 500,
               padding: '2px 7px',
               borderRadius: 100,
-              background: chip.present ? 'var(--accent-dim)' : 'rgba(245,183,0,0.12)',
+              background: chip.present ? 'var(--accent-dim)' : 'var(--warn-dim)',
               color: chip.present ? 'var(--accent)' : 'var(--warn)',
             }}>
               {chip.label}
@@ -247,7 +247,7 @@ function LeadResearch({ analysis, category }: { analysis: WebsiteAnalysis; categ
               </div>
             )}
             {analysis.metaDescription && (
-              <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+              <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
                 {analysis.metaDescription.length > 180
                   ? analysis.metaDescription.slice(0, 180) + '...'
                   : analysis.metaDescription}
@@ -260,7 +260,7 @@ function LeadResearch({ analysis, category }: { analysis: WebsiteAnalysis; categ
                 rel="noopener noreferrer"
                 style={{
                   fontFamily: 'var(--font-mono)',
-                  fontSize: 10,
+                  fontSize: 'var(--text-caption)',
                   color: 'var(--text-muted)',
                   overflowWrap: 'anywhere' as const,
                 }}
@@ -372,7 +372,7 @@ export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCa
           background: 'var(--accent-dim)',
           color: 'var(--accent)',
           fontFamily: 'var(--font-ui)',
-          fontSize: 11,
+          fontSize: 'var(--text-caption)',
           fontWeight: 500,
           letterSpacing: '0.06em',
           textTransform: 'uppercase' as const,
@@ -402,7 +402,7 @@ export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCa
       <div>
         <div style={{
           fontFamily: 'var(--font-ui)',
-          fontSize: 11,
+          fontSize: 'var(--text-caption)',
           fontWeight: 600,
           color: 'var(--text-secondary)',
           marginBottom: 6,
@@ -425,7 +425,7 @@ export function BusinessContext({ lead, analysis, onMarkReplied, scheduled, onCa
         ) : (
           <span style={{
             display: 'inline-block',
-            background: 'rgba(245,183,0,0.1)',
+            background: 'var(--warn-dim)',
             color: 'var(--warn)',
             fontFamily: 'var(--font-ui)',
             fontSize: 12,

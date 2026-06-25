@@ -90,10 +90,10 @@ export function WhatsAppComposer({
       {/* Body: message editor */}
       <div style={{ flex: 1, minHeight: 0, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)' }}>
+          <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', fontWeight: 600, color: 'var(--text-secondary)' }}>
             Mensaje de WhatsApp
           </span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>
             {savingState === 'saving' ? 'guardando…' : savingState === 'saved' ? 'guardado' : ''}
           </span>
         </div>
@@ -118,13 +118,13 @@ export function WhatsAppComposer({
         {error && (
           <div style={{
             fontFamily: 'var(--font-ui)', fontSize: 12, color: 'var(--error)',
-            background: 'rgba(255,77,109,0.1)', borderRadius: 6, padding: '6px 10px',
+            background: 'var(--error-dim)', borderRadius: 6, padding: '6px 10px',
           }}>
             {error}
           </div>
         )}
         {!e164 && (
-          <div style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--warn)' }}>
+          <div style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--warn)' }}>
             Sin número usable — sólo se puede llamar manualmente.
           </div>
         )}
@@ -160,7 +160,7 @@ export function WhatsAppComposer({
         </a>
         <div style={{ flex: 1 }} />
         <button
-          style={{ ...SECONDARY_BTN, color: 'var(--success)', borderColor: 'rgba(74,222,128,0.4)' }}
+          style={{ ...SECONDARY_BTN, color: 'var(--success)', borderColor: 'var(--success-border)' }}
           onClick={onMarkContacted}
         >
           Marcar contactado

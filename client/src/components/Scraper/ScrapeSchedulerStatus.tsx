@@ -36,10 +36,10 @@ export function ScrapeSchedulerStatus() {
 
   const lastTickMs = health?.lastTickAt ? new Date(health.lastTickAt).getTime() : null;
   const isAlive = lastTickMs !== null && health !== null && Date.now() - lastTickMs < 2 * health.intervalMs;
-  const dotColor = !health ? '#555' : health.paused ? 'var(--warn)' : isAlive ? 'var(--success)' : 'var(--error)';
+  const dotColor = !health ? 'var(--text-muted)' : health.paused ? 'var(--warn)' : isAlive ? 'var(--success)' : 'var(--error)';
 
   const ghostBtn: React.CSSProperties = {
-    fontFamily: 'var(--font-ui)', fontSize: 10, padding: '2px 8px', borderRadius: 6,
+    fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', padding: '2px 8px', borderRadius: 6,
     border: '1px solid var(--border-strong)', background: 'transparent',
     color: 'var(--text-secondary)', cursor: 'pointer',
   };
@@ -55,13 +55,13 @@ export function ScrapeSchedulerStatus() {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{
-          fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 600,
+          fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', fontWeight: 600,
           letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-secondary)',
           flex: 1,
         }}>Scrape Scheduler</span>
         {health?.paused && (
           <span style={{
-            fontFamily: 'var(--font-ui)', fontSize: 9, fontWeight: 600,
+            fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', fontWeight: 600,
             color: 'var(--accent-ink)', background: 'var(--accent)',
             borderRadius: 100, padding: '1px 6px', letterSpacing: '0.06em', textTransform: 'uppercase',
           }}>Paused</span>
@@ -83,7 +83,7 @@ export function ScrapeSchedulerStatus() {
             ['deduped', health.lastTickCounts.deduped, 'var(--text-muted)'],
             ['err', health.lastTickCounts.errored, health.lastTickCounts.errored > 0 ? 'var(--error)' : 'var(--text-muted)'],
           ] as [string, number, string][]).map(([label, val, color]) => (
-            <span key={label} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+            <span key={label} style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
               {label}{' '}
               <span style={{ color, fontWeight: 600 }}>{val}</span>
             </span>
@@ -96,10 +96,10 @@ export function ScrapeSchedulerStatus() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {shown.map(run => (
             <div key={run.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>
                 {new Date(run.started_at).toLocaleTimeString()}
               </span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: run.status === 'ok' ? 'var(--success)' : run.status === 'error' ? 'var(--error)' : 'var(--warn)' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: run.status === 'ok' ? 'var(--success)' : run.status === 'error' ? 'var(--error)' : 'var(--warn)' }}>
                 {run.status === 'ok' ? `+${run.added_count}` : run.status === 'error' ? 'err' : '…'}
               </span>
             </div>

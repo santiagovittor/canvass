@@ -140,10 +140,14 @@ _Filled DURING execution with live evidence._
         against its own rolling-24h cap.
 - [x] **Backfill.** Pre-0027 rows backfilled to `GMAIL_FROM`; newest live `sent` row now
       reads `sender='svittordev@gmail.com'`.
-- [~] **Live send/reply/bounce from sender #2.** BLOCKED on operator action — only sender
-      #1 is configured in `.env`; `santiagovittordev@gmail.com` App Password not yet
-      provided. Reply/bounce path is structurally extended (per-sender IMAP loop, ownAddress
-      per sender) + tsc-verified; live confirmation pending the second App Password.
+- [x] **Live send from sender #2.** UNBLOCKED (2026-06-25). Operator set valid
+      `GMAIL_FROM_2`/`GMAIL_APP_PASSWORD_2` (first App Password was rejected with
+      `535-5.7.8 BadCredentials`; regenerated one authenticates). `getSenders()` resolves both
+      (`#0 svittordev`, `#1 santiagovittordev@gmail.com OUTREACH_DAILY_CAP_2`); live
+      `transport.verify()` → **OK for both**; live `sendMail` from sender #2 → Gmail accepted
+      (`accepted=svittordev@gmail.com`, delivered). Reply/bounce path is structurally extended
+      (per-sender IMAP loop, ownAddress per sender) + tsc-verified; will exercise naturally on
+      the next real reply/DSN to sender #2's inbox.
 - [x] `npx tsc --noEmit` clean — server (in container), after every phase + final.
 - [x] **Reviewer subagent pass** (send-path). One actionable fix applied: extend the
       explicit `GMAIL_HARD_CEILING` backstop in `appSettings.clampNumber` to
@@ -170,8 +174,8 @@ real send today → global pacing defers the seeded sends. Confirmed identical (
   at send time (least-loaded), so it would only mirror `email_sends.sender` after the fact,
   already correlated via the existing `scheduled_send_id`. No reader needs it.
 - Follow-ups / new parked items:
-  - Operator: enable 2FA + generate App Password on `santiagovittordev@gmail.com`, set
-    `GMAIL_FROM_2`/`GMAIL_APP_PASSWORD_2`, restart server → then run the live
-    send/reply/bounce confirmation for sender #2.
+  - ~~Operator: enable 2FA + generate App Password on `santiagovittordev@gmail.com`~~ DONE
+    (2026-06-25): valid App Password set, both senders verify, live send from #2 delivered.
+    Reply/bounce attribution for #2 will be observed on the next real reply/DSN to that inbox.
   - Parked: `scheduledSendGateTest` pacing fragility against a live DB (inject a clean
     pacing slate or per-test sent-row isolation) — pre-existing, out of scope here.

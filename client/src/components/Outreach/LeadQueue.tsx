@@ -197,7 +197,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
       }}>
         <span style={{
           fontFamily: 'var(--font-ui)',
-          fontSize: 11,
+          fontSize: 'var(--text-caption)',
           fontWeight: 600,
           color: 'var(--text-secondary)',
         }}>
@@ -209,7 +209,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                 ? 'Sin sitio · WhatsApp'
                 : `Lead Queue${activeFilterCount > 0 ? ` · ${activeFilterCount} filtro${activeFilterCount !== 1 ? 's' : ''}` : ''}`}
         </span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-muted)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>
           {total}
         </span>
       </div>
@@ -248,7 +248,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
             value={searchInput}
             onChange={e => setSearchInput(e.target.value)}
             style={{
-              background: 'rgba(255,255,255,0.04)',
+              background: 'var(--input-bg)',
               border: '1px solid var(--border)',
               borderRadius: 6,
               padding: '4px 8px',
@@ -262,7 +262,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
 
         {mode === 'followup' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' as const, rowGap: 4 }}>
-            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>Esperar</span>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>Esperar</span>
             <input
               type="number"
               min={1}
@@ -271,7 +271,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
               onChange={e => handleDaysChange(e.target.value)}
               style={{
                 width: 48,
-                background: 'rgba(255,255,255,0.04)',
+                background: 'var(--input-bg)',
                 border: '1px solid var(--border)',
                 borderRadius: 6,
                 padding: '4px 6px',
@@ -281,7 +281,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                 outline: 'none',
               }}
             />
-            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>días sin respuesta</span>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>días sin respuesta</span>
           </div>
         )}
 
@@ -296,7 +296,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
           style={{
             width: '100%',
             minWidth: 0,
-            background: 'rgba(255,255,255,0.04)',
+            background: 'var(--input-bg)',
             border: '1px solid var(--border)',
             borderRadius: 6,
             padding: '6px 10px',
@@ -414,7 +414,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{
                   fontFamily: 'var(--font-ui)',
-                  fontSize: 13,
+                  fontSize: 'var(--text-body)',
                   fontWeight: 500,
                   color: 'var(--text-primary)',
                   whiteSpace: 'nowrap' as const,
@@ -433,7 +433,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                     ? (
                       <span style={{
                         fontFamily: 'var(--font-mono)',
-                        fontSize: 10,
+                        fontSize: 'var(--text-caption)',
                         color: 'var(--text-muted)',
                       }}>
                         {lead.phone ?? 'sin teléfono'}
@@ -445,7 +445,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                         title="Email found during enrichment (not the map scrape) — deliverability not guaranteed"
                         style={{
                           fontFamily: 'var(--font-mono)',
-                          fontSize: 10,
+                          fontSize: 'var(--text-caption)',
                           color: 'var(--text-muted)',
                         }}>
                         {lead.first_email}
@@ -454,10 +454,10 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                     : (
                       <span style={{
                         fontFamily: 'var(--font-ui)',
-                        fontSize: 10,
+                        fontSize: 'var(--text-caption)',
                         fontWeight: 500,
                         color: 'var(--error)',
-                        background: 'rgba(255,77,109,0.12)',
+                        background: 'var(--error-dim)',
                         padding: '1px 5px',
                         borderRadius: 3,
                       }}>
@@ -469,7 +469,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                 {(mode === 'new' || mode === 'no-site') && lead.category && (
                   <div style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: 11,
+                    fontSize: 'var(--text-caption)',
                     color: invalid ? 'var(--text-muted)' : 'var(--accent)',
                     marginTop: 2,
                     whiteSpace: 'nowrap' as const,
@@ -482,7 +482,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                 {(mode === 'new' || mode === 'no-site') && lead.locNeighbourhood && (
                   <div style={{
                     fontFamily: 'var(--font-ui)',
-                    fontSize: 11,
+                    fontSize: 'var(--text-caption)',
                     color: 'var(--text-muted)',
                     marginTop: 1,
                     whiteSpace: 'nowrap' as const,
@@ -497,12 +497,12 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                   return (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' as const }}>
                       {fu.last_sent_at && (
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>
                           {relTimeFmt.format(-daysAgo(fu.last_sent_at), 'day')}
                         </span>
                       )}
                       {fu.send_count > 1 && (
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>
                           ×{fu.send_count}
                         </span>
                       )}
@@ -523,13 +523,13 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                         return (
                           <span title={title} style={{
                             fontFamily: 'var(--font-ui)',
-                            fontSize: 10,
+                            fontSize: 'var(--text-caption)',
                             fontWeight: 500,
                             padding: '1px 5px',
                             borderRadius: 3,
                             ...(fu.tracked && opened
                               ? { color: 'var(--accent)', background: 'var(--accent-dim)' }
-                              : { color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)' }),
+                              : { color: 'var(--text-muted)', background: 'var(--fill-subtle)' }),
                           }}>
                             {label}
                           </span>
@@ -538,12 +538,12 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                       {fu.reply_type === 'auto' && (
                         <span style={{
                           fontFamily: 'var(--font-ui)',
-                          fontSize: 10,
+                          fontSize: 'var(--text-caption)',
                           fontWeight: 500,
                           padding: '1px 5px',
                           borderRadius: 3,
                           color: 'var(--text-muted)',
-                          background: 'rgba(255,255,255,0.05)',
+                          background: 'var(--fill-subtle)',
                         }}>
                           auto
                         </span>
@@ -556,7 +556,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                           border: 'none',
                           padding: 0,
                           fontFamily: 'var(--font-ui)',
-                          fontSize: 10,
+                          fontSize: 'var(--text-caption)',
                           fontWeight: 500,
                           color: 'var(--success)',
                           cursor: 'pointer',
@@ -578,19 +578,19 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                   return (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' as const }}>
                       {rl.replied_at && (
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-muted)' }}>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>
                           {relTimeFmt.format(-daysAgo(rl.replied_at), 'day')}
                         </span>
                       )}
                       <span style={{
                         fontFamily: 'var(--font-ui)',
-                        fontSize: 10,
+                        fontSize: 'var(--text-caption)',
                         fontWeight: 500,
                         padding: '1px 5px',
                         borderRadius: 3,
                         ...(isReal
-                          ? { color: 'var(--success)', background: 'rgba(74,222,128,0.12)' }
-                          : { color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)' }),
+                          ? { color: 'var(--success)', background: 'var(--success-dim)' }
+                          : { color: 'var(--text-muted)', background: 'var(--fill-subtle)' }),
                       }}>
                         {tagLabel}
                       </span>
@@ -602,7 +602,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                           border: 'none',
                           padding: 0,
                           fontFamily: 'var(--font-ui)',
-                          fontSize: 10,
+                          fontSize: 'var(--text-caption)',
                           fontWeight: 500,
                           color: isReal ? 'var(--text-muted)' : 'var(--success)',
                           cursor: 'pointer',
@@ -624,7 +624,7 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                   </span>
                 )}
                 {lead.has_draft && (
-                  <span style={{ fontSize: 11, color: 'var(--accent)', lineHeight: 1 }}>✏</span>
+                  <span style={{ fontSize: 'var(--text-caption)', color: 'var(--accent)', lineHeight: 1 }}>✏</span>
                 )}
                 {/* slice 0013: 3-state deliverability — valid (filled green) /
                     unknown (hollow muted: MX ok, mailbox unconfirmed) / invalid (warn ⚠).

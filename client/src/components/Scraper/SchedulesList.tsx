@@ -56,11 +56,11 @@ export function SchedulesList({ geometry }: Props) {
 
   const mono: React.CSSProperties = { fontFamily: 'var(--font-mono)' };
   const label: React.CSSProperties = {
-    fontFamily: 'var(--font-ui)', fontSize: 10, fontWeight: 600,
+    fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', fontWeight: 600,
     letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)',
   };
   const ghostBtn: React.CSSProperties = {
-    fontFamily: 'var(--font-ui)', fontSize: 10, padding: '2px 7px', borderRadius: 5,
+    fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', padding: '2px 7px', borderRadius: 5,
     border: '1px solid var(--border-strong)', background: 'transparent',
     color: 'var(--text-secondary)', cursor: 'pointer',
   };
@@ -73,7 +73,7 @@ export function SchedulesList({ geometry }: Props) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {schedules.length === 0 && !showForm && (
-        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--text-muted)' }}>
+        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>
           No schedules yet.
         </span>
       )}
@@ -94,7 +94,7 @@ export function SchedulesList({ geometry }: Props) {
                 <span className="pill pill--keyword">keyword</span>
               )}
               {s.last_run_status && (
-                <span style={{ ...mono, fontSize: 10, color: statusColor }}>
+                <span style={{ ...mono, fontSize: 'var(--text-caption)', color: statusColor }}>
                   {s.last_run_status === 'ok' ? `+${s.last_run_added_count ?? 0}` : s.last_run_status}
                 </span>
               )}
@@ -111,11 +111,11 @@ export function SchedulesList({ geometry }: Props) {
               <span style={{ ...label }}>
                 {s.kind === 'keyword' ? (s.keyword_query ?? '—') : s.business_type}
               </span>
-              <span style={{ ...mono, fontSize: 10, color: 'var(--text-muted)' }}>
+              <span style={{ ...mono, fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>
                 {s.interval_minutes === 0 ? 'one-shot' : `every ${s.interval_minutes < 60 ? `${s.interval_minutes}m` : `${s.interval_minutes / 60}h`}`}
               </span>
               {s.last_run_at && (
-                <span style={{ ...mono, fontSize: 10, color: 'var(--text-muted)' }}>
+                <span style={{ ...mono, fontSize: 'var(--text-caption)', color: 'var(--text-muted)' }}>
                   ran {new Date(s.last_run_at).toLocaleString()}
                 </span>
               )}
@@ -144,7 +144,7 @@ export function SchedulesList({ geometry }: Props) {
         }}>
           <span style={{ ...label }}>New Schedule</span>
           {!geometry && (
-            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 11, color: 'var(--warn)' }}>
+            <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', color: 'var(--warn)' }}>
               Draw a polygon on the map first.
             </span>
           )}
@@ -161,7 +161,7 @@ export function SchedulesList({ geometry }: Props) {
           <div style={{ display: 'flex', gap: 6 }}>
             <button
               style={{
-                fontFamily: 'var(--font-ui)', fontSize: 11, fontWeight: 600,
+                fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', fontWeight: 600,
                 padding: '5px 14px', borderRadius: 7, border: 'none',
                 background: geometry && formName.trim() && formType.trim() ? 'var(--accent)' : 'var(--bg-hover)',
                 color: geometry && formName.trim() && formType.trim() ? 'var(--accent-ink)' : 'var(--text-muted)',
@@ -179,7 +179,7 @@ export function SchedulesList({ geometry }: Props) {
       ) : (
         <button
           style={{
-            fontFamily: 'var(--font-ui)', fontSize: 11, padding: '5px 0', borderRadius: 7,
+            fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', padding: '5px 0', borderRadius: 7,
             border: '1px dashed var(--border-strong)', background: 'transparent',
             color: 'var(--text-muted)', cursor: 'pointer', width: '100%',
           }}

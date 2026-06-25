@@ -183,7 +183,7 @@ function OutcomeList({ items }: { items: BatchItem[] }) {
                 fontFamily: 'var(--font-ui)', fontSize: 'var(--text-caption)', fontWeight: 500,
                 padding: '2px 8px', borderRadius: 4, flexShrink: 0,
                 color: isQueued ? 'var(--success)' : isFail ? 'var(--error)' : 'var(--text-muted)',
-                background: isQueued ? 'rgba(74,222,128,0.12)' : isFail ? 'rgba(255,77,109,0.12)' : 'rgba(255,255,255,0.05)',
+                background: isQueued ? 'var(--success-dim)' : isFail ? 'var(--error-dim)' : 'var(--fill-subtle)',
               }}>
                 {DISPOSITION_LABEL[disp] ?? disp}
               </span>

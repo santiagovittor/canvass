@@ -4,6 +4,7 @@ import path from 'path';
 import { env } from '../env';
 import { getDailySendCount, recordEmailSend, markContacted, validateEmail } from '../db';
 import { defaultSender, type Sender } from './senders';
+import { stripEmDashes } from './textSanitizer';
 
 const candidates = [
   env.EMAIL_SIGNATURE_PATH,
@@ -51,6 +52,12 @@ export async function sendEmail(
   verificationOverride = false,
   opts: { dryRun?: boolean; scheduledSendId?: string | null; sender?: Sender } = {},
 ): Promise<{ success: boolean; error?: string; remaining: number }> {
+  // Defensive em-dash guard (slice 0034): runs before both the dry-run and real
+  // paths so a hand-edited draft, or any path that bypassed compose, never ships a
+  // `—`. Identical text on dry-run and real send.
+  subject = stripEmDashes(subject);
+  body = stripEmDashes(body);
+
   if (!validateEmail(to)) {
     console.error('[emailSender] invalid email address:', to);
     return { success: false, error: 'Invalid email address', remaining: DAILY_CAP - getDailySendCount() };

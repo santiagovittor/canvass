@@ -12,6 +12,7 @@ import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from './visionClient';
 import type { AnchorCandidate } from './anchorRanker';
 import { getString, getNumber } from './appSettings';
+import { stripEmDashes } from './textSanitizer';
 
 // Structured composer output. The composer declares the anchor it built the
 // opening on, plus every website claim it made (each tied to an evidenceRef) so
@@ -143,7 +144,7 @@ function buildAnalysisGaps(
   if (isFood && !a.hasMenuOrServices)
     raw.push({ label: 'no muestra el menú online a primera vista', priority: 10 });
   if (a.siteAppearsOutdated && a.copyrightYear)
-    raw.push({ label: `el copyright del sitio dice ${a.copyrightYear} — puede parecer inactivo o desactualizado`, priority: 9 });
+    raw.push({ label: `el copyright del sitio dice ${a.copyrightYear}, puede parecer inactivo o desactualizado`, priority: 9 });
   // Suppress mobile gap if ABSENT_VERIFIED — buildSignalContext covers it instead
   if (!a.hasViewportMeta && !absentVerifiedKeys?.has('hasViewportMeta'))
     raw.push({ label: 'no parece estar optimizado para móviles', priority: 8 });
@@ -154,7 +155,7 @@ function buildAnalysisGaps(
   if (!a.hasContactForm && !hasFormSig)
     raw.push({ label: 'no muestra un formulario de contacto a primera vista', priority: 5 });
   if (!a.hasStructuredData && getCategoryBucket(b.category) !== 'food')
-    raw.push({ label: 'no parece tener datos estructurados — puede no aparecer con estrellas ni horarios en Google', priority: 5 });
+    raw.push({ label: 'no parece tener datos estructurados, puede no aparecer con estrellas ni horarios en Google', priority: 5 });
   if (!a.hasOpenGraph)
     raw.push({ label: 'al compartirlo por WhatsApp o redes no muestra imagen ni descripción del negocio', priority: 4 });
   if (!a.hasSSL)
@@ -228,6 +229,8 @@ function buildOfferContext(b: BusinessForEmail): string {
 
 const SYSTEM_ES = `Sos un copywriter de cold email B2B para negocios en Argentina.
 
+PUNTUACIÓN: nunca uses guion largo (—) ni raya; usá coma o punto.
+
 VOZ: primera persona del singular únicamente.
 Nunca "nosotros", "implementamos", "ofrecemos", "trabajamos".
 Siempre: "implemento", "trabajo", "desarrollo", "diseño".
@@ -290,7 +293,7 @@ subject: "su estudio en Núñez"
 body:
 Buenas tardes,
 
-El sitio de su estudio en Núñez no muestra WhatsApp ni un formulario de contacto a primera vista — puede hacer que los clientes que llegan de noche o el fin de semana se queden sin una forma rápida de comunicarse.
+El sitio de su estudio en Núñez no muestra WhatsApp ni un formulario de contacto a primera vista, puede hacer que los clientes que llegan de noche o el fin de semana se queden sin una forma rápida de comunicarse.
 
 Trabajo con un asistente de chat con IA que responde consultas básicas las 24 horas y deja todo registrado para que usted lo retome cuando pueda.
 
@@ -345,6 +348,8 @@ Responder ÚNICAMENTE con JSON válido, sin texto adicional, sin markdown:
 
 const SYSTEM_EN = `You are a B2B cold email copywriter. Plain, direct American English.
 Sound like a real person, not a company or agency.
+
+PUNCTUATION: never use em dashes or en dashes (—, –); use a comma or period.
 
 {{TONE_DIRECTIVE}}
 
@@ -532,6 +537,8 @@ Reply ONLY with valid JSON, no extra text, no markdown:
 // register (Spain) instead of usted/voseo (Argentina). Used for loc_country=Spain.
 const SYSTEM_ES_ES = `Eres un copywriter de cold email B2B para negocios en España.
 
+PUNTUACIÓN: nunca uses guion largo (—) ni raya; usa coma o punto.
+
 VOZ: primera persona del singular únicamente.
 Nunca "nosotros", "implementamos", "ofrecemos", "trabajamos".
 Siempre: "implemento", "trabajo", "desarrollo", "diseño".
@@ -594,7 +601,7 @@ subject: "tu estudio en Chamberí"
 body:
 Buenas tardes,
 
-La web de tu estudio en Chamberí no muestra WhatsApp ni un formulario de contacto a primera vista — puede hacer que los clientes que entran de noche o el fin de semana se queden sin una forma rápida de contactar.
+La web de tu estudio en Chamberí no muestra WhatsApp ni un formulario de contacto a primera vista, puede hacer que los clientes que entran de noche o el fin de semana se queden sin una forma rápida de contactar.
 
 Trabajo con un asistente de chat con IA que responde consultas básicas las 24 horas y deja todo registrado para que lo retomes cuando puedas.
 
@@ -776,9 +783,12 @@ async function callGemini(systemPrompt: string, userPayload: Record<string, unkn
     throw new Error(`Gemini JSON missing subject/body: ${text.slice(0, 200)}`);
   }
 
+  // Sanitize at the output boundary (slice 0034) — covers both composeFollowUp and
+  // composeWhatsApp, the two callers of this helper. composeEmail goes through
+  // callGeminiStructured and is sanitized at its own return.
   return {
-    subject: (parsed as { subject: string; body: string }).subject,
-    body: (parsed as { subject: string; body: string }).body,
+    subject: stripEmDashes((parsed as { subject: string; body: string }).subject),
+    body: stripEmDashes((parsed as { subject: string; body: string }).body),
   };
 }
 
@@ -1054,9 +1064,11 @@ export async function composeEmail(
   }
 
   const composed = await callGeminiStructured(systemPrompt, userPayload);
+  // Sanitize at the output boundary (slice 0034) so the draft persisted to
+  // outreach_drafts and rendered in the composer is already em-dash-free.
   return {
-    subject: composed.subject,
-    body: composed.body,
+    subject: stripEmDashes(composed.subject),
+    body: stripEmDashes(composed.body),
     anchorId: composed.anchorId,
     openingSentence: composed.openingSentence,
     claims: composed.claims,

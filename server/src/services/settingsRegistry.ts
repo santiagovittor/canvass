@@ -255,7 +255,7 @@ export const FIELDS: SettingField[] = [
   {
     key: 'ASSISTANT_OFFER_EN', group: 'Offer & Copy', label: 'Assistant offer copy (EN)',
     type: 'string',
-    default: 'I also design AI virtual assistants — chatbots that answer visitor questions instantly, 24/7, and log every message so you can follow up when you have a moment.',
+    default: 'I also design AI virtual assistants: chatbots that answer visitor questions instantly, 24/7, and log every message so you can follow up when you have a moment.',
     help: 'Service statement (always true). Woven in as a benefit. Asserting the lead LACKS one is gated separately by the anchor.',
   },
   {

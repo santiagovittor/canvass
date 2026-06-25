@@ -5,7 +5,7 @@ import {
 import { verifyEmailDeliverable, selectBestEmail } from './emailVerifier';
 import {
   createBatchRun, addBatchItems, getBatchRun, transitionItem, setRunStatus,
-  listResumableItems, listRunsByStatus, enqueueForSend,
+  listResumableItems, listRunsByStatus, enqueueForSend, bumpBatchItemAttempt,
   type BatchItemRow, type BatchRunRow,
 } from '../db/batch';
 import { UTC_MINUS_3_OFFSET_MS } from '../util/time';
@@ -57,6 +57,20 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 // 1 jumps all opportunistic backlog vision calls (default 5). The batch is the time-boxed,
 // user-facing operation; the backlog is opportunistic and re-runnable.
 const BATCH_PRIORITY = 1;
+
+// Self-timeout recovery (slice 0032). A slow site that blows the analyze/compose budget
+// must not dead-letter the lead: up to TIMEOUT_RETRIES attempts before it goes terminal.
+// Between retries driveRun re-drives in-run; a stagnant pass (every remaining item still
+// waiting on its in-flight analysis to finish) sleeps REDRIVE_DELAY_MS before retrying,
+// bounded by MAX_STAGNANT_PASSES so a genuine wedge falls through to the stall watchdog
+// rather than spinning forever.
+// ponytail: K and delays are fixed consts, not env/Settings — promote to env only if the
+// operator ever needs to tune them live.
+const TIMEOUT_RETRIES = 2;
+const REDRIVE_DELAY_MS = 3000;
+const MAX_STAGNANT_PASSES = 100; // ~300s ceiling; in-flight analyses always settle well within this
+const TIMEOUT_SENTINELS = new Set(['analyze_timeout', 'compose_timeout']);
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 // One driver per run at a time. startBatch/resumeBatch are idempotent against this.
 const activeRuns = new Set<string>();
@@ -206,46 +220,88 @@ async function driveRun(runId: string): Promise<void> {
     const run = getBatchRun(runId);
     if (!run || run.status !== 'running') return;
     const dryRun = run.dryRun === 1;
-    const sem = createSemaphore(getNumber('BATCH_PREPARE_CONCURRENCY'));
 
-    const items = listResumableItems(runId);
-    await Promise.all(items.map(item => (async () => {
-      await sem.acquire();
-      try {
-        // Re-check at slot acquisition: a pause/cancel mid-run stops launching new items.
-        if (!runIsRunning(runId)) return;
-        // Priority context propagates across the nested runPremiumAnalysis / composeVerifiedEmail
-        // awaits (slice 0031 B), so every batch Gemini call inherits BATCH_PRIORITY.
-        await withGeminiPriority(BATCH_PRIORITY, () => processItem(runId, item, dryRun));
-      } catch (err) {
-        if (err instanceof GeminiRpdExhausted) {
-          // Budget hit mid-batch: pause the run, leave this item resumable (it never
-          // reached a terminal state). Resumes cleanly after the Pacific-midnight reset.
-          setRunStatus(runId, 'paused', 'gemini_rpd_exhausted');
-          broadcastProgress(runId);
-          return;
+    // Bounded in-run re-drive (slice 0032). Each pass processes every currently-resumable
+    // item; a self-timeout reverts an item to 'pending' (retry) rather than dead-lettering.
+    // A pass that terminalizes nothing means every remaining item is still waiting on its
+    // in-flight analysis to settle (incl. F2 queue-owned renders) — sleep briefly, retry.
+    // That in-flight work is bounded (render/PSI/vision each self-timeout), so it always
+    // settles and a later pass progresses. MAX_STAGNANT_PASSES is the safety floor: a true
+    // wedge falls through to the 600s stall watchdog instead of spinning forever.
+    let stagnantPasses = 0;
+    while (runIsRunning(runId)) {
+      const items = listResumableItems(runId);
+      if (items.length === 0) break;
+      const sem = createSemaphore(getNumber('BATCH_PREPARE_CONCURRENCY'));
+      await Promise.all(items.map(item => (async () => {
+        await sem.acquire();
+        try {
+          // Re-check at slot acquisition: a pause/cancel mid-run stops launching new items.
+          if (!runIsRunning(runId)) return;
+          // Priority context propagates across the nested runPremiumAnalysis / composeVerifiedEmail
+          // awaits (slice 0031 B), so every batch Gemini call inherits BATCH_PRIORITY.
+          await withGeminiPriority(BATCH_PRIORITY, () => processItem(runId, item, dryRun));
+        } catch (err) {
+          if (err instanceof GeminiRpdExhausted) {
+            // Budget hit mid-batch: pause the run, leave this item resumable (it never
+            // reached a terminal state). Resumes cleanly after the Pacific-midnight reset.
+            setRunStatus(runId, 'paused', 'gemini_rpd_exhausted');
+            broadcastProgress(runId);
+            return;
+          }
+          if (err instanceof GeminiProviderExhausted) {
+            // Google's provider quota is spent (429 RESOURCE_EXHAUSTED past the retry
+            // budget): pause resumably, same as RPD, but arm the recovery probe that
+            // re-attempts on a backoff until a Gemini call succeeds and auto-resumes.
+            setRunStatus(runId, 'paused', PROVIDER_PAUSE_REASON);
+            broadcastProgress(runId);
+            ensureRecoveryTimer();
+            return;
+          }
+          const msg = err instanceof Error ? err.message : String(err);
+          if (TIMEOUT_SENTINELS.has(msg)) {
+            // Self-inflicted slowness (slice 0032): the wall-clock budget fired but the
+            // in-flight analyze/compose is NOT cancelled and finishes moments later. Don't
+            // dead-letter — retry up to TIMEOUT_RETRIES. On the retry the analysis is
+            // 'done' + TTL-fresh → reused with no re-render (F2 guard). Only a site that
+            // can't finish within budget across all attempts goes terminal, tagged so the
+            // operator can tell "genuinely slow" from "broken".
+            const next = (item.attemptCount ?? 0) + 1;
+            if (next >= TIMEOUT_RETRIES) {
+              transitionItem({ id: item.id, batchId: runId }, 'failed', {
+                lastError: `${msg}_exhausted_after_${next}`, disposition: 'failed',
+              });
+            } else {
+              bumpBatchItemAttempt(item.id, next);
+              transitionItem({ id: item.id, batchId: runId }, 'pending');
+            }
+            broadcastProgress(runId);
+          } else {
+            // Failure isolation: one bad lead → failed (dead-letter), batch continues.
+            transitionItem({ id: item.id, batchId: runId }, 'failed', {
+              lastError: msg, disposition: 'failed',
+            });
+            broadcastProgress(runId);
+          }
+        } finally {
+          sem.release();
         }
-        if (err instanceof GeminiProviderExhausted) {
-          // Google's provider quota is spent (429 RESOURCE_EXHAUSTED past the retry
-          // budget): pause resumably, same as RPD, but arm the recovery probe that
-          // re-attempts on a backoff until a Gemini call succeeds and auto-resumes.
-          setRunStatus(runId, 'paused', PROVIDER_PAUSE_REASON);
-          broadcastProgress(runId);
-          ensureRecoveryTimer();
-          return;
-        }
-        // Failure isolation: one bad lead → failed (dead-letter), batch continues.
-        transitionItem({ id: item.id, batchId: runId }, 'failed', {
-          lastError: err instanceof Error ? err.message : String(err),
-          disposition: 'failed',
-        });
-        broadcastProgress(runId);
-      } finally {
-        sem.release();
+      })()));
+
+      if (!runIsRunning(runId)) break; // paused/canceled mid-pass
+      const remaining = listResumableItems(runId).length;
+      if (remaining === 0) break;
+      if (remaining >= items.length) {
+        // Nothing terminalized this pass — every remaining item is still waiting on its
+        // in-flight analysis to settle (incl. F2 queue-owned renders). Pause, then re-drive.
+        if (++stagnantPasses > MAX_STAGNANT_PASSES) break;
+        await sleep(REDRIVE_DELAY_MS);
+      } else {
+        stagnantPasses = 0;
       }
-    })()));
+    }
 
-    // Finalize: if still running and nothing left non-terminal, the run is done.
+    // Finalize: still running with nothing non-terminal left → done.
     if (runIsRunning(runId) && listResumableItems(runId).length === 0) {
       setRunStatus(runId, 'done');
     }

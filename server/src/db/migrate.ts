@@ -128,6 +128,14 @@ export function runMigrations() {
     sqlite.exec('ALTER TABLE premium_analyses ADD COLUMN detected_sigs_json TEXT');
   }
 
+  // Self-timeout retry counter on batch items (slice 0032). Additive; existing rows
+  // default 0. The base CREATE in db/index.ts runs before migrations, so the table
+  // exists here for old DBs that predate the column.
+  const batchItemCols = (sqlite.prepare('PRAGMA table_info(batch_items)').all() as { name: string }[]).map(r => r.name);
+  if (!batchItemCols.includes('attempt_count')) {
+    sqlite.exec('ALTER TABLE batch_items ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0');
+  }
+
   // Safety-net: at most one active (scheduled/claimed/deferred) row per business.
   // Existing duplicates were cleaned manually; backup at scheduled_sends_bak_20260617.
   const ssIdxNames = (sqlite.prepare(`PRAGMA index_list(scheduled_sends)`).all() as { name: string }[]).map(r => r.name);

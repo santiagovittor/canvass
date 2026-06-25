@@ -93,6 +93,11 @@ export const batchItems = sqliteTable('batch_items', {
   }).notNull().default('pending'),
   disposition: text('disposition'),
   lastError: text('last_error'),
+  // Self-timeout retries (slice 0032). Bumped each time analyze/compose blows its
+  // wall-clock budget; at the retry ceiling the item dead-letters, below it the item
+  // reverts to 'pending' and the in-run re-drive retries it (the in-flight analysis
+  // finishes and is reused). F2-reverts (queue owns the render) do NOT bump this.
+  attemptCount: integer('attempt_count').notNull().default(0),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

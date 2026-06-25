@@ -126,6 +126,7 @@ sqlite.exec(`
     state TEXT NOT NULL DEFAULT 'pending',
     disposition TEXT,
     last_error TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );

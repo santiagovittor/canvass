@@ -106,6 +106,13 @@ export function transitionItem(
   if (isTerminalBump(state)) TERMINAL_BUMP[state].run(now, item.batchId);
 }
 
+// Persist a new self-timeout attempt count on an item (slice 0032). Separate from
+// transitionItem so an F2-revert (queue owns the render) can move state→pending WITHOUT
+// consuming a retry; only a real analyze/compose timeout calls this.
+export function bumpBatchItemAttempt(itemId: string, count: number): void {
+  db.update(batchItems).set({ attemptCount: count, updatedAt: nowUtcMinus3() }).where(eq(batchItems.id, itemId)).run();
+}
+
 // Enqueue + mark in ONE transaction: a crash rolls back both, so batch_item.state is
 // the reliable idempotency guard. If the item is already queued_for_send, do nothing
 // (resume safety — never create a duplicate scheduled_sends row).

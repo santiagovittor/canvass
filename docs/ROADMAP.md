@@ -37,6 +37,7 @@ Status legend: `planned` · `in-progress` · `done`.
 | rel·5 | `0025-best-reachable-email-selection` | Pick the best reachable single address per lead; never multi-send (F3) | planned | [0025](SLICES/0025-best-reachable-email-selection.md) |
 | rel·6 | `0026-gemini-503-resilience-and-provider-switch` | Survive 503 storms + Settings-driven provider/model switch; NVIDIA NIM fallback/offload behind a quality bar (F6) | planned | [0026](SLICES/0026-gemini-503-resilience-and-provider-switch.md) |
 | rel·7 | `0027-second-sender-rotation` | Add santiagovittordev@gmail.com as a 2nd rotating sender; per-sender cap + dual-inbox scan (F5) | planned | [0027](SLICES/0027-second-sender-rotation.md) |
+| bug·1 | `0029-prepare-lane-completion-and-eligibility-reconciliation` | Prepare lane: completion-summary state + drop already-scheduled leads from the staging list (server eligibility excludes active scheduled_sends, client refetches on done) | planned | [0029](SLICES/0029-prepare-lane-completion-and-eligibility-reconciliation.md) |
 
 > **Suggested order (from `0022`):** 0023 → 0024 → 0028 → 0014 → 0025 → 0026 → 0027.
 
@@ -58,4 +59,5 @@ promote to the table above when picked up.
 - Edit `keyword_query` after creation.
 - Cancel a scrape run in-flight.
 - `extra_reviews` / fast-mode gosom flags.
+- Chatbot-offer track for `held_generic` leads (no website anchor → "I can build you a chatbot/site" offer, like the no-website lane). From `0029`.
 - ~~instant-scrape progress UI~~ — promoted to slice `0003-keyword-run-live-status`.

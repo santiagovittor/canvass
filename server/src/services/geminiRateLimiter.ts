@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import Bottleneck from 'bottleneck';
 import pRetry, { AbortError } from 'p-retry';
 import { env } from '../env';
@@ -43,6 +44,17 @@ const limiter = new Bottleneck({
   minTime: Math.ceil(60_000 / RPM),
   maxConcurrent: 1,
 });
+
+// Scheduling priority for the shared single-lane limiter (slice 0031). A *separate*
+// AsyncLocalStorage from stageTracker's — they coexist, neither clobbers the other.
+// Bottleneck priority is 0–9, default 5, lower runs first; with maxConcurrent:1 it
+// reorders the QUEUED jobs (the in-flight one finishes). The batch wraps its per-item
+// work in withGeminiPriority(1, …) so every nested Gemini call (inline vision + compose
+// + verify) jumps ahead of opportunistic backlog vision calls (default 5).
+const priorityAls = new AsyncLocalStorage<number>();
+export function withGeminiPriority<T>(priority: number, fn: () => Promise<T>): Promise<T> {
+  return priorityAls.run(priority, fn);
+}
 
 // Live RPM retune from the Settings tab. Updates the reservoir + spacing in place so
 // a new rate takes effect on the next refresh window — no restart, no re-import.
@@ -253,9 +265,10 @@ async function runWithRetry<T>(
   budget: { timeoutMs: number; totalCapMs: number; start: number; rpdCount: number; rpdCeiling: number },
 ): Promise<T> {
   const { timeoutMs, totalCapMs, start, rpdCount, rpdCeiling } = budget;
+  const priority = priorityAls.getStore() ?? 5; // batch context sets 1; backlog/manual default 5
   try {
     return await pRetry(
-      () => limiter.schedule(async () => {
+      () => limiter.schedule({ priority }, async () => {
         calls++;
         console.log(`[gemini] ${label} call #${calls} @ ${new Date().toISOString()} (rpd ${rpdCount}/${rpdCeiling})`);
         try {

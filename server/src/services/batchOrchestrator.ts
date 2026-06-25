@@ -10,9 +10,10 @@ import {
 } from '../db/batch';
 import { UTC_MINUS_3_OFFSET_MS } from '../util/time';
 import {
-  getLatestPremiumAnalysis, createPremiumAnalysisRunning, isAnalysisFresh,
+  getLatestPremiumAnalysis, createPremiumAnalysisRunning, isAnalysisFresh, getRunningAnalysis,
   type DetectedSig, type SignalMap,
 } from '../db/premium';
+import { kickPremiumAnalysis } from './premiumAnalysisQueue';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from './visionClient';
 import { runPremiumAnalysis } from './premiumAnalyzer';
@@ -20,7 +21,7 @@ import { rankAnchors } from './anchorRanker';
 import { composeVerifiedEmail } from './outreachComposePipeline';
 import { resolveBusinessType, describeWindow } from './outreachSchedulingConfig';
 import { nextOptimalWindowUtc } from './outreachGovernor';
-import { GeminiRpdExhausted, GeminiProviderExhausted } from './geminiRateLimiter';
+import { GeminiRpdExhausted, GeminiProviderExhausted, withGeminiPriority } from './geminiRateLimiter';
 import { getNumber } from './appSettings';
 import { withAnalysis, stageCached } from './stageTracker';
 
@@ -51,6 +52,11 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
   return Promise.race([p.finally(() => clearTimeout(timer)), timeout]);
 }
+
+// Batch Gemini scheduling priority (slice 0031). Lower runs first in the shared limiter;
+// 1 jumps all opportunistic backlog vision calls (default 5). The batch is the time-boxed,
+// user-facing operation; the backlog is opportunistic and re-runnable.
+const BATCH_PRIORITY = 1;
 
 // One driver per run at a time. startBatch/resumeBatch are idempotent against this.
 const activeRuns = new Set<string>();
@@ -116,6 +122,17 @@ async function processItem(runId: string, item: BatchItemRow, dryRun: boolean): 
   const isStale = forceRefresh || !isAnalysisFresh(businessId, ttlDays);
 
   if (isStale) {
+    // F2 (slice 0031): if the auto-analyze queue (or a manual analysis) already owns an
+    // in-flight render of this business, do NOT start a second one — createPremiumAnalysisRunning
+    // would reuse that same running row id and both renders would write the same bundle dir
+    // and call completePremiumAnalysis twice. (A) yield shrinks this to a narrow window (a
+    // render in flight when the batch started); here we close it. Skip → leave the item
+    // resumable: revert to 'pending' so a later resume re-picks it (by then the row is
+    // 'done' + TTL-fresh → instant reuse, no re-render).
+    if (getRunningAnalysis(businessId)) {
+      transitionItem(itemRef, 'pending');
+      return broadcastProgress(runId);
+    }
     const fresh = createPremiumAnalysisRunning(businessId);
     await withTimeout(runPremiumAnalysis(fresh), getNumber('BATCH_ANALYZE_TIMEOUT_MS'), 'analyze_timeout');
     premium = getLatestPremiumAnalysis(businessId);
@@ -197,7 +214,9 @@ async function driveRun(runId: string): Promise<void> {
       try {
         // Re-check at slot acquisition: a pause/cancel mid-run stops launching new items.
         if (!runIsRunning(runId)) return;
-        await processItem(runId, item, dryRun);
+        // Priority context propagates across the nested runPremiumAnalysis / composeVerifiedEmail
+        // awaits (slice 0031 B), so every batch Gemini call inherits BATCH_PRIORITY.
+        await withGeminiPriority(BATCH_PRIORITY, () => processItem(runId, item, dryRun));
       } catch (err) {
         if (err instanceof GeminiRpdExhausted) {
           // Budget hit mid-batch: pause the run, leave this item resumable (it never
@@ -234,6 +253,11 @@ async function driveRun(runId: string): Promise<void> {
   } finally {
     activeRuns.delete(runId);
     forceRefreshRuns.delete(runId);
+    // Wake the auto-analyze queue (slice 0031): it yields the shared Gemini+Playwright
+    // lanes while a batch is `running`, so kick it on every driver exit (done/paused/
+    // canceled). Idempotent and self-gating — if another run is still `running`, the
+    // queue's isBatchRunning() check makes the kick a no-op.
+    kickPremiumAnalysis();
   }
 }
 

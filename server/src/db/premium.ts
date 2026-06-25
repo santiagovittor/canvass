@@ -85,6 +85,17 @@ export function countPendingAnalyses(): number {
   return row?.n ?? 0;
 }
 
+// The latest in-flight ('running') analysis row for a business, or null. Used by the
+// batch (slice 0031 F2) to detect that the auto-analyze queue already owns a render of
+// this business — so the batch skips a second render of the same row/bundle dir.
+export function getRunningAnalysis(businessId: string): PremiumAnalysisRow | null {
+  return db.select().from(premiumAnalyses)
+    .where(and(eq(premiumAnalyses.businessId, businessId), eq(premiumAnalyses.status, 'running')))
+    .orderBy(desc(premiumAnalyses.createdAt))
+    .limit(1)
+    .get() ?? null;
+}
+
 export function countRunningAnalyses(): number {
   const row = db.select({ n: sql<number>`count(*)` }).from(premiumAnalyses)
     .where(eq(premiumAnalyses.status, 'running')).get();

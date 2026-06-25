@@ -4,15 +4,27 @@ import { claimNextPending, enqueuePremiumAnalysis, completePremiumAnalysis, rese
 import { runPremiumAnalysis } from './premiumAnalyzer';
 import { GeminiRpdExhausted } from './geminiRateLimiter';
 import { getBool, setSetting } from './appSettings';
+import { listRunsByStatus } from '../db/batch';
 
 let running = false;
 let rekick = false;
 let _pausedAt: string | null = null;
 
-export interface AutoAnalyzeHealth { backlog: number; paused: boolean; pausedAt: string | null; }
+// Stateless batch-yield gate (slice 0031): while any batch run is `running`, the
+// auto-analyze queue stops claiming NEW work so the batch owns the single shared
+// Gemini limiter + Playwright browser. A live query (no flag) — self-healing across
+// restarts, and deliberately separate from AUTO_ANALYZE_PAUSED so the batch never
+// clobbers the operator's manual pause. The batch re-runs stale analysis inline, so
+// the deferred backlog loses nothing; batchOrchestrator kicks the queue on run end.
+function isBatchRunning(): boolean {
+  return listRunsByStatus(['running']).length > 0;
+}
+
+export interface AutoAnalyzeHealth { backlog: number; paused: boolean; pausedAt: string | null; deferred: boolean; }
 
 export function getAutoAnalyzeHealth(): AutoAnalyzeHealth {
-  return { backlog: countPendingAnalyses(), paused: getBool('AUTO_ANALYZE_PAUSED'), pausedAt: _pausedAt };
+  const backlog = countPendingAnalyses();
+  return { backlog, paused: getBool('AUTO_ANALYZE_PAUSED'), pausedAt: _pausedAt, deferred: backlog > 0 && isBatchRunning() };
 }
 
 export function setAutoAnalyzePaused(paused: boolean): void {
@@ -48,6 +60,7 @@ export function requestPremiumAnalysis(businessId: string): { id: string; dedupe
 async function loop(): Promise<void> {
   while (true) {
     if (getBool('AUTO_ANALYZE_PAUSED')) return; // pause stops claiming; in-flight finished, pending rows wait
+    if (isBatchRunning()) return; // batch-yield (slice 0031): stop claiming while a batch owns the shared lanes; batch kicks us back on run end
     const row = claimNextPending();
     if (!row) return;
     broadcast('premium:progress', { businessId: row.businessId, analysisId: row.id, status: 'running' });

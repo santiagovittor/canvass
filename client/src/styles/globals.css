@@ -626,6 +626,47 @@ select option {
   50% { opacity: 1; }
 }
 
+/* ── Batch completion card + toast (slice 0029) ─────────────────────────────── */
+/* The Prepare lane's terminal state: a finished run resolves into an explicit,
+   acknowledged surface instead of vanishing. Entrance + staged numeral reveal. */
+@keyframes batchDoneIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.batch-done-card { animation: batchDoneIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes batchNumIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+/* Staged reveal of the outcome numerals — each chip delays via --i (set inline). */
+.batch-done-num { animation: batchNumIn 260ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(var(--i, 0) * 70ms + 120ms); }
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.toast {
+  position: fixed; bottom: 24px; right: 24px; z-index: 1000;
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; max-width: 360px;
+  background: rgba(34, 28, 20, 0.92);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(6px);
+  animation: toastIn 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.toast-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  background: var(--success); box-shadow: 0 0 8px var(--accent-glow);
+}
+.toast-msg { font-family: var(--font-ui); font-size: var(--text-label); color: var(--text-primary); }
+
+@media (prefers-reduced-motion: reduce) {
+  .batch-done-card, .batch-done-num, .toast { animation: none; }
+}
+
 /* Leaflet draw toolbar override */
 .leaflet-top.leaflet-left .leaflet-draw { display: none; }
 .leaflet-top.leaflet-right .leaflet-draw { display: block; }

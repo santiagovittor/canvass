@@ -20,20 +20,38 @@ export function useLeadStaging() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Authoritative page-1 fetch (used by the debounced search effect AND by the
+  // post-run reconcile in PrepareLane). After slice 0029 the server excludes leads
+  // with an active scheduled send, so refetching on run completion converges the
+  // list to truth — scheduled leads drop, retryable held/skipped reappear.
+  const refetch = useCallback(() => {
+    setLoading(true);
+    return getOutreachLeads(1, { validEmail: true, search: search || undefined })
+      .then(r => {
+        setLeads(r.rows.map(l => ({ id: l.id, name: l.name, category: l.category, locCountry: l.locCountry })));
+        setTotal(r.total);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [search]);
+
   useEffect(() => {
     if (debounce.current) clearTimeout(debounce.current);
-    debounce.current = setTimeout(() => {
-      setLoading(true);
-      getOutreachLeads(1, { validEmail: true, search: search || undefined })
-        .then(r => {
-          setLeads(r.rows.map(l => ({ id: l.id, name: l.name, category: l.category, locCountry: l.locCountry })));
-          setTotal(r.total);
-        })
-        .catch(() => {})
-        .finally(() => setLoading(false));
-    }, 250);
+    debounce.current = setTimeout(refetch, 250);
     return () => { if (debounce.current) clearTimeout(debounce.current); };
-  }, [search]);
+  }, [refetch]);
+
+  // Optimistic removal: when a run starts, in-flight ids leave the visible list
+  // immediately so they can't be re-selected/re-submitted mid-run. The terminal
+  // refetch reconciles against server truth.
+  const dropIds = useCallback((ids: string[]) => {
+    const drop = new Set(ids);
+    setLeads(prev => {
+      const next = prev.filter(l => !drop.has(l.id));
+      setTotal(t => Math.max(0, t - (prev.length - next.length)));
+      return next;
+    });
+  }, []);
 
   const toggle = useCallback((id: string) => {
     setSelected(prev => {
@@ -67,5 +85,5 @@ export function useLeadStaging() {
     setSelected(new Set(ids.slice(0, n)));
   }, [search]);
 
-  return { leads, total, loading, search, setSearch, selected, toggle, toggleAll, selectFirst, clear };
+  return { leads, total, loading, search, setSearch, selected, toggle, toggleAll, selectFirst, clear, refetch, dropIds };
 }

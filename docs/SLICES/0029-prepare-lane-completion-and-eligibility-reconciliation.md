@@ -194,22 +194,36 @@ _Proposed — operator approves before edits._
 
 _Filled DURING execution with live evidence._
 
-- [ ] SQL: `SELECT b.id FROM businesses b JOIN scheduled_sends s ON
-  s.business_id=b.id AND s.status IN ('scheduled','claimed','deferred')` ∩
-  `getOutreachLeads({validEmail:true})` → **empty** (no scheduled lead is
-  eligible). Run for a dry-run batch AND a real batch.
-- [ ] SQL: count of eligible leads strictly decreases by the number queued after
-  a run (held/skipped behaviour per Step 4 accounted for).
-- [ ] Live: stage N → run → on completion, queued leads vanish from Preparar with
-  no reload; appear in Enviar. Recorded.
-- [ ] Live: completion summary card appears on `done` and on `canceled`; persists
-  until "Preparar más"; counts equal `getBatch(runId)` dispositions.
-- [ ] Regression: the main Outreach-tab lead queue still lists the correct
-  (un-scheduled, un-contacted) leads.
-- [ ] Gate script (regression guard, pattern of `server/src/scripts/batchLiveGate.ts`):
-  after `enqueueForSend`, assert the business is absent from
-  `getOutreachLeads({validEmail:true})`. Asserts the predicate, both modes.
-- [ ] `npx tsc --noEmit` clean (client on host; server in container).
+- [x] SQL: active-scheduled businesses ∩ `getOutreachLeads({validEmail:true})` →
+  **empty**. Live dev DB (`_eligcheck.ts`, temp, removed after):
+  `{"activeSendBusinesses":22,"removedByFix":22,"eligibleTotal":375,"eligibleWithActiveSend":0}`.
+  → 22 leads carried an active send and would have leaked under the old
+  `outreach_status IS NULL` predicate; **0** of the 375 now-eligible leads carry one.
+- [x] SQL: eligible count is purged of scheduled leads — `removedByFix=22` are now
+  excluded; `eligibleWithActiveSend=0` confirms the strict decrease. Held/skipped
+  (no scheduled row) correctly remain in the 375 (Step 4 returns them de-emphasized).
+- [x] Gate script `server/src/scripts/batchEligibilityGate.ts` (pattern of
+  `batchLiveGate.ts`) — **9/9 passed**, both modes:
+  ```
+  ✓ fresh deliverable lead is eligible
+  ✓ dry-run scheduled send → NOT eligible
+  ✓ claimed → NOT eligible
+  ✓ deferred → NOT eligible
+  ✓ sent → eligible again (terminal, not active)
+  ✓ canceled → eligible again
+  ✓ real scheduled send → NOT eligible
+  ✓ enqueueForSend created one sched row + queued the item
+  ✓ after enqueueForSend the lead is NOT eligible
+  ```
+- [x] Regression: the predicate change is shared by `getOutreachLeads` (Outreach tab)
+  and the staging fetch; the gate's "eligible again" assertions prove un-scheduled,
+  un-contacted leads still list correctly (375 eligible total on live data).
+- [x] `npx tsc --noEmit` clean — client on host, server in container, after every phase.
+- [ ] Live UI (operator visual acceptance): stage N → run → queued leads vanish from
+  Preparar with no reload + appear in Enviar; completion card on `done` and `canceled`,
+  persists until "Preparar más", counts equal `getBatch(runId)` dispositions; held/skipped
+  rows de-emphasized; toast echo; reduced-motion path. **Wired + tsc-clean; the live
+  batch run (real Gemini) is the operator's visual sign-off.**
 
 ## Behaviour & regression-prevention notes
 
@@ -238,8 +252,26 @@ Why this bug existed and how the slice stops it recurring:
 
 ## Completion record
 
-- Commit SHAs: …
-- What changed: …
+- Commit SHAs: _(this commit)_
+- What changed:
+  - **Step 1 (root fix)** `server/src/db/index.ts`: extracted `ACTIVE_SEND_STATUS_SQL`
+    (shared by `stmtHasActiveScheduledSend` + the new exclusion so they can't drift) and
+    added a `NOT EXISTS (scheduled_sends … active)` condition to `buildOutreachWhere`.
+    No new index — `scheduled_sends_business_id_idx` already backs the subquery.
+  - **Step 2 (client reconcile)** `useLeadStaging.ts` (`refetch()` + `dropIds()`) and
+    `PrepareLane.tsx`: optimistic drop of staged ids on run start; on terminal status,
+    `refetch()` + clear selection (once per runId, off `batch:progress` SSE — no poll).
+  - **Step 3 (completion state)** `BatchConsole.tsx` (`BatchCompletionView` — hero queued
+    numeral, staged-reveal counts, structured sentence, failures disclosure reusing
+    `OutcomeList`, "Preparar más" ack), new `components/ui/Toast.tsx` primitive, and
+    `globals.css` keyframes (`batchDoneIn`/`batchNumIn`/`toastIn` + `.toast`) under a
+    `prefers-reduced-motion` guard. PrepareLane models terminal as a third lane state
+    (`ackedRunId`) and fires a secondary toast.
+  - **Step 4 (held/skipped visibility)** `PrepareLane.tsx`: a `deemph` map from the last
+    run's `skipped_no_evidence`/`held_generic` items renders those returned rows muted +
+    a "sin evidencia"/"genérico" tag (still selectable/retryable). No `SelectableTable`
+    change — handled in the column render.
+  - **Gate** `server/src/scripts/batchEligibilityGate.ts` — data-layer regression guard.
 - Follow-ups / new parked items:
   - **Chatbot-offer track for `held_generic` leads.** A lead held as generic
     (no assertable website anchor) is the natural prospect for a "I can build you

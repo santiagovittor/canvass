@@ -151,6 +151,79 @@ export function BatchRunView({ progress, currentLead, accumulatedCost, items, on
   );
 }
 
+// Terminal state of the Prepare lane (slice 0029). A finished run resolves into an
+// explicit, acknowledged card instead of snapping back to the staging table. Built
+// from the final progress counts + per-lead items; persists until "Preparar más".
+interface BatchCompletionViewProps {
+  progress: BatchProgress;
+  items: BatchItem[];
+  onAcknowledge: () => void;
+}
+
+// Human sentence from the final counts. queued = agendados; skipped+held returned to
+// the eligible list (still available); failed surfaced for the per-lead affordance.
+function completionSentence(p: BatchProgress): string {
+  const returned = p.skippedNoEvidence + p.heldGeneric;
+  const parts: string[] = [];
+  parts.push(`${p.queuedForSend} ${p.queuedForSend === 1 ? 'lead preparado y agendado' : 'leads preparados y agendados'}`);
+  if (p.failed > 0) parts.push(`${p.failed} ${p.failed === 1 ? 'falló' : 'fallaron'}`);
+  if (returned > 0) parts.push(`${returned} ${returned === 1 ? 'sigue disponible' : 'siguen disponibles'}${p.skippedNoEvidence > 0 && p.heldGeneric === 0 ? ', sin evidencia' : ''}`);
+  return parts.join(' · ');
+}
+
+export function BatchCompletionView({ progress, items, onAcknowledge }: BatchCompletionViewProps) {
+  const canceled = progress.status === 'canceled';
+  const chips: { label: string; value: number; tone?: string }[] = [
+    { label: 'skipped', value: progress.skippedNoEvidence },
+    { label: 'held', value: progress.heldGeneric, tone: 'var(--warn)' },
+    { label: 'failed', value: progress.failed, tone: progress.failed > 0 ? 'var(--error)' : undefined },
+  ];
+
+  return (
+    <div className="batch-done-card" style={{
+      display: 'flex', flexDirection: 'column', gap: 18,
+      padding: '20px', borderRadius: 'var(--radius-pane)',
+      background: 'var(--bg-elevated)', border: `1px solid ${canceled ? 'var(--warn-border)' : 'var(--success-border)'}`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-section)', fontWeight: 600, color: 'var(--text-primary)' }}>
+          {canceled ? 'Lote cancelado' : 'Lote listo'}
+        </span>
+        <span style={sectionLabel}>{canceled ? 'cancelado' : 'completado'}</span>
+      </div>
+
+      {/* hero numeral — queued for send */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
+        <span className="batch-done-num" style={{ ...mono, fontSize: '40px', lineHeight: 1, color: 'var(--accent)', fontVariantNumeric: 'tabular-nums' }}>
+          {progress.queuedForSend}
+        </span>
+        <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-body)', color: 'var(--text-secondary)' }}>
+          en cola para enviar
+        </span>
+      </div>
+
+      {/* staged-reveal secondary counts */}
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+        {chips.map((c, i) => (
+          <span key={c.label} className="batch-done-num" style={{ '--i': i, fontFamily: 'var(--font-ui)', fontSize: 'var(--text-label)', color: 'var(--text-muted)' } as CSSProperties}>
+            {c.label} <b style={{ ...mono, color: c.tone ?? 'var(--text-secondary)' }}>{c.value}</b>
+          </span>
+        ))}
+      </div>
+
+      <span style={{ fontFamily: 'var(--font-ui)', fontSize: 'var(--text-label)', color: 'var(--text-secondary)' }}>
+        {completionSentence(progress)}
+      </span>
+
+      {progress.failed > 0 && <OutcomeList items={items.filter(i => i.state === 'failed')} />}
+
+      <button className="btn-primary" style={{ alignSelf: 'flex-start', padding: '10px 18px' }} onClick={onAcknowledge}>
+        Preparar más
+      </button>
+    </div>
+  );
+}
+
 function OutcomeList({ items }: { items: BatchItem[] }) {
   const terminal = items.filter(i =>
     i.state === 'queued_for_send' || i.state === 'skipped_no_evidence' ||

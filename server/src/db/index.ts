@@ -631,11 +631,21 @@ export interface OutreachLeadFilters {
   validEmail?: boolean;
 }
 
+// Canonical "active scheduled send" status set — shared by the enqueue dedup guard
+// (stmtHasActiveScheduledSend) and the eligibility exclusion below, so the two can
+// never drift (slice 0029). A lead with a row in any of these states is already
+// in-flight to Send and must not be listed as preparable.
+const ACTIVE_SEND_STATUS_SQL = `'scheduled','claimed','deferred'`;
+
 function buildOutreachWhere(filters: OutreachLeadFilters = {}): { clause: string; params: (string | number)[] } {
   const conditions = [
     `b.emails_json IS NOT NULL`,
     `b.emails_json != '[]'`,
     `b.outreach_status IS NULL`,
+    // slice 0029 root fix: scheduling never sets outreach_status (only real transmit
+    // does), so a scheduled-but-unsent lead stayed eligible. Exclude any lead with an
+    // active scheduled_sends row — keyed off the same status set as the enqueue guard.
+    `NOT EXISTS (SELECT 1 FROM scheduled_sends s WHERE s.business_id = b.id AND s.status IN (${ACTIVE_SEND_STATUS_SQL}))`,
   ];
   const params: (string | number)[] = [];
   if (filters.search) {
@@ -1006,7 +1016,7 @@ export function getDueScheduledSends(nowUtcIso: string): ScheduledSendRow[] {
 
 // Business-level dedup guard for enqueue: returns true if any active row exists.
 const stmtHasActiveScheduledSend = sqlite.prepare<[string], { id: string }>(
-  `SELECT id FROM scheduled_sends WHERE business_id = ? AND status IN ('scheduled','claimed','deferred') LIMIT 1`
+  `SELECT id FROM scheduled_sends WHERE business_id = ? AND status IN (${ACTIVE_SEND_STATUS_SQL}) LIMIT 1`
 );
 export function hasActiveScheduledSend(businessId: string): boolean {
   return stmtHasActiveScheduledSend.get(businessId) !== undefined;

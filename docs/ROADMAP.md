@@ -37,7 +37,8 @@ Status legend: `planned` · `in-progress` · `done`.
 | rel·5 | `0025-best-reachable-email-selection` | Pick the best reachable single address per lead; never multi-send (F3) | planned | [0025](SLICES/0025-best-reachable-email-selection.md) |
 | rel·6 | `0026-gemini-503-resilience-and-provider-switch` | Survive 503 storms + Settings-driven provider/model switch; NVIDIA NIM fallback/offload behind a quality bar (F6) | planned | [0026](SLICES/0026-gemini-503-resilience-and-provider-switch.md) |
 | rel·7 | `0027-second-sender-rotation` | Add santiagovittordev@gmail.com as a 2nd rotating sender; per-sender cap + dual-inbox scan (F5) | planned | [0027](SLICES/0027-second-sender-rotation.md) |
-| bug·1 | `0029-prepare-lane-completion-and-eligibility-reconciliation` | Prepare lane: completion-summary state + drop already-scheduled leads from the staging list (server eligibility excludes active scheduled_sends, client refetches on done) | planned | [0029](SLICES/0029-prepare-lane-completion-and-eligibility-reconciliation.md) |
+| bug·1 | `0029-prepare-lane-completion-and-eligibility-reconciliation` | Prepare lane: completion-summary state + drop already-scheduled leads from the staging list (server eligibility excludes active scheduled_sends, client refetches on done) | shipped | [0029](SLICES/0029-prepare-lane-completion-and-eligibility-reconciliation.md) |
+| bug·2 | `0030-smtp-probe-invalid-distrust` | Follow-up to 0024: a single SMTP RCPT 5xx no longer condemns an address — M365's edge gives inconsistent in-session RCPT codes, manufacturing false `invalid`. Probe becomes a `valid`-only confirmer; MX-death + bounces remain the authoritative dead signals. One-off clear of stale probe-`invalid`/`mx_ok=1` rows | shipped | [0030](SLICES/0030-smtp-probe-invalid-distrust.md) |
 
 > **Suggested order (from `0022`):** 0023 → 0024 → 0028 → 0014 → 0025 → 0026 → 0027.
 

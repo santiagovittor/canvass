@@ -11,9 +11,10 @@ import {
 //   placeholder/malformed → invalid (no network)
 //   no MX / dead domain    → invalid
 //   MX ok, probe off       → unknown
-//   SMTP discriminates: real 2xx + random 5xx → valid; real 5xx + random 2xx → invalid
-//   reject-all (both 5xx, e.g. M365) / catch-all (both 2xx) → unknown (can't confirm)
-//   greylist / timeout / refused → unknown
+//   SMTP probe is a VALID-only confirmer (slice 0030): real 2xx + random 5xx → valid
+//   everything else (probe-reject, reject-all M365, catch-all, greylist, timeout,
+//   refused) → unknown. Probe rejection alone can no longer condemn an address;
+//   the dead verdicts come from MX non-existence + bounce DSN only.
 // Fail-open: any unexpected error degrades to 'unknown', never throws, never blocks
 // the pipeline. Results are cached (email_validity) keyed to the address.
 
@@ -129,13 +130,19 @@ async function probe(addr: string): Promise<{ result: EmailValidity; mxOk: boole
   // between the real address and a random local part. A server that answers both
   // the same way (reject-all M365, or accept-all catch-all) can't confirm anything.
   const realOk = verdict.code >= 200 && verdict.code < 300;
-  const real5xx = verdict.code >= 500 && verdict.code < 600;
-  const randOk = verdict.randomCode >= 200 && verdict.randomCode < 300;
   const rand5xx = verdict.randomCode >= 500 && verdict.randomCode < 600;
 
+  // Slice 0030: the SMTP probe is a valid-ONLY confirmer. The former
+  // `real5xx && randOk → invalid` quadrant is removed: M365 mail edges
+  // (*.mail.protection.outlook.com) return inconsistent RCPT codes within one
+  // session under rate/reputation throttling, manufacturing that exact quadrant
+  // and condemning real leads. Probe rejection alone can no longer condemn an
+  // address — only a clean accept-real / reject-random discrimination confirms
+  // `valid`; everything else falls through to unknown and proceeds.
+  // Authoritative dead signals stay elsewhere: MX non-existence (above) and
+  // bounce DSN ingestion (slice 0013).
   if (realOk && rand5xx) return { result: 'valid', mxOk: true };   // discriminates, accepted real
-  if (real5xx && randOk) return { result: 'invalid', mxOk: true }; // discriminates, rejected real
-  return { result: 'unknown', mxOk: true };                        // both same (reject-all/catch-all), 4xx greylist, etc.
+  return { result: 'unknown', mxOk: true };                        // probe-reject, both-same, 4xx greylist, etc. → proceed
 }
 
 export async function verifyEmailDeliverable(addr: string): Promise<EmailValidity> {

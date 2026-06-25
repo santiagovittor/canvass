@@ -47,7 +47,7 @@ export function Sidebar({
 }: SidebarProps) {
   if (!visible) {
     return (
-      <div style={{ height: '100%', background: 'var(--bg-panel)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ height: '100%', background: 'var(--bg-panel)', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflowY: 'auto', minHeight: 0 }}>
         <div style={{ padding: '32px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <span style={{ fontFamily: 'var(--font-ui)', fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', letterSpacing: '0.03em' }}>
             Draw an area to begin
@@ -57,9 +57,9 @@ export function Sidebar({
           <div className="sidebar-section-label">Scheduler</div>
           <ScrapeSchedulerStatus />
         </div>
-        <div className="sidebar-section" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderBottom: 'none', paddingBottom: 0 }}>
+        <div className="sidebar-section" style={{ borderBottom: 'none', paddingBottom: 0 }}>
           <div className="sidebar-section-label">Schedules</div>
-          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 16 }}>
+          <div style={{ paddingBottom: 16 }}>
             <SchedulesList geometry={geometry} />
           </div>
         </div>
@@ -78,6 +78,8 @@ export function Sidebar({
         borderRight: '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
+        overflowY: 'auto',
+        minHeight: 0,
       }}
     >
       <div className="sidebar-section">

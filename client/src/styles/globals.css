@@ -111,7 +111,11 @@ html, body, #root {
 .app-grid {
   display: grid;
   grid-template-columns: 320px 1fr 380px;
-  grid-template-rows: 1fr;
+  /* minmax(0,…) not 1fr: grid items default to min-height:auto and refuse to
+     shrink below content, blowing the row out to full content height. The
+     overflow:hidden then clips the column with no scrollbar (bottom buttons
+     unreachable). minmax(0,1fr) caps the track so each column scrolls itself. */
+  grid-template-rows: minmax(0, 1fr);
   flex: 1;
   min-height: 0;
   overflow: hidden;

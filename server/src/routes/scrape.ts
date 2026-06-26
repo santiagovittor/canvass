@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { startJob, B2B_CATEGORIES } from '../services/jobRunner';
 import { cellCount, polygonFromBbox } from '../services/grid';
-import { resolveAreaToBbox } from '../services/geocoder';
+import { resolveAreaToBbox, resolvePickedArea } from '../services/geocoder';
 
 const router = Router();
 
@@ -57,10 +57,22 @@ const CITY_CELL_KM_DEFAULT = 2; // larger than the 0.4 dense-urban polygon defau
 // keeps city sweeps to tens of cells (sane job count + gosom-wedge exposure). The UI
 // lets the operator lower it for denser coverage (more leads, more jobs, more wedge risk).
 
+// picked: the exact GeoNames suggestion the operator chose. When present the
+// resolver builds the bbox from these coords (slice 0041) instead of re-parsing
+// the `area` label string — the load-bearing fix against homonym mis-resolves.
+const pickedSchema = z.object({
+  name: z.string().min(1).max(200).trim(),
+  country: z.string().max(2).trim().nullable(),
+  lat: z.number(),
+  lon: z.number(),
+  population: z.number().nonnegative(),
+});
+
 const cityResolveSchema = z.object({
   area: z.string().min(1).max(200).trim(),
   countryHint: z.string().max(100).trim().optional(),
   gridCellKm: z.number().min(0.5).max(10).default(CITY_CELL_KM_DEFAULT),
+  picked: pickedSchema.optional(),
 });
 
 // Preview: resolve the name and report the bbox, the human-readable display name
@@ -71,9 +83,11 @@ router.post('/city/resolve', async (req, res) => {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const { area, countryHint, gridCellKm } = parsed.data;
+  const { area, countryHint, gridCellKm, picked } = parsed.data;
   try {
-    const { bbox, displayName, kind } = await resolveAreaToBbox(area, countryHint);
+    const { bbox, displayName, kind } = picked
+      ? await resolvePickedArea(picked, area)
+      : await resolveAreaToBbox(area, countryHint);
     const count = cellCount(bbox, gridCellKm);
     res.json({ bbox, displayName, kind, cellCount: count, totalJobs: count });
   } catch (err) {
@@ -93,9 +107,11 @@ router.post('/city', async (req, res) => {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const { area, countryHint, gridCellKm, keyword, language } = parsed.data;
+  const { area, countryHint, gridCellKm, keyword, language, picked } = parsed.data;
   try {
-    const { bbox, displayName } = await resolveAreaToBbox(area, countryHint);
+    const { bbox, displayName } = picked
+      ? await resolvePickedArea(picked, area)
+      : await resolveAreaToBbox(area, countryHint);
     const count = cellCount(bbox, gridCellKm); // single keyword → one category per cell
     if (count > 500) {
       res.status(400).json({ error: `Cell count ${count} exceeds maximum of 500. Increase cell size.` });

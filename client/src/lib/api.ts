@@ -37,7 +37,17 @@ export interface CityResolveResult {
   totalJobs: number;
 }
 
-export function resolveCityArea(payload: { area: string; countryHint?: string; gridCellKm?: number }) {
+// The exact GeoNames pick (slice 0041): when sent, the server builds the bbox
+// from these coords instead of re-resolving the `area` label string.
+export interface PickedArea {
+  name: string;
+  country: string | null;
+  lat: number;
+  lon: number;
+  population: number;
+}
+
+export function resolveCityArea(payload: { area: string; countryHint?: string; gridCellKm?: number; picked?: PickedArea }) {
   return request<CityResolveResult>('/scrape/city/resolve', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -50,6 +60,7 @@ export function startCityScrape(payload: {
   language: string;
   gridCellKm?: number;
   countryHint?: string;
+  picked?: PickedArea;
 }) {
   return request<{ jobId: string }>('/scrape/city', {
     method: 'POST',

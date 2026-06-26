@@ -13,22 +13,26 @@ export interface GeoPlace {
   lon: number;
 }
 
-const stmtSearchAreas = sqlite.prepare<[string, number], {
+// Operator's home country (slice 0041): ranked above other countries so a local
+// homonym surfaces first. Single constant — a Settings-driven home is parked.
+const HOME_COUNTRY = 'AR';
+
+const stmtSearchAreas = sqlite.prepare<[string, string, number], {
   name: string; admin1: string | null; country: string | null;
   population: number; lat: number; lon: number;
 }>(`
   SELECT name, admin1, country, population, lat, lon
   FROM geo_places
   WHERE ascii_name LIKE ? || '%' COLLATE NOCASE
-  ORDER BY population DESC
+  ORDER BY (country = ?) DESC, population DESC
   LIMIT ?
 `);
 
-// Prefix autocomplete ranked by population. No external call — index-backed, sub-ms.
+// Prefix autocomplete, home-country-then-population ranked. No external call — index-backed, sub-ms.
 export function searchAreas(prefix: string, limit = 8): GeoPlace[] {
   const q = prefix.trim();
   if (!q) return [];
-  return stmtSearchAreas.all(q, limit);
+  return stmtSearchAreas.all(q, HOME_COUNTRY, limit);
 }
 
 export function geoPlacesCount(): number {

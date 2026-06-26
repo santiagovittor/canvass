@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { instantKeywordScrape, type InstantScrapeResult } from '../../lib/keywordScrapeApi';
 import { createScrapeSchedule } from '../../lib/scrapeSchedulesApi';
-import { resolveCityArea, startCityScrape, type CityResolveResult, type GeoPlace } from '../../lib/api';
+import { resolveCityArea, startCityScrape, type CityResolveResult, type GeoPlace, type PickedArea } from '../../lib/api';
 import { useKeywordRun, type KeywordStage } from '../../hooks/useKeywordRun';
 import { useActiveRuns } from '../../hooks/useActiveRuns';
 import { useCoverage } from '../../hooks/useCoverage';
@@ -61,7 +61,11 @@ export function KeywordPanel() {
   // through the same grid scraper as a map-drawn polygon. Progress flows over the
   // existing job:* SSE + active-runs strip — no per-run tracker needed here.
   const [cityArea, setCityArea] = useState('');
-  const [cityPopulation, setCityPopulation] = useState<number | null>(null);
+  // The full picked GeoNames place (slice 0041) — its coords drive a correct
+  // bbox resolve. Cleared on any manual edit so free-typed text falls back to
+  // name resolution. Population for the lead estimate is read off it.
+  const [cityPick, setCityPick] = useState<GeoPlace | null>(null);
+  const cityPopulation = cityPick?.population ?? null;
   const [cityKeyword, setCityKeyword] = useState('');
   const [cityCellKm, setCityCellKm] = useState('2');
   const [cityPreview, setCityPreview] = useState<CityResolveResult | null>(null);
@@ -70,6 +74,13 @@ export function KeywordPanel() {
   const [cityError, setCityError] = useState<string | null>(null);
   const [cityDispatched, setCityDispatched] = useState(false);
 
+  // Send the pick only while it still matches the field (onChange clears it on
+  // manual edit), so a hand-typed area cleanly falls back to name resolution.
+  function pickedPayload(): PickedArea | undefined {
+    if (!cityPick) return undefined;
+    return { name: cityPick.name, country: cityPick.country, lat: cityPick.lat, lon: cityPick.lon, population: cityPick.population };
+  }
+
   async function handlePreviewCity() {
     if (!cityArea.trim()) return;
     setCityPreviewing(true);
@@ -77,7 +88,7 @@ export function KeywordPanel() {
     setCityPreview(null);
     setCityDispatched(false);
     try {
-      const r = await resolveCityArea({ area: cityArea.trim(), gridCellKm: parseFloat(cityCellKm) || 2 });
+      const r = await resolveCityArea({ area: cityArea.trim(), gridCellKm: parseFloat(cityCellKm) || 2, picked: pickedPayload() });
       setCityPreview(r);
     } catch (e) {
       setCityError(e instanceof Error ? e.message : String(e));
@@ -96,6 +107,7 @@ export function KeywordPanel() {
         keyword: cityKeyword.trim(),
         language: lang,
         gridCellKm: parseFloat(cityCellKm) || 2,
+        picked: pickedPayload(),
       });
       setCityDispatched(true);
     } catch (e) {
@@ -231,8 +243,8 @@ export function KeywordPanel() {
             autoFocus
             placeholder="area — e.g. Mar del Plata, Argentina"
             value={cityArea}
-            onChange={(v) => { setCityArea(v); setCityPopulation(null); setCityPreview(null); setCityDispatched(false); }}
-            onPick={(p: GeoPlace) => { setCityPopulation(p.population); setCityPreview(null); setCityDispatched(false); }}
+            onChange={(v) => { setCityArea(v); setCityPick(null); setCityPreview(null); setCityDispatched(false); }}
+            onPick={(p: GeoPlace) => { setCityPick(p); setCityPreview(null); setCityDispatched(false); }}
             onEnter={() => { if (!cityPreviewing) handlePreviewCity(); }}
           />
           <input

@@ -3,20 +3,24 @@
  * geo_places table backing the area autocomplete. Data © GeoNames, CC-BY 4.0
  * (https://www.geonames.org/) — attribution surfaced in the UI.
  *
- * Setup (download + unzip once into env.GEONAMES_DATA_DIR, default ./data/geonames):
- *   https://download.geonames.org/export/dump/cities1000.zip        -> cities1000.txt
- *   https://download.geonames.org/export/dump/admin1CodesASCII.txt  (as-is)
+ * Run (downloads + unzips automatically into env.GEONAMES_DATA_DIR on first run):
+ *   npm run geo:import
  *
- * Run:
- *   docker compose exec server sh -c "cd /app/server && npx tsx src/scripts/importGeonames.ts"
+ * Re-run only to refresh population numbers (GeoNames updates ~daily; yearly is
+ * plenty). Pass --force to re-download even if the local files already exist.
  *
- * ponytail: reads pre-unzipped TSVs (operator unzips once); avoids a zip dep.
+ * ponytail: auto-downloads cities1000.zip + admin1CodesASCII.txt and shells to
+ * `unzip` (present in the server image); no zip-parsing dependency.
  */
 import fs from 'fs';
 import path from 'path';
+import { execFileSync } from 'child_process';
 import { sqlite } from '../db';
 import { geoPlacesCount } from '../db/geo';
 import { env } from '../env';
+
+const BASE = 'https://download.geonames.org/export/dump';
+const force = process.argv.includes('--force');
 
 const dir = path.isAbsolute(env.GEONAMES_DATA_DIR)
   ? env.GEONAMES_DATA_DIR
@@ -25,10 +29,29 @@ const dir = path.isAbsolute(env.GEONAMES_DATA_DIR)
 const citiesPath = path.join(dir, 'cities1000.txt');
 const admin1Path = path.join(dir, 'admin1CodesASCII.txt');
 
-if (!fs.existsSync(citiesPath)) {
-  console.error(`❌ Missing ${citiesPath}. Download + unzip cities1000.zip into ${dir}.`);
-  process.exit(1);
+async function download(url: string, dest: string): Promise<void> {
+  console.log(`↓ ${url}`);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${res.status} fetching ${url}`);
+  fs.writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
 }
+
+async function ensureData(): Promise<void> {
+  fs.mkdirSync(dir, { recursive: true });
+
+  if (force || !fs.existsSync(citiesPath)) {
+    const zip = path.join(dir, 'cities1000.zip');
+    await download(`${BASE}/cities1000.zip`, zip);
+    execFileSync('unzip', ['-o', zip, '-d', dir], { stdio: 'inherit' });
+    fs.unlinkSync(zip);
+  }
+  if (force || !fs.existsSync(admin1Path)) {
+    await download(`${BASE}/admin1CodesASCII.txt`, admin1Path);
+  }
+}
+
+async function main() {
+await ensureData();
 
 // admin1CodesASCII.txt: "<country>.<admin1code>\t<name>\t<asciiName>\t<geonameid>"
 // → map "US.FL" -> "Florida" so the autocomplete shows state/province names.
@@ -85,3 +108,6 @@ const tx = sqlite.transaction(() => {
 tx();
 
 console.log(`✓ Imported ${n} places. geo_places now holds ${geoPlacesCount()} rows.`);
+}
+
+main().catch((e) => { console.error('❌ Import failed:', e); process.exit(1); });

@@ -11,6 +11,7 @@
     "build": "npm -w server run build && npm -w client run build",
     "start": "npm -w server run start",
     "db:push": "npm -w server run db:push",
+    "geo:import": "docker compose -f docker-compose.dev.yml exec -T server sh -c \"cd /app/server && npx tsx src/scripts/importGeonames.ts\"",
     "docker:dev": "docker compose -f docker-compose.dev.yml up",
     "docker:down": "docker compose -f docker-compose.dev.yml down",
     "docker:restart": "docker compose -f docker-compose.dev.yml down && docker compose -f docker-compose.dev.yml up"

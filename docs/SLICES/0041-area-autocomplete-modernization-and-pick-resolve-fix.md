@@ -186,12 +186,18 @@ _Filled DURING execution with live evidence — not assertions._
       `cellCount 90` — unchanged from today's behavior.
 - [x] Home-country ranking (2c): `GET /api/geo/autocomplete?q=Buenos` → `AR | Buenos Aires |
       Buenos Aires F.D. | pop 2891082` first, ahead of CR/MX/PE/CO homonyms.
-- [ ] **Browser visual — PENDING OPERATOR.** Could not automate: the Claude-in-Chrome
-      extension was not connected this session ("Browser extension is not connected"). Both
-      containers were restarted so the running app has the new code; client `tsc` is clean and
-      the picker logic is exercised by the endpoints proven above. Operator to eyeball: typing
-      shimmer→results, matched-text highlight, flags + AR-first, recents on empty focus, ghost +
-      Tab, pick→Preview lands the right place. Screenshot to be captured by operator.
+- [x] **Browser visual — VERIFIED live (Claude-in-Chrome, `localhost:5173`, Whole-city).**
+      Typing "Mar" → results dropdown; matched head "Mar" rendered in `--accent`, name in
+      `--text-primary`, region (", Buenos Aires, AR") muted; population in JetBrains Mono
+      right-aligned; AR rows ranked first. Ghost tail "del Plata" shown in the field; **Tab
+      accepted** it → field "Mar del Plata, Buenos Aires, AR", pick registered (Population
+      593.337, lead estimate). **Preview → "Mar del Plata, Partido de General Pueyrredón,
+      Buenos Aires, Argentina", `city`, 91 cells** — the real city via the pick path. Clearing
+      the field + focus → "RECIENTES" with the persisted Mar del Plata. Empty/hint/shimmer
+      states present.
+      Caveat: country flags render as the ISO-2 letters (e.g. "AR") on Windows Chrome — the OS
+      has no regional-indicator emoji glyphs; still conveys the country. No code change; the
+      `flagEmoji` pair renders as 🇦🇷 on platforms with flag glyphs.
 - [x] `npx tsc --noEmit` clean — server (in container) `SERVER_EXIT=0`; client `No errors found`.
 
 ## Completion record
@@ -215,4 +221,4 @@ _Filled DURING execution with live evidence — not assertions._
   - Server-persisted recents (currently `localStorage` only).
   - Ghost completion shipped (not cut) — revisit only if it fights the input layout on some
     fonts/zoom.
-  - Browser visual pass + screenshot owed by operator (extension was offline this session).
+  - Country flags show as ISO-2 letters on Windows (no emoji flag glyphs) — cosmetic, OS-level.

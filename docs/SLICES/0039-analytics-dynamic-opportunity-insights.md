@@ -143,7 +143,7 @@ _Filled DURING execution with live evidence._
 
 ## Completion record
 
-- Commit SHAs: `75436ce`
+- Commit SHAs: `78de92f`
 - What changed:
   - `db/analytics.ts`: `getCategoryZoneMatrix` now returns `replied`;
     added `getEmailFoundMatrix(since, until?)` (windowed by `scraped_at`) and

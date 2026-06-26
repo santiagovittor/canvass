@@ -139,7 +139,7 @@ _Filled DURING execution with live evidence._
 
 ## Completion record
 
-- Commit SHAs: …
+- Commit SHAs: `c56fb00` (feat: phone.ts + 3 WA prompts + slice doc).
 - What changed:
   - `client/src/lib/phone.ts` — `toE164` AR branch (`arMobileE164`): inserts
     the mobile `9` and strips the space-located `15` trunk, defaulting every AR

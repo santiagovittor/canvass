@@ -1155,6 +1155,8 @@ select option {
   white-space: nowrap;
 }
 .an-matrix-total { color: var(--text-secondary); }
+.an-matrix-reply { color: var(--text-secondary); }
+.an-matrix-reply--low { color: var(--text-muted); } /* low-confidence reply rate */
 .an-matrix-cell { color: var(--text-primary); min-width: 52px; }
 .an-matrix-cell--empty { color: var(--text-muted); }
 .an-matrix-cell--top {

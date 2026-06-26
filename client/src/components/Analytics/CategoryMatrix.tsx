@@ -9,6 +9,7 @@ const MAX_CATEGORIES = 12;
 const MAX_ZONES = 8;
 const MIN_CELL_LEADS = 5; // below this, yield % is noise
 const MIN_TOP_LEADS = 8;
+const REPLY_MIN_CONTACTED = 8; // below this, reply rate is low-confidence — muted
 
 interface Cell { leads: number; withEmail: number }
 
@@ -20,14 +21,20 @@ export function CategoryMatrix({ matrix }: CategoryMatrixProps) {
   // sortKey: 'total' or a zone name; always descending
   const [sortKey, setSortKey] = useState<string>('total');
 
-  const { categories, zones, cells, top3 } = useMemo(() => {
+  const { categories, zones, cells, top3, replyByCat } = useMemo(() => {
     const zoneTotals = new Map<string, number>();
     const catTotals = new Map<string, number>();
     const cells = new Map<string, Cell>(); // "category|zone"
+    // Per-category response rate (all-time): replied / contacted across its zones.
+    const replyByCat = new Map<string, { contacted: number; replied: number }>();
     for (const r of matrix) {
       zoneTotals.set(r.zone, (zoneTotals.get(r.zone) ?? 0) + r.leads);
       catTotals.set(r.category, (catTotals.get(r.category) ?? 0) + r.leads);
       cells.set(`${r.category}|${r.zone}`, { leads: r.leads, withEmail: r.withEmail });
+      const rep = replyByCat.get(r.category) ?? { contacted: 0, replied: 0 };
+      rep.contacted += r.contacted;
+      rep.replied += r.replied;
+      replyByCat.set(r.category, rep);
     }
     const zones = Array.from(zoneTotals.entries())
       .sort((a, b) => b[1] - a[1])
@@ -48,7 +55,7 @@ export function CategoryMatrix({ matrix }: CategoryMatrixProps) {
         .map(r => `${r.category}|${r.zone}`),
     );
 
-    return { categories, zones, cells, top3 };
+    return { categories, zones, cells, top3, replyByCat };
   }, [matrix]);
 
   const sortedCategories = useMemo(() => {
@@ -94,6 +101,9 @@ export function CategoryMatrix({ matrix }: CategoryMatrixProps) {
               >
                 Leads
               </th>
+              <th className="an-matrix-num-th" title="Reply rate: replied / contacted, all-time">
+                Reply
+              </th>
               {zones.map(z => (
                 <th
                   key={z}
@@ -111,6 +121,20 @@ export function CategoryMatrix({ matrix }: CategoryMatrixProps) {
               <tr key={category}>
                 <td className="an-matrix-cat" title={category}>{category}</td>
                 <td className="mono an-matrix-total">{total}</td>
+                {(() => {
+                  const rep = replyByCat.get(category);
+                  const contacted = rep?.contacted ?? 0;
+                  const low = contacted < REPLY_MIN_CONTACTED;
+                  const rate = contacted > 0 ? Math.round((rep!.replied / contacted) * 100) : 0;
+                  return (
+                    <td
+                      className={`mono an-matrix-reply${low ? ' an-matrix-reply--low' : ''}`}
+                      title={contacted > 0 ? `${rep!.replied}/${contacted} contacted replied` : 'Not contacted yet'}
+                    >
+                      {contacted > 0 ? `${rate}%` : '·'}
+                    </td>
+                  );
+                })()}
                 {zones.map(z => {
                   const cell = cells.get(`${category}|${z}`);
                   if (!cell || cell.leads < MIN_CELL_LEADS) {

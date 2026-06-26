@@ -85,7 +85,7 @@ export function getGeoPoints(): GeoPoint[] {
   `).all() as GeoPoint[];
 }
 
-export interface MatrixRow { category: string; zone: string; leads: number; withEmail: number; contacted: number }
+export interface MatrixRow { category: string; zone: string; leads: number; withEmail: number; contacted: number; replied: number }
 
 export function getCategoryZoneMatrix(): MatrixRow[] {
   return sqlite.prepare(`
@@ -94,11 +94,59 @@ export function getCategoryZoneMatrix(): MatrixRow[] {
       ${ZONE} AS zone,
       COUNT(*) AS leads,
       COALESCE(SUM(CASE WHEN ${HAS_EMAIL} THEN 1 ELSE 0 END), 0) AS withEmail,
-      COALESCE(SUM(CASE WHEN ${CONTACTED} THEN 1 ELSE 0 END), 0) AS contacted
+      COALESCE(SUM(CASE WHEN ${CONTACTED} THEN 1 ELSE 0 END), 0) AS contacted,
+      COALESCE(SUM(CASE WHEN ${REPLIED} THEN 1 ELSE 0 END), 0) AS replied
     FROM businesses
     WHERE category IS NOT NULL AND category != '' AND ${ZONE} IS NOT NULL
     GROUP BY category, zone
   `).all() as MatrixRow[];
+}
+
+// ── Windowed aggregates (slice 0039). The all-time DB is dominated by the
+// original Buenos Aires scrape, so all-time yields never move. These window by
+// date so a recent scrape/send visibly shifts the numbers.
+// ponytail: one YYYY-MM-DD cutoff serves both scraped_at (UTC) and sent_at
+// (UTC-3); the 3h skew is immaterial at a 30/90-day window. `until` excludes its
+// own day — pass it for the prior window in a delta, omit for an open window.
+
+export interface EmailFoundRow { category: string; zone: string; leads: number; withEmail: number }
+
+// Email-found rate by category × zone, windowed by scraped_at.
+export function getEmailFoundMatrix(since: string, until?: string): EmailFoundRow[] {
+  const range = until ? `AND scraped_at >= ? AND scraped_at < ?` : `AND scraped_at >= ?`;
+  const args = until ? [since, until] : [since];
+  return sqlite.prepare(`
+    SELECT
+      category,
+      ${ZONE} AS zone,
+      COUNT(*) AS leads,
+      COALESCE(SUM(CASE WHEN ${HAS_EMAIL} THEN 1 ELSE 0 END), 0) AS withEmail
+    FROM businesses
+    WHERE category IS NOT NULL AND category != '' AND ${ZONE} IS NOT NULL ${range}
+    GROUP BY category, zone
+  `).all(...args) as EmailFoundRow[];
+}
+
+export interface ResponseRow { category: string; zone: string; sends: number; replies: number }
+
+// Response rate by category × zone, windowed by sent_at: `sends` = distinct
+// businesses contacted in the window, `replies` = of those, the ones now flagged
+// a real reply. Only status='sent' rows count (dryrun/legacy excluded).
+export function getResponseMatrix(since: string, until?: string): ResponseRow[] {
+  const range = until ? `AND es.sent_at >= ? AND es.sent_at < ?` : `AND es.sent_at >= ?`;
+  const args = until ? [since, until] : [since];
+  return sqlite.prepare(`
+    SELECT
+      b.category AS category,
+      ${ZONE} AS zone,
+      COUNT(DISTINCT es.business_id) AS sends,
+      COUNT(DISTINCT CASE WHEN ${replied('b.')} THEN es.business_id END) AS replies
+    FROM email_sends es
+    JOIN businesses b ON b.id = es.business_id
+    WHERE es.status = 'sent'
+      AND b.category IS NOT NULL AND b.category != '' AND ${ZONE} IS NOT NULL ${range}
+    GROUP BY category, zone
+  `).all(...args) as ResponseRow[];
 }
 
 export interface CategoryYieldRow { category: string; leads: number; withEmail: number }

@@ -1,11 +1,10 @@
 import {
   getKpiCounts,
   getDailySends,
-  getRepliedSendDays,
   getGeoPoints,
   getCategoryZoneMatrix,
-  getCategoryYields,
-  getBandYields,
+  getEmailFoundMatrix,
+  getResponseMatrix,
   getOpenStats,
   GeoPoint,
   MatrixRow,
@@ -45,12 +44,6 @@ function addDays(isoDay: string, delta: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function weekdayOf(isoDay: string): number {
-  return new Date(`${isoDay}T00:00:00Z`).getUTCDay(); // 0 = Sunday
-}
-
-const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
 function computeStreaks(sendDays: Set<string>, today: string): { current: number; longest: number } {
   // Current streak: consecutive days ending today, or ending yesterday if
   // nothing was sent yet today (an in-progress day doesn't break the streak).
@@ -80,70 +73,65 @@ function pct(part: number, whole: number): number {
   return whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0;
 }
 
-function buildInsights(
-  matrix: MatrixRow[],
-  dailySends: { day: string; n: number }[],
-  repliedDays: { day: string; n: number }[],
-  readyLeads: number,
-): { title: string; body: string }[] {
+// Opportunity-oriented insights (slice 0039). Headline signals are windowed so
+// they actually move as you scrape/send: response rate (the trust signal:
+// reply tracking is reliable, open tracking is not until slice 0040) over 90
+// days, email-found rate over 30 days with a delta vs the prior 30. Every rate
+// is confidence-gated on its denominator, no headline % over a tiny sample.
+function buildInsights(matrix: MatrixRow[], readyLeads: number): { title: string; body: string }[] {
   const insights: { title: string; body: string }[] = [];
+  const today = todayUtcMinus3();
+  const since30 = addDays(today, -30);
+  const since60 = addDays(today, -60);
+  const since90 = addDays(today, -90);
 
-  // 1. Best category × zone combination + an unscraped suggestion there
-  const combos = matrix.filter(r => r.leads >= 10);
-  if (combos.length > 0) {
-    const best = combos.reduce((a, b) => (pct(b.withEmail, b.leads) > pct(a.withEmail, a.leads) ? b : a));
-    const bestYield = pct(best.withEmail, best.leads);
-    const categoriesInZone = new Set(matrix.filter(r => r.zone === best.zone).map(r => r.category));
-    const catYields = getCategoryYields().filter(c => c.leads >= 20 && pct(c.withEmail, c.leads) >= 40);
-    const suggestion = catYields
-      .filter(c => !categoriesInZone.has(c.category))
-      .sort((a, b) => pct(b.withEmail, b.leads) - pct(a.withEmail, a.leads))[0];
-    let body = `${best.category} in ${best.zone} yields ${bestYield}% emails (${best.withEmail}/${best.leads}) — your best combination.`;
-    if (suggestion) {
-      body += ` You haven't scraped ${suggestion.category} there yet; it yields ${pct(suggestion.withEmail, suggestion.leads)}% overall.`;
+  // 1. Best response-rate combo over the last 90 days (sends >= 10 to be a
+  //    trustworthy rate). This is the headline opportunity signal.
+  const resp90 = getResponseMatrix(since90);
+  const respCombos = resp90.filter(r => r.sends >= 10);
+  if (respCombos.length > 0) {
+    const best = respCombos.reduce((a, b) => (pct(b.replies, b.sends) > pct(a.replies, a.sends) ? b : a));
+    const rate = pct(best.replies, best.sends);
+    if (rate > 0) {
+      insights.push({
+        title: 'Best response',
+        body: `${best.category} in ${best.zone}: ${rate}% reply rate (${best.replies}/${best.sends} sent, last 90 days). Your strongest combo; send more here.`,
+      });
     }
-    insights.push({ title: 'Best combination', body });
   }
 
-  // 2. Rating / review-count band with the highest email yield
-  const bands = getBandYields().filter(b => b.leads >= 15);
-  if (bands.length >= 2) {
-    const best = bands.reduce((a, b) => (pct(b.withEmail, b.leads) > pct(a.withEmail, a.leads) ? b : a));
+  // 2. Weak spot: a combo with real volume and zero replies. Reconsider or pause.
+  const weak = resp90
+    .filter(r => r.sends >= 15 && r.replies === 0)
+    .sort((a, b) => b.sends - a.sends)[0];
+  if (weak) {
     insights.push({
-      title: 'Highest-yield profile',
-      body: `Leads rated ${best.ratingBand} with ${best.reviewBand} reviews have your highest email yield: ${pct(best.withEmail, best.leads)}% across ${best.leads} leads.`,
+      title: 'Weak spot',
+      body: `${weak.category} in ${weak.zone}: 0 replies on ${weak.sends} sent (last 90 days). Reconsider the angle or pause this combo.`,
     });
   }
 
-  // 3. Day-of-week sending pattern + response rate
-  const totalSends = dailySends.reduce((s, d) => s + d.n, 0);
-  if (totalSends >= 10) {
-    const sendsByDow = new Array(7).fill(0);
-    const repliesByDow = new Array(7).fill(0);
-    for (const d of dailySends) sendsByDow[weekdayOf(d.day)] += d.n;
-    for (const d of repliedDays) repliesByDow[weekdayOf(d.day)] += d.n;
-
-    const unused = WEEKDAY_NAMES.filter((_, i) => sendsByDow[i] === 0);
-    let bestDow = -1;
-    let bestRate = 0;
-    for (let i = 0; i < 7; i++) {
-      if (sendsByDow[i] < 5) continue;
-      const rate = repliesByDow[i] / sendsByDow[i];
-      if (rate > bestRate) { bestRate = rate; bestDow = i; }
+  // 3. Best email-found combo over the last 30 days, with a delta vs the prior
+  //    30. This is the box that looked frozen on all-time totals; windowed, a
+  //    recent scrape moves it.
+  const found30 = getEmailFoundMatrix(since30);
+  const foundPrior = getEmailFoundMatrix(since60, since30);
+  const found30Combos = found30.filter(r => r.leads >= 10);
+  if (found30Combos.length > 0) {
+    const best = found30Combos.reduce((a, b) => (pct(b.withEmail, b.leads) > pct(a.withEmail, a.leads) ? b : a));
+    const rate = pct(best.withEmail, best.leads);
+    let body = `${best.category} in ${best.zone}: ${rate}% have email (${best.withEmail}/${best.leads}, last 30 days).`;
+    const prior = foundPrior.find(r => r.category === best.category && r.zone === best.zone);
+    if (prior && prior.leads >= 5) {
+      const delta = Math.round((rate - pct(prior.withEmail, prior.leads)) * 10) / 10;
+      if (delta !== 0) body += ` ${delta > 0 ? 'Up' : 'Down'} ${Math.abs(delta)}pts vs prior 30 days.`;
     }
-    const parts: string[] = [];
-    if (unused.length > 0 && unused.length <= 3) {
-      parts.push(`You've sent 0 emails on ${unused.join(' and ')}s.`);
-    }
-    if (bestDow >= 0 && bestRate > 0) {
-      parts.push(`Your response rate is highest on ${WEEKDAY_NAMES[bestDow]}s (${Math.round(bestRate * 100)}% of ${sendsByDow[bestDow]} sends).`);
-    }
-    if (parts.length > 0) {
-      insights.push({ title: 'Sending pattern', body: parts.join(' ') });
-    }
+    body += ' Scrape more like this.';
+    insights.push({ title: 'Recent email yield', body });
   }
 
-  // 4. Under-scraped zone: strong yield but thin coverage
+  // 4. Under-scraped zone: strong all-time yield but thin coverage. Stable
+  //    signal, so all-time is fine here.
   const zoneAgg = new Map<string, { leads: number; withEmail: number }>();
   for (const r of matrix) {
     const z = zoneAgg.get(r.zone) ?? { leads: 0, withEmail: 0 };
@@ -172,7 +160,7 @@ function buildInsights(
   if (insights.length === 0) {
     insights.push({
       title: 'Not enough data yet',
-      body: 'Scrape a few areas and send some emails — insights appear once there is real volume to analyze.',
+      body: 'Scrape a few areas and send some emails. Insights appear once there is real volume to analyze.',
     });
   }
 
@@ -183,7 +171,6 @@ export function getAnalytics(): AnalyticsPayload {
   const kpis = getKpiCounts();
   const openStats = getOpenStats();
   const dailySends = getDailySends();
-  const repliedDays = getRepliedSendDays();
   const today = todayUtcMinus3();
 
   const sendDaySet = new Set(dailySends.map(d => d.day));
@@ -219,6 +206,6 @@ export function getAnalytics(): AnalyticsPayload {
     },
     points: getGeoPoints(),
     matrix,
-    insights: buildInsights(matrix, dailySends, repliedDays, kpis.readyLeads),
+    insights: buildInsights(matrix, kpis.readyLeads),
   };
 }

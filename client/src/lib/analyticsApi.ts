@@ -12,7 +12,7 @@ async function request<T>(path: string): Promise<T> {
 }
 
 export interface GeoPoint { lat: number; lng: number; e: number; c: number }
-export interface MatrixRow { category: string; zone: string; leads: number; withEmail: number; contacted: number }
+export interface MatrixRow { category: string; zone: string; leads: number; withEmail: number; contacted: number; replied: number }
 
 export interface AnalyticsPayload {
   kpis: {

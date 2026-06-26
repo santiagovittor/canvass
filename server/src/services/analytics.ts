@@ -17,6 +17,7 @@ export interface AnalyticsPayload {
     withEmail: number;
     emailYieldPct: number;
     contacted: number;
+    trackedSends: number;
     openRatePct: number;
     responseRatePct: number;
     currentStreak: number;
@@ -193,6 +194,9 @@ export function getAnalytics(): AnalyticsPayload {
       withEmail: kpis.withEmail,
       emailYieldPct: pct(kpis.withEmail, kpis.totalLeads),
       contacted: kpis.contactedAll,
+      // trackedSends lets the UI tell "0% of N tracked" from "no tracking at all"
+      // (PUBLIC_URL unset → 0 pixels → openRatePct is a meaningless constant, not a measurement).
+      trackedSends: openStats.trackedSends,
       openRatePct: pct(openStats.openedSends, openStats.trackedSends),
       responseRatePct: pct(kpis.replied, kpis.contactedAll),
       currentStreak: current,

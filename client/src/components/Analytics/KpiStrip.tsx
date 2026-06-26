@@ -12,7 +12,9 @@ export function KpiStrip({ kpis }: KpiStripProps) {
     { label: 'With email', value: fmt.format(kpis.withEmail) },
     { label: 'Email yield', value: `${kpis.emailYieldPct}%` },
     { label: 'Contacted', value: fmt.format(kpis.contacted) },
-    { label: 'Open rate', value: `${kpis.openRatePct}%` },
+    kpis.trackedSends > 0
+      ? { label: 'Open rate', value: `${kpis.openRatePct}%`, sub: '(opens can’t be confirmed)' }
+      : { label: 'Open rate', value: '—', sub: 'tracking off' },
     { label: 'Response rate', value: `${kpis.responseRatePct}%`, sub: '(auto-replies excluded)' },
     { label: 'Streak', value: `${kpis.currentStreak}d` },
   ];

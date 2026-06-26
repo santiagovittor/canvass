@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 import { instantKeywordScrape, type InstantScrapeResult } from '../../lib/keywordScrapeApi';
 import { createScrapeSchedule } from '../../lib/scrapeSchedulesApi';
-import { resolveCityArea, startCityScrape, type CityResolveResult } from '../../lib/api';
+import { resolveCityArea, startCityScrape, type CityResolveResult, type GeoPlace } from '../../lib/api';
 import { useKeywordRun, type KeywordStage } from '../../hooks/useKeywordRun';
 import { useActiveRuns } from '../../hooks/useActiveRuns';
+import { useCoverage } from '../../hooks/useCoverage';
+import { AreaAutocomplete } from '../ui/AreaAutocomplete';
+import { estimateLeads } from '../../lib/estimateLeads';
+import { findCoverageMatch } from '../../lib/coverageMatch';
 
 const LANGS = ['en', 'es', 'pt', 'de', 'fr', 'it'];
 
@@ -25,6 +29,15 @@ function formatElapsed(ms: number): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
+// Coverage "last scraped" relative label (slice 0038).
+function agoLabel(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60_000) return 'just now';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
 export function KeywordPanel() {
   const [panelMode, setPanelMode] = useState<'instant' | 'city'>('instant');
   const [query, setQuery] = useState('');
@@ -42,11 +55,13 @@ export function KeywordPanel() {
   const [bulkRunning, setBulkRunning] = useState(false);
   const run = useKeywordRun();
   const activeRuns = useActiveRuns();
+  const coverage = useCoverage();
 
   // Whole-city mode (slice 0037): resolve an area name to a bbox, then sweep it
   // through the same grid scraper as a map-drawn polygon. Progress flows over the
   // existing job:* SSE + active-runs strip — no per-run tracker needed here.
   const [cityArea, setCityArea] = useState('');
+  const [cityPopulation, setCityPopulation] = useState<number | null>(null);
   const [cityKeyword, setCityKeyword] = useState('');
   const [cityCellKm, setCityCellKm] = useState('2');
   const [cityPreview, setCityPreview] = useState<CityResolveResult | null>(null);
@@ -190,6 +205,13 @@ export function KeywordPanel() {
 
   const bulkLines = bulkText.split('\n').filter((l) => l.trim()).length;
 
+  // City-mode awareness (slice 0038): population → lead-band estimate, and a
+  // warning if this area was already scraped (same name or overlapping bbox).
+  const cityEstimate = cityPopulation ? estimateLeads(cityPopulation) : null;
+  const coverageHit = panelMode === 'city'
+    ? findCoverageMatch(cityArea, cityPreview?.bbox ?? null, coverage)
+    : null;
+
   return (
     <div className="keyword-panel">
       <div className="scraper-mode-toggle kp-submode">
@@ -205,13 +227,13 @@ export function KeywordPanel() {
 
       {panelMode === 'city' && (
         <div className="kp-single">
-          <input
+          <AreaAutocomplete
             autoFocus
-            className="input-field kp-query"
             placeholder="area — e.g. Mar del Plata, Argentina"
             value={cityArea}
-            onChange={(e) => { setCityArea(e.target.value); setCityPreview(null); setCityDispatched(false); }}
-            onKeyDown={(e) => e.key === 'Enter' && !cityPreviewing && handlePreviewCity()}
+            onChange={(v) => { setCityArea(v); setCityPopulation(null); setCityPreview(null); setCityDispatched(false); }}
+            onPick={(p: GeoPlace) => { setCityPopulation(p.population); setCityPreview(null); setCityDispatched(false); }}
+            onEnter={() => { if (!cityPreviewing) handlePreviewCity(); }}
           />
           <input
             className="input-field kp-query"
@@ -245,8 +267,27 @@ export function KeywordPanel() {
           <p className="kp-hint">
             Sweeps the whole area in grid cells (not one viewport), so one query returns
             far more than ~50 leads. Smaller cells = more leads but more jobs and longer
-            runs. Area data © OpenStreetMap (ODbL).
+            runs. Area data © OpenStreetMap (ODbL); place suggestions © GeoNames (CC-BY 4.0).
           </p>
+
+          {coverageHit && (
+            <p className="kp-warn">
+              {coverageHit.reason === 'exact' ? 'Already scraped' : 'Overlaps'}{' '}
+              <strong>{coverageHit.area.display_name}</strong> — {agoLabel(coverageHit.area.last_scraped_at)},{' '}
+              <span className="kp-warn-num">+{coverageHit.area.last_added}</span> new last run.
+            </p>
+          )}
+
+          {cityEstimate && !cityPreview && (
+            <div className="kp-result kp-city-preview">
+              <span className="kp-result-stat">
+                Population <span className="kp-result-num">{cityPopulation?.toLocaleString()}</span>
+              </span>
+              <span className="kp-result-stat">
+                ~<span className="kp-result-num">{cityEstimate.lo}–{cityEstimate.hi}</span> leads est.
+              </span>
+            </div>
+          )}
 
           {cityPreview && (
             <div className="kp-result kp-city-preview">
@@ -254,6 +295,11 @@ export function KeywordPanel() {
               <span className="kp-result-stat">
                 Cells <span className="kp-result-num">{cityPreview.cellCount}</span>
               </span>
+              {cityEstimate && (
+                <span className="kp-result-stat">
+                  ~<span className="kp-result-num">{cityEstimate.lo}–{cityEstimate.hi}</span> leads
+                </span>
+              )}
               <span className="kp-result-stat">{cityPreview.kind}</span>
             </div>
           )}
@@ -272,6 +318,28 @@ export function KeywordPanel() {
             </p>
           )}
           {cityError && <p className="kp-error">{cityError}</p>}
+
+          {coverage.length > 0 && (
+            <div className="kp-coverage">
+              <span className="sidebar-section-label kp-coverage-label">Already scraped</span>
+              {coverage.map((c) => {
+                const total = c.last_added + c.last_deduped;
+                const pctNew = total > 0 ? Math.round((c.last_added / total) * 100) : 0;
+                return (
+                  <div key={c.normalized_name} className="kp-coverage-row">
+                    <span className="kp-coverage-name">{c.display_name}</span>
+                    <span className="kp-coverage-meta">{agoLabel(c.last_scraped_at)}</span>
+                    <span className="kp-coverage-meta">
+                      <span className="kp-coverage-num">{c.cumulative_added.toLocaleString()}</span> leads
+                    </span>
+                    <span className="kp-coverage-meta">
+                      <span className="kp-coverage-num">{pctNew}%</span> new
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

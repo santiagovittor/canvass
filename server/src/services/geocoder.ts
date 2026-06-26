@@ -1,6 +1,15 @@
 import { request } from 'undici';
 import { env } from '../env';
 import type { Bbox } from './grid';
+import { searchAreas as searchGeoPlaces, type GeoPlace } from '../db/geo';
+
+// Area autocomplete (slice 0038): prefix search over the self-hosted GeoNames
+// gazetteer (population-ranked). Pure DB read — no external call, sub-200ms — so
+// it's safe to hit per debounced keystroke. Distinct from resolveAreaToBbox below,
+// which stays the authoritative name→bbox resolver (Nominatim; GeoNames has no bbox).
+export function searchAreas(prefix: string, limit = 8): GeoPlace[] {
+  return searchGeoPlaces(prefix, limit);
+}
 
 // Name→bounding-box resolver for city-tiling keyword scrapes (slice 0037).
 // Turns a typed city/area name into a map rectangle that the existing polygon

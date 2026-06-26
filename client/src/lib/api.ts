@@ -57,6 +57,39 @@ export function startCityScrape(payload: {
   });
 }
 
+// Area autocomplete + coverage registry (slice 0038).
+export interface GeoPlace {
+  name: string;
+  admin1: string | null;
+  country: string | null;
+  population: number;
+  lat: number;
+  lon: number;
+}
+
+export interface CoverageArea {
+  normalized_name: string;
+  display_name: string;
+  bbox_json: string;
+  keyword: string | null;
+  language: string | null;
+  last_scraped_at: string;
+  runs_count: number;
+  cumulative_added: number;
+  cumulative_deduped: number;
+  last_added: number;
+  last_deduped: number;
+  last_job_id: string | null;
+}
+
+export function geoAutocomplete(q: string) {
+  return request<{ results: GeoPlace[] }>(`/geo/autocomplete?q=${encodeURIComponent(q)}`);
+}
+
+export function getCoverage() {
+  return request<{ areas: CoverageArea[] }>('/geo/coverage');
+}
+
 export function getJob(jobId: string) {
   return request<ScrapeJob>(`/jobs/${jobId}`);
 }

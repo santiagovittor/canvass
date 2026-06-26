@@ -18,6 +18,9 @@ export const scrapeJobs = sqliteTable('scrape_jobs', {
   // 'keyword' marks an instant keyword run so it can be tracked as a durable,
   // rehydratable run without being treated as a resumable polygon job.
   runKind: text('run_kind'),
+  // Resolved display name of a city-tiling run (slice 0038). Persisted so the
+  // scraped_areas coverage registry can key off it at job:done. NULL otherwise.
+  cityArea: text('city_area'),
   keywordStage: text('keyword_stage'),
   keywordRunId: text('keyword_run_id'),
   errorMessage: text('error_message'),

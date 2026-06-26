@@ -772,6 +772,37 @@ select option {
 .kp-result-num { font-family: var(--font-mono); color: var(--accent); }
 .kp-error { font-size: 12px; color: var(--error); margin: 0; }
 
+/* Area autocomplete dropdown (slice 0038) */
+.kp-ac { position: relative; width: 100%; }
+.kp-ac-menu {
+  position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0;
+  margin: 0; padding: 4px; list-style: none;
+  background: var(--bg-elevated); border: 1px solid var(--border-strong);
+  border-radius: 10px; box-shadow: var(--shadow-md);
+  max-height: 260px; overflow-y: auto;
+  animation: kpAcIn 140ms ease-out;
+}
+.kp-ac-opt {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 8px 10px; border-radius: 6px; cursor: pointer;
+}
+.kp-ac-opt--active { background: var(--bg-hover); }
+.kp-ac-label { font-family: var(--font-ui); font-size: 13px; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kp-ac-pop { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--accent); flex-shrink: 0; }
+
+@keyframes kpAcIn { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .kp-ac-menu { animation: none; } }
+
+/* City-mode coverage warning + registry panel (slice 0038) */
+.kp-warn { margin: 0; padding: 8px 12px; font-family: var(--font-ui); font-size: 13px; line-height: 1.5; color: var(--text-primary); background: var(--accent-dim); border: 1px solid var(--border-strong); border-left: 2px solid var(--warn); border-radius: 8px; }
+.kp-warn-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--accent); }
+.kp-coverage { display: flex; flex-direction: column; gap: 4px; padding: 10px; background: var(--bg-base); border-radius: 8px; border: 1px solid var(--border); }
+.kp-coverage-label { margin-bottom: 4px; }
+.kp-coverage-row { display: flex; align-items: baseline; gap: 12px; padding: 4px 0; }
+.kp-coverage-name { flex: 1; min-width: 0; font-family: var(--font-ui); font-size: 13px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kp-coverage-meta { font-family: var(--font-ui); font-size: 12px; color: var(--text-muted); flex-shrink: 0; }
+.kp-coverage-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+
 /* Keyword run stage tracker (slice 0003) */
 .kp-stages { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; background: var(--bg-base); border: 1px solid var(--border); border-radius: 8px; }
 .kp-stages-row { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; flex-wrap: wrap; }

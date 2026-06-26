@@ -95,14 +95,18 @@ router.post('/city', async (req, res) => {
   }
   const { area, countryHint, gridCellKm, keyword, language } = parsed.data;
   try {
-    const { bbox } = await resolveAreaToBbox(area, countryHint);
+    const { bbox, displayName } = await resolveAreaToBbox(area, countryHint);
     const count = cellCount(bbox, gridCellKm); // single keyword → one category per cell
     if (count > 500) {
       res.status(400).json({ error: `Cell count ${count} exceeds maximum of 500. Increase cell size.` });
       return;
     }
     const geometry = polygonFromBbox(bbox);
-    const jobId = await startJob({ geometry, searchTerm: keyword, language, gridCellKm, extractEmails: true });
+    // runKind/cityArea tag the run so its job:done writes the coverage registry (slice 0038).
+    const jobId = await startJob({
+      geometry, searchTerm: keyword, language, gridCellKm, extractEmails: true,
+      runKind: 'city', cityArea: displayName,
+    });
     res.json({ jobId });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

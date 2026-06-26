@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import { eq, or, sql } from 'drizzle-orm';
 import { db, getAnalyzableBusinessIdsForJob } from '../db';
+import { countNewBusinessesForJob, upsertScrapedAreaFromJob } from '../db/geo';
 import { scrapeJobs, businesses } from '../db/schema';
 import { broadcast } from '../sse';
 import { bboxFromGeoJSON, cellCount as computeCellCount, computeGrid } from './grid';
@@ -40,6 +41,10 @@ export interface StartJobParams {
   language: string;
   gridCellKm: number;
   extractEmails: boolean;
+  // City-tiling provenance (slice 0038): set by the /city route so the terminal
+  // block can write the scraped_areas coverage registry. Omitted for polygon jobs.
+  runKind?: string;
+  cityArea?: string;
 }
 
 export async function startJob(params: StartJobParams): Promise<string> {
@@ -65,6 +70,8 @@ export async function startJob(params: StartJobParams): Promise<string> {
     status: 'pending',
     geometryJson: JSON.stringify(params.geometry),
     extractEmails: params.extractEmails ? 1 : 0,
+    runKind: params.runKind ?? null,
+    cityArea: params.cityArea ?? null,
     createdAt: now,
   }).run();
 
@@ -413,10 +420,28 @@ async function runJob(
     console.log('[jobRunner] total businesses found:', businessesFound, 'for job', jobId);
     broadcast('job:scraped', { jobId, count: businessesFound });
 
+    const completedAt = new Date().toISOString();
     db.update(scrapeJobs)
-      .set({ status: 'done', completedAt: new Date().toISOString(), businessesFound })
+      .set({ status: 'done', completedAt, businessesFound })
       .where(eq(scrapeJobs.id, jobId))
       .run();
+
+    // Coverage registry (slice 0038): record city-tiling runs only. added = rows
+    // genuinely new to this job (jobId-bearing); deduped = re-seen this run.
+    if (params.runKind === 'city' && params.cityArea) {
+      const added = countNewBusinessesForJob(jobId);
+      upsertScrapedAreaFromJob({
+        displayName: params.cityArea,
+        bboxJson: JSON.stringify(bbox),
+        keyword: params.searchTerm || null,
+        language: params.language,
+        added,
+        deduped: Math.max(0, businessesFound - added),
+        jobId,
+        completedAt,
+      });
+    }
+
     broadcast('job:done', { jobId });
     kickEnrichment();
   } catch (err) {

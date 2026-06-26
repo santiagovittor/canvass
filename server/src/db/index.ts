@@ -188,7 +188,47 @@ sqlite.exec(`
     ON scrape_schedule_runs(schedule_id);
   CREATE INDEX IF NOT EXISTS scrape_schedule_runs_status_idx
     ON scrape_schedule_runs(status);
+  -- Self-hosted GeoNames gazetteer (slice 0038). One row per populated place from
+  -- the cities1000 tier; backs the area autocomplete (prefix + population). Imported
+  -- once via scripts/importGeonames.ts. Data © GeoNames, CC-BY 4.0.
+  CREATE TABLE IF NOT EXISTS geo_places (
+    geoname_id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    ascii_name TEXT NOT NULL,
+    admin1 TEXT,
+    country TEXT,
+    population INTEGER NOT NULL DEFAULT 0,
+    lat REAL NOT NULL,
+    lon REAL NOT NULL
+  );
+  -- Prefix search (LIKE 'foo%' COLLATE NOCASE) rides this index — no leading wildcard.
+  CREATE INDEX IF NOT EXISTS geo_places_ascii_name_idx ON geo_places(ascii_name COLLATE NOCASE);
+  -- Coverage registry (slice 0038). One row per normalized area swept via city-tiling;
+  -- upserted on each city job:done so the operator never blindly re-runs an area.
+  CREATE TABLE IF NOT EXISTS scraped_areas (
+    id TEXT PRIMARY KEY,
+    normalized_name TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    bbox_json TEXT NOT NULL,
+    keyword TEXT,
+    language TEXT,
+    last_scraped_at TEXT NOT NULL,
+    runs_count INTEGER NOT NULL DEFAULT 0,
+    cumulative_added INTEGER NOT NULL DEFAULT 0,
+    cumulative_deduped INTEGER NOT NULL DEFAULT 0,
+    last_added INTEGER NOT NULL DEFAULT 0,
+    last_deduped INTEGER NOT NULL DEFAULT 0,
+    last_job_id TEXT,
+    created_at TEXT NOT NULL
+  );
 `);
+
+// city_area: resolved display name of a city-tiling run, stored so the coverage
+// registry can key off it at job:done (slice 0038). NULL on polygon/keyword jobs.
+const jobCols = (sqlite.prepare('PRAGMA table_info(scrape_jobs)').all() as { name: string }[]).map(r => r.name);
+if (!jobCols.includes('city_area')) {
+  sqlite.exec('ALTER TABLE scrape_jobs ADD COLUMN city_area TEXT');
+}
 
 const scheduleCols = (sqlite.prepare('PRAGMA table_info(scrape_schedules)').all() as { name: string }[]).map(r => r.name);
 if (!scheduleCols.includes('kind')) {

@@ -83,6 +83,10 @@ const schema = z.object({
   // Nominatim by default (ODbL, 1 req/s policy — serialized + cached in geocoder.ts).
   // Point at a self-hosted instance if lookup volume grows.
   GEOCODER_URL: z.string().url().default('https://nominatim.openstreetmap.org'),
+  // Self-hosted GeoNames gazetteer (slice 0038). Directory holding the unzipped
+  // cities1000.txt + admin1CodesASCII.txt dumps for the one-time import script.
+  // Optional: area autocomplete returns [] until geo_places is populated — no crash.
+  GEONAMES_DATA_DIR: z.string().default('./data/geonames'),
 }).refine(
   d => (d.APP_AUTH_USER == null) === (d.APP_AUTH_PASS == null),
   { message: 'AUTH_USER and AUTH_PASS must both be set or both be unset' },

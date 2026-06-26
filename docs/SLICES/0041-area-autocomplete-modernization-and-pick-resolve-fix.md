@@ -196,7 +196,7 @@ _Filled DURING execution with live evidence — not assertions._
 
 ## Completion record
 
-- Commit SHAs: <filled at commit>
+- Commit SHAs: `649e08e`
 - What changed:
   - **Phase 1 (correctness, load-bearing):** `resolvePickedArea` in `services/geocoder.ts` —
     biased Nominatim (`viewbox` + `countrycodes` + `bounded=1`, `limit=10`), accept the first

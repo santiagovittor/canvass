@@ -118,6 +118,10 @@ export interface OutreachLead {
   youtube: string | null;
   has_draft: boolean;
   outreachAnalysisJson: string | null;
+  // slice 0045: composite LeadScore (email lane). Optional — only the "new" queue
+  // (getOutreachLeads) populates these; other lanes leave them undefined.
+  score?: number;
+  grade?: 'A' | 'B' | 'C' | 'D';
 }
 
 export interface FollowUpLead extends OutreachLead {

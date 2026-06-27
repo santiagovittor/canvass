@@ -5,6 +5,7 @@ import * as schema from './schema';
 import { businesses } from './schema';
 import { env } from '../env';
 import { UTC_MINUS_3_OFFSET_MS, todayUtcMinus3, nowUtcMinus3 } from '../util/time';
+import { computeLeadScore } from '../services/leadScore'; // slice 0045: pure scoring, no cycle
 import path from 'path';
 import fs from 'fs';
 
@@ -650,6 +651,10 @@ export interface OutreachLead {
   youtube: string | null;
   has_draft: boolean;
   outreachAnalysisJson: string | null;
+  // slice 0045: composite LeadScore (email lane). Optional — only getOutreachLeads
+  // populates these; no-site (0048) / follow-up / replied lanes leave them undefined.
+  score?: number;
+  grade?: 'A' | 'B' | 'C' | 'D';
 }
 
 type RawLeadRow = {
@@ -713,9 +718,14 @@ function buildOutreachWhere(filters: OutreachLeadFilters = {}): { clause: string
 }
 
 export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadFilters = {}): { rows: OutreachLead[]; total: number } {
-  const offset = (page - 1) * pageSize;
   const { clause, params } = buildOutreachWhere(filters);
 
+  // slice 0045: load ALL eligible rows (no SQL LIMIT/OFFSET), score each, sort by
+  // LeadScore desc, then paginate in TS. SQL still orders scraped_at DESC so the
+  // stable JS sort below keeps "newest first" as the score tie-break for free.
+  // ponytail: load-all-then-sort is fine at ~425 eligible rows; if the eligible
+  // pool exceeds a few thousand, move to a materialized lead_score column ordered
+  // in SQL.
   const leadsSQL = `
     SELECT b.id, b.name, b.address, b.phone, b.website, b.emails_json, b.category, b.rating, b.review_count,
            b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status, b.outreach_analysis_json,
@@ -725,21 +735,33 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
     LEFT JOIN outreach_drafts d ON b.id = d.business_id
     WHERE ${clause}
     ORDER BY b.scraped_at DESC
-    LIMIT ? OFFSET ?
   `;
   const countSQL = `SELECT COUNT(*) AS n FROM businesses b WHERE ${clause}`;
 
-  const raw = sqlite.prepare<(string | number)[], RawLeadRow>(leadsSQL).all(...params, pageSize, offset);
+  const raw = sqlite.prepare<(string | number)[], RawLeadRow>(leadsSQL).all(...params);
   const total = sqlite.prepare<(string | number)[], { n: number }>(countSQL).get(...params)?.n ?? 0;
 
-  // Batch-load cached probe results for ALL of this page's emails (one query) so
+  // Batch-load cached probe results for ALL eligible emails (one query) so
   // pickBestCachedEmail (slice 0025) can rank every candidate, not just the first.
   const validityMap = getEmailValidityMany(raw.flatMap(r => parseEmails(r.emails_json)));
 
-  const rows: OutreachLead[] = raw.map(r => {
+  const scored: OutreachLead[] = raw.map(r => {
     const best = pickBestCachedEmail(parseEmails(r.emails_json), validityMap);
     const validEmail = best !== null && validateEmail(best);
     const email_validity = resolveValidity(best, validityMap);
+    // slice 0045: reachability/establishment/category drive the order. psiMobile +
+    // gapCount are passed null (unprobed → neutral); the read path stays network-
+    // free and PSI cache is URL-keyed with JS-side TTL, so a clean join isn't cheap.
+    // The ranking sharpens once 0049 backfills PSI and a later wire-up feeds it here.
+    const { score, grade } = computeLeadScore({
+      rating: r.rating,
+      reviewCount: r.review_count,
+      category: r.category,
+      emailValidity: email_validity,
+      hasPhone: r.phone !== null && r.phone.trim() !== '',
+      psiMobile: null,
+      gapCount: null,
+    }, 'email');
     return {
       id: r.id, name: r.name, address: r.address, phone: r.phone,
       website: r.website, emailsJson: r.emails_json, category: r.category,
@@ -754,8 +776,13 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
       tiktok: r.tiktok, linkedin: r.linkedin, youtube: r.youtube,
       has_draft: r.has_draft === 1,
       outreachAnalysisJson: r.outreach_analysis_json,
+      score, grade,
     };
   });
+
+  // Stable sort: ties retain the SQL scraped_at-DESC order (V8 Array.sort is stable).
+  scored.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const rows = scored.slice((page - 1) * pageSize, page * pageSize);
 
   return { rows, total };
 }

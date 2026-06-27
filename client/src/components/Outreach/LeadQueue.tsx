@@ -412,16 +412,40 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
             >
               {/* Left: name + category + neighbourhood */}
               <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{
-                  fontFamily: 'var(--font-ui)',
-                  fontSize: 'var(--text-body)',
-                  fontWeight: 500,
-                  color: 'var(--text-primary)',
-                  whiteSpace: 'nowrap' as const,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}>
-                  {lead.name}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <div style={{
+                    fontFamily: 'var(--font-ui)',
+                    fontSize: 'var(--text-body)',
+                    fontWeight: 500,
+                    color: 'var(--text-primary)',
+                    whiteSpace: 'nowrap' as const,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    minWidth: 0,
+                  }}>
+                    {lead.name}
+                  </div>
+                  {/* slice 0045: LeadScore grade chip. JetBrains Mono letter; amber only
+                      for grade A (top opportunity), neutral otherwise; score on hover. */}
+                  {mode === 'new' && lead.grade && (
+                    <span
+                      title={`LeadScore ${lead.score?.toFixed(2)}`}
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 'var(--text-caption)',
+                        fontWeight: 600,
+                        lineHeight: 1,
+                        padding: '1px 5px',
+                        borderRadius: 3,
+                        flexShrink: 0,
+                        ...(lead.grade === 'A'
+                          ? { color: 'var(--accent)', background: 'var(--accent-dim)' }
+                          : { color: 'var(--text-muted)', background: 'var(--fill-subtle)' }),
+                      }}
+                    >
+                      {lead.grade}
+                    </span>
+                  )}
                 </div>
                 <div style={{
                   marginTop: 2,

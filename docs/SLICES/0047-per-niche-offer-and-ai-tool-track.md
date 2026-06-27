@@ -158,7 +158,8 @@ Per-vertical niche offers reach EN regardless (via `buildOfferContext` → `{{OF
 
 ## Completion record
 
-- Commit SHAs: _(recorded in a follow-up docs commit)_
+- Commit SHAs: `bfa0851` (feat: composer + settings). Skill prompt copies under
+  `.claude/skills/` are gitignored (runtime-local, updated but not committed).
 - What changed:
   - `geminiComposer.ts`: new `buildNicheOffer(category, isSpanish)` — real-estate via
     regex (`/real estate|inmobiliar/i`, no `getCategoryBucket` bucket exists), then

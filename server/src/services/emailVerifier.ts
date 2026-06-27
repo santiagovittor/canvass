@@ -3,7 +3,7 @@ import net from 'net';
 import { env } from '../env';
 import {
   validateEmail, isPlaceholderEmail, getEmailValidity, upsertEmailValidity,
-  getBusinessEmails, type EmailValidity,
+  getBusinessEmails, getLeadsNeedingValidityProbe, type EmailValidity,
 } from '../db';
 
 // Pre-compose deliverability gate (slice 0013). Establishes, without a paid API,
@@ -189,4 +189,40 @@ export async function selectBestEmail(businessId: string): Promise<string | null
     if (rank < bestRank) { best = addr; bestRank = rank; }
   }
   return best;
+}
+
+// Slice 0046: paced probe-before-rank backfill. Probes the untouched email pool so
+// getOutreachLeads' cache-only validity read (slice 0045) sorts on real verdicts
+// (verified replies ~2× unverified — 0043 F4). Reuses selectBestEmail, which probes +
+// caches each candidate via verifyEmailDeliverable (TTL-skip → re-runs near-instant).
+// Sequential + paced (SOCIAL_ENRICHMENT_DELAY_MS between leads): opens raw port-25
+// sockets, must not hammer. Fail-open is selectBestEmail's contract — a probe degrades
+// to 'unknown', never throws into the loop. When port 25 is blocked, MX-only verdicts
+// (invalid on dead domain, else unknown) still sink dead domains in the ranking.
+export async function backfillEmailValidity(
+  limit = 50,
+): Promise<{ probed: number; valid: number; unknown: number; invalid: number }> {
+  const ids = getLeadsNeedingValidityProbe(limit);
+  const counts = { probed: 0, valid: 0, unknown: 0, invalid: 0 };
+  for (const id of ids) {
+    const emails = getBusinessEmails(id);
+    if (emails.length === 0) continue;
+    // NOT selectBestEmail: it short-circuits single-email leads (the majority) WITHOUT
+    // probing them. Probe each candidate directly so every lead gains a cached verdict;
+    // mirror selectBestEmail's rank + valid short-circuit to pick the lead's best.
+    let best: EmailValidity = 'invalid';
+    for (const addr of emails) {
+      const v = await verifyEmailDeliverable(addr);  // probes uncached + caches (TTL-skip)
+      if (SELECT_RANK[v] < SELECT_RANK[best]) best = v;
+      if (v === 'valid') break;                       // top rank — stop probing the rest
+    }
+    counts.probed++;
+    counts[best]++;
+    await new Promise(r => setTimeout(r, env.SOCIAL_ENRICHMENT_DELAY_MS));
+  }
+  console.log(
+    `[validity-backfill] probed ${counts.probed}, valid/unknown/invalid = ` +
+    `${counts.valid}/${counts.unknown}/${counts.invalid}`,
+  );
+  return counts;
 }

@@ -624,6 +624,30 @@ export function pickBestCachedEmail(emails: string[], map: Map<string, EmailVali
   return best;
 }
 
+// Slice 0046: pool leads whose probe-before-rank backfill still owes a verdict.
+// A lead is "unprobed" iff its first candidate email has no email_validity row at all
+// (matches the 0043 diagnosis count). selectBestEmail probes emails[0] first and
+// caches it, so a probed lead always gains a row and never reselects → re-runs are
+// near-instant no-ops. Stale (>TTL) rows are re-checked by verifyEmailDeliverable on
+// the send path, not here. Same pool predicate as getOutreachLeads (slice 0045) so the
+// backfill feeds exactly what the queue ranks. Capped per run (paced port-25 probes).
+export function getLeadsNeedingValidityProbe(limit: number): string[] {
+  const { clause, params } = buildOutreachWhere({});
+  const raw = sqlite.prepare<(string | number)[], { id: string; emails_json: string | null }>(
+    `SELECT b.id, b.emails_json FROM businesses b WHERE ${clause} ORDER BY b.scraped_at DESC`
+  ).all(...params);
+  const firsts = raw
+    .map(r => ({ id: r.id, first: parseEmails(r.emails_json)[0] ?? null }))
+    .filter((x): x is { id: string; first: string } => x.first !== null);
+  const probed = getEmailValidityMany(firsts.map(f => f.first)); // emails that already have a row
+  const out: string[] = [];
+  for (const f of firsts) {
+    if (!probed.has(f.first.toLowerCase())) out.push(f.id);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 export interface OutreachLead {
   id: string;
   name: string;

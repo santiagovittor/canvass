@@ -112,14 +112,17 @@ _Filled DURING execution (live DB, server container `maps-scraper-server-1`)._
 - [x] **curl** `GET /api/outreach/leads?page=1` → rows carry `score` + `grade`;
       `total=361` (eligibility clause byte-unchanged, so identical to pre-change).
 
-- [~] **Screenshot** — NOT captured: the Claude-in-Chrome extension was not
-      connected this session ("Browser extension is not connected"). Chip render is
-      otherwise verified: client `tsc` clean, and the JSX is gated on
-      `mode === 'new' && lead.grade` reusing the same badge tokens as the existing
-      follow-up chips. Manual repro: open `http://localhost:5173` → Outreach →
-      "Nuevos"; A-grade rows sit at the top each with an amber `A` chip, lower rows
-      show neutral `B`/`C`/`D`, hover shows the numeric score; chips absent in
-      follow-up/replied/no-site modes.
+- [x] **Screenshot (browser, live-verified).** Outreach → "Nuevos" at
+      `http://localhost:5173`: the top of the queue shows seven amber `A` chips in
+      score order (Byrne Real Estate Group, 54 Realty, Simi Lakhani, The Mangin
+      Team, Estudio jurídico EOT, Real Estate of Florida, Florida Blue Realty) —
+      same order + count (361) as the curl — then the first neutral (gray) `B` chip
+      at "the ThinkLiveBe team", with more `B` chips below (Nude Aesthetics, Estudio
+      Enzetti, Estudio HFA, SkinLocal, TruGlo Dental, neodental). Chip letters are
+      JetBrains Mono; amber appears only on grade A, B/C/D stay neutral (ui.md). The
+      native `title` score tooltip is present in the JSX but Chrome's native tooltip
+      doesn't render into CDP screenshots. (Initial attempt was blocked by the
+      extension being offline; re-run after the operator brought it up.)
 
 - [x] **Regression (0029)** — `buildOutreachWhere` is untouched, including the
       `NOT EXISTS (… scheduled_sends … status IN ('scheduled','claimed','deferred'))`

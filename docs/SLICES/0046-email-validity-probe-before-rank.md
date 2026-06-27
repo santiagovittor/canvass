@@ -122,7 +122,7 @@ immediately (105 valid / 105 unknown / 74 invalid).
 
 ## Completion record
 
-- Commit SHAs: _(this commit)_
+- Commit SHAs: `5f3f90d` (feat).
 - What changed:
   - `server/src/db/index.ts` — `getLeadsNeedingValidityProbe(limit)`: pool leads
     (same `buildOutreachWhere` predicate the queue ranks) whose first email has no

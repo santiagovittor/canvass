@@ -131,7 +131,7 @@ _Filled DURING execution (live DB, server container `maps-scraper-server-1`)._
 
 ## Completion record
 
-- Commit SHAs: <filled by commit>
+- Commit SHAs: `14736b8` feat(outreach): rank email queue by LeadScore (slice 0045)
 - What changed:
   - `server/src/db/index.ts` — `getOutreachLeads` now loads ALL eligible rows (SQL
     `LIMIT/OFFSET` dropped, `ORDER BY scraped_at DESC` kept as the tie-break),

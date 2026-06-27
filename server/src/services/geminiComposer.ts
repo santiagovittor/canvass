@@ -219,12 +219,49 @@ function resolveLocale(locCountry: string | null): Locale {
   return 'en';
 }
 
+// Per-vertical productized offer hook (slice 0047). Real estate has no
+// getCategoryBucket bucket, so it's matched by regex first (same pattern as
+// leadScore.ts). Returns null for professional/other → caller falls back to the
+// generic improve/build line. Framed as a service I provide ("armo", "I build")
+// so the verifier reads it as an always-true benefit, never a claim about their site.
+const REALESTATE_CATS = /real estate|inmobiliar/i;
+function buildNicheOffer(category: string | null, isSpanish: boolean): string | null {
+  if (category && REALESTATE_CATS.test(category)) {
+    return isSpanish
+      ? 'Para inmobiliarias armo un asistente que capta y califica las consultas de propiedades las 24 horas.'
+      : 'I build an assistant for real estate offices that captures and qualifies property inquiries 24/7.';
+  }
+  switch (getCategoryBucket(category)) {
+    case 'legal':
+      return isSpanish
+        ? 'Para estudios jurídicos armo un asistente que recibe y ordena las consultas iniciales y ayuda con la documentación de rutina.'
+        : 'I build an intake assistant for law firms that captures and organizes new inquiries and helps with routine documents.';
+    case 'health':
+      return isSpanish
+        ? 'Para consultorios implemento un agente que toma turnos online y envía recordatorios automáticos para reducir las ausencias.'
+        : 'I build an agent for clinics that books appointments online and sends automatic reminders to cut no-shows.';
+    case 'food':
+      return isSpanish
+        ? 'Para gastronomía implemento el menú online con pedidos directos desde el sitio.'
+        : 'I build an online menu with direct ordering from the site.';
+    case 'beauty':
+    case 'fitness':
+      return isSpanish
+        ? 'Implemento reservas online con respuesta automática por WhatsApp.'
+        : 'I set up online booking with automatic WhatsApp replies.';
+    default:
+      return null;
+  }
+}
+
 function buildOfferContext(b: BusinessForEmail): string {
   const site = normalizeWebsite(b.website);
   if (!site) {
     return `Build a professional website from scratch for their ${b.category ?? 'business'} in ${b.locNeighbourhood ?? 'Buenos Aires'}. They have no web presence at all.`;
   }
-  return `Improve their existing site (${site}): identify one concrete gap relevant to a ${b.category ?? 'local business'} — e.g. missing online menu, no booking system, poor mobile experience, slow load times, or no clear contact info.`;
+  const niche = buildNicheOffer(b.category, false);
+  if (niche) return niche;
+  return `Improve their existing site (${site}): identify one concrete gap relevant to a ${b.category ?? 'local business'}, e.g. missing online menu, no booking system, poor mobile experience, slow load times, or no clear contact info.`;
 }
 
 const SYSTEM_ES = `Sos un copywriter de cold email B2B para negocios en Argentina.
@@ -259,15 +296,17 @@ ESTRUCTURA (en orden, párrafos fluidos — nunca una oración suelta por párra
    "Muchos [categoría] en [barrio]..." — es genérico, no habla de este negocio.
    "Revisé / noté / encontré / vi su sitio..." — el hook no narra tu proceso.
 3. Oferta — un párrafo, máximo 2 oraciones que fluyan entre sí.
-   Si gapCount == 0: ofrecé el asistente virtual con IA como propuesta principal.
-   Si gapCount 1–2: ofrecé la solución a siteGaps[0]. No menciones el asistente.
+   Si gapCount == 0: ofrecé como propuesta principal la oferta productizada del rubro o el asistente virtual con IA.
+   Si gapCount 1–2: ofrecé la solución a siteGaps[0] en la primera oración y, si entra en el límite de 2 oraciones y 90 palabras, sumá el asistente o la oferta del rubro como beneficio paralelo en la segunda. Sigue siendo UN solo párrafo.
    Si gapCount 3+: ofrecé la solución a siteGaps[0] en la primera oración.
+   OFERTA PRODUCTIZADA POR RUBRO (si corresponde por el rubro, usala como la solución concreta a ofrecer, adaptando lo mínimo):
+   {{NICHE_OFFER}}
    Oferta del asistente virtual (redactala con estas palabras, adaptando lo mínimo):
    {{ASSISTANT_OFFER}}
-   GATE DEL ASISTENTE — la oferta del asistente es un servicio que YO ofrezco
-   (siempre verdadero), presentala como beneficio. AFIRMAR que ESTE negocio NO
-   tiene un asistente es una afirmación sobre su sitio: hacelo ÚNICAMENTE si
-   requiredAnchor.fact lo dice. Si no, ofrecé el asistente como beneficio sin
+   GATE DEL ASISTENTE — la oferta del asistente y la oferta productizada del rubro son servicios que YO ofrezco
+   (siempre verdadero), presentalas como beneficio. AFIRMAR que ESTE negocio NO
+   tiene un asistente o esa herramienta es una afirmación sobre su sitio: hacelo ÚNICAMENTE si
+   requiredAnchor.fact lo dice. Si no, ofrecé el asistente o la herramienta como beneficio sin
    afirmar nunca que les falta.
 4. Presentación — una oración exacta, sin cambios:
    "Mi nombre es Santiago Vittor, soy desarrollador web y trabajo con
@@ -567,15 +606,17 @@ ESTRUCTURA (en orden, párrafos fluidos — nunca una oración suelta por párra
    "Muchos [categoría] en [barrio]..." — es genérico, no habla de este negocio.
    "Revisé / vi / encontré tu web..." — el hook no narra tu proceso.
 3. Oferta — un párrafo, máximo 2 oraciones que fluyan entre sí.
-   Si gapCount == 0: ofrece el asistente virtual con IA como propuesta principal.
-   Si gapCount 1–2: ofrece la solución a siteGaps[0]. No menciones el asistente.
+   Si gapCount == 0: ofrece como propuesta principal la oferta productizada del sector o el asistente virtual con IA.
+   Si gapCount 1–2: ofrece la solución a siteGaps[0] en la primera frase y, si entra en el límite de 2 frases y 90 palabras, suma el asistente o la oferta del sector como beneficio paralelo en la segunda. Sigue siendo UN solo párrafo.
    Si gapCount 3+: ofrece la solución a siteGaps[0] en la primera oración.
+   OFERTA PRODUCTIZADA POR SECTOR (si corresponde por el sector, úsala como la solución concreta a ofrecer, adaptando lo mínimo):
+   {{NICHE_OFFER}}
    Oferta del asistente virtual (redáctala con estas palabras, adaptando lo mínimo):
    {{ASSISTANT_OFFER}}
-   GATE DEL ASISTENTE — la oferta del asistente es un servicio que YO ofrezco
-   (siempre verdadero), preséntala como beneficio. AFIRMAR que ESTE negocio NO
-   tiene un asistente es una afirmación sobre su web: hazlo ÚNICAMENTE si
-   requiredAnchor.fact lo dice. Si no, ofrece el asistente como beneficio sin
+   GATE DEL ASISTENTE — la oferta del asistente y la oferta productizada del sector son servicios que YO ofrezco
+   (siempre verdadero), preséntalas como beneficio. AFIRMAR que ESTE negocio NO
+   tiene un asistente o esa herramienta es una afirmación sobre su web: hazlo ÚNICAMENTE si
+   requiredAnchor.fact lo dice. Si no, ofrece el asistente o la herramienta como beneficio sin
    afirmar nunca que les falta.
 4. Presentación — una oración exacta, sin cambios:
    "Me llamo Santiago Vittor, soy desarrollador web y trabajo con
@@ -1011,6 +1052,7 @@ export async function composeEmail(
     .replace('{{OFFER_CONTEXT}}', offerContext + analysisContext + psiContext + visionContext + signalContext)
     .replaceAll('{{TONE_DIRECTIVE}}', getString(isSpanish ? 'SITE_TONE_DIRECTIVE_ES' : 'SITE_TONE_DIRECTIVE_EN'))
     .replaceAll('{{ASSISTANT_OFFER}}', getString(isSpanish ? 'ASSISTANT_OFFER_ES' : 'ASSISTANT_OFFER_EN'))
+    .replaceAll('{{NICHE_OFFER}}', buildNicheOffer(business.category, isSpanish) ?? '')
     .replaceAll('{{GREETING}}', greeting)
     .replaceAll('{{PROFESSIONAL_TITLE}}', title)
     + buildAnchorDirective(requiredAnchor, isSpanish);

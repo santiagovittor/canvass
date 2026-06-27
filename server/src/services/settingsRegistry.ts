@@ -249,13 +249,13 @@ export const FIELDS: SettingField[] = [
   {
     key: 'ASSISTANT_OFFER_ES', group: 'Offer & Copy', label: 'Assistant offer copy (ES)',
     type: 'string',
-    default: 'También diseño asistentes virtuales con IA: chatbots que responden las consultas de los visitantes al instante, las 24 horas, y registran cada mensaje para que usted lo retome cuando pueda.',
+    default: 'También diseño asistentes virtuales con IA: chatbots que responden las consultas de los visitantes al instante, las 24 horas, y registran cada mensaje para que usted lo retome cuando pueda. Y también desarrollo herramientas específicas cuando un negocio tiene una necesidad puntual.',
     help: 'Service statement (always true). Woven in as a benefit. Asserting the lead LACKS one is gated separately by the anchor.',
   },
   {
     key: 'ASSISTANT_OFFER_EN', group: 'Offer & Copy', label: 'Assistant offer copy (EN)',
     type: 'string',
-    default: 'I also design AI virtual assistants: chatbots that answer visitor questions instantly, 24/7, and log every message so you can follow up when you have a moment.',
+    default: 'I also design AI virtual assistants: chatbots that answer visitor questions instantly, 24/7, and log every message so you can follow up when you have a moment. And I also build custom tools when a business has a specific need.',
     help: 'Service statement (always true). Woven in as a benefit. Asserting the lead LACKS one is gated separately by the anchor.',
   },
   {

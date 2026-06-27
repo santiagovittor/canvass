@@ -142,7 +142,7 @@ _Filled DURING execution (server container `maps-scraper-server-1`)._
 
 ## Completion record
 
-- Commit SHAs: <filled by commit>
+- Commit SHAs: `6ae4b8c` feat(outreach): lead score primitives (slice 0044)
 - What changed: added pure, side-effect-free `server/src/services/leadScore.ts`
   (`computeLeadScore(input, lane)` + the five individually-exported component
   functions `establishmentScore` / `weightedRating` / `categoryFitScore` /

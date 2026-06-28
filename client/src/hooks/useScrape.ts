@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { startScrape, cancelJob as apiCancelJob, resumeJob as apiResumeJob } from '../lib/api';
-import type { JobStatus, Bbox } from '../types';
+import type { JobStatus } from '../types';
 
 export function useScrape() {
   const [jobId, setJobId] = useState<string | null>(null);

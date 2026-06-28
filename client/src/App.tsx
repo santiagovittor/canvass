@@ -15,7 +15,7 @@ import { useScrape } from './hooks/useScrape';
 import { useResults } from './hooks/useResults';
 import { bboxFromGeoJSON, computeGrid, cellCount as computeCellCount } from './lib/geo';
 import { getResults } from './lib/api';
-import type { Business, JobStartedEvent, JobProgressEvent, JobScrapedEvent, JobDoneEvent, JobErrorEvent, EnrichProgressEvent, BusinessesUpdatedEvent, SnapshotEvent, GridCell } from './types';
+import type { JobStartedEvent, JobProgressEvent, JobScrapedEvent, JobDoneEvent, JobErrorEvent, EnrichProgressEvent, BusinessesUpdatedEvent, SnapshotEvent, GridCell } from './types';
 
 const DEFAULT_CELL_SIZE_KM = 0.7;
 
@@ -31,8 +31,8 @@ export default function App() {
   const cells: GridCell[] = bbox ? computeGrid(bbox, cellSizeKm) : [];
   const count = bbox ? computeCellCount(bbox, cellSizeKm) : 0;
 
-  const { jobId, status, setStatus, setJobId, error, start, cancel, resume } = useScrape();
-  const { results, businessCount, cellsDone, enrichedDone, enrichedTotal, addResult, setResults, updateProgress, updateBusinessCount, updateEnrichProgress, reset: resetResults } = useResults();
+  const { jobId, status, setStatus, setJobId, start, cancel, resume } = useScrape();
+  const { results, businessCount, cellsDone, enrichedDone, enrichedTotal, setResults, updateProgress, updateBusinessCount, updateEnrichProgress, reset: resetResults } = useResults();
 
   const log = useCallback((msg: string) => {
     setEventLog(prev => [...prev.slice(-49), `${new Date().toLocaleTimeString()} ${msg}`]);

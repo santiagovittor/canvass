@@ -131,7 +131,6 @@ function buildAnalysisGaps(
   const sigCats = new Set(detectedSigs?.map(s => s.category) ?? []);
   const hasBookingSig = sigCats.has('booking');
   const hasWhatsappSig = sigCats.has('whatsapp');
-  const hasChatSig = sigCats.has('chat');
   const hasFormSig = sigCats.has('forms');
 
   const raw: { label: string; priority: number }[] = [];

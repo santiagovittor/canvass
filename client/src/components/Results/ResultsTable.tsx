@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { SocialIcon } from '../ui/SocialIcon';
-import { formatRating, formatCount } from '../../lib/format';
+import { formatRating } from '../../lib/format';
 import type { Business } from '../../types';
 
 interface ResultsTableProps {

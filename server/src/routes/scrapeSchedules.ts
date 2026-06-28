@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import {
-  createSchedule, listSchedules, getSchedule, updateSchedule,
+  createSchedule, listSchedules, updateSchedule,
   deleteSchedule, getRecentRuns,
 } from '../db/scrapeSchedules';
 import { getScrapeSchedulerHealth, setScrapeSchedulerPaused, getScrapeSchedulerStatusPayload } from '../services/scrapeSchedulerWorker';

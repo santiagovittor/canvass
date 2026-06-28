@@ -15,7 +15,7 @@ import {
   rollingSentCount24h, setGeminiRpd, getGeminiRpd, reserveGeminiRpd,
 } from '../db';
 import {
-  createBatchRun, addBatchItems, getBatchRun, getBatchItems, transitionItem, enqueueForSend,
+  createBatchRun, addBatchItems, getBatchRun, getBatchItems, enqueueForSend,
 } from '../db/batch';
 import { startBatch, resumeBatch } from '../services/batchOrchestrator';
 import { withGeminiRate, GeminiRpdExhausted, geminiCallCount, pacificDate } from '../services/geminiRateLimiter';

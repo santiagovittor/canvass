@@ -3,7 +3,7 @@ import path from 'path';
 import { dataDir } from '../db';
 import {
   completePremiumAnalysis, getBusinessWebsite,
-  type PremiumAnalysisRow, type Signal, type SignalMap, type DetectedSig,
+  type PremiumAnalysisRow, type SignalMap, type DetectedSig,
 } from '../db/premium';
 import { SIGNATURES } from '../data/signatureLibrary';
 import { broadcast } from '../sse';

@@ -16,7 +16,6 @@
  *     sh -c "cd /app/server && npx tsx src/scripts/geminiReliabilityGate.ts --leads=6"
  *   Optional: --leads=id1,id2  to pin specific business ids.
  */
-import { randomUUID } from 'crypto';
 import { db, getBusinessForEmail, sqlite } from '../db';
 import { businesses } from '../db/schema';
 import { eq } from 'drizzle-orm';
@@ -25,7 +24,7 @@ import type { DetectedSig, SignalMap } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
 import { runPremiumAnalysis } from '../services/premiumAnalyzer';
 import { composeVerifiedEmail } from '../services/outreachComposePipeline';
-import { verifyDraft, type VerificationResult } from '../services/geminiVerifier';
+import { verifyDraft } from '../services/geminiVerifier';
 import { evaluateSendGate } from '../services/sendGate';
 import { withGeminiRate, describeGeminiError, GeminiTimeoutError } from '../services/geminiRateLimiter';
 import * as appSettings from '../services/appSettings';
@@ -111,8 +110,6 @@ async function partA(): Promise<void> {
     appSettings.resetSetting('GEMINI_VERIFIER_MODEL');
   }
 }
-
-interface LeadPick { id: string; website: string | null; locCountry: string | null; }
 
 function pickLeads(arg: string | undefined): string[] {
   if (arg && /[^0-9]/.test(arg)) return arg.split(',').map(s => s.trim()).filter(Boolean);

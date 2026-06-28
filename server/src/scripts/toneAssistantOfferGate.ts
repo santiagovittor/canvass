@@ -20,7 +20,6 @@
  */
 import { randomUUID } from 'crypto';
 import { sqlite, getBusinessForEmail } from '../db';
-import type { BusinessForEmailRow } from '../db';
 import type { DetectedSig, SignalMap } from '../db/premium';
 import type { PsiData } from '../db/psiCache';
 import type { VisionResult } from '../services/visionClient';

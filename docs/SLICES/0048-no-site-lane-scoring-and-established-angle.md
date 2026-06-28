@@ -128,7 +128,7 @@ _Filled DURING execution (2026-06-27)._
 
 ## Completion record
 
-- Commit SHAs: _pending (recorded in follow-up commit)._
+- Commit SHAs: `22f380b` (feat); SHA-record follow-up commit.
 - What changed:
   - `server/src/db/index.ts` — `getNoSiteLeads` re-sorted exactly like 0045's email
     lane: dropped SQL `LIMIT/OFFSET`, load all eligible rows, score each with

@@ -648,6 +648,46 @@ export function getLeadsNeedingValidityProbe(limit: number): string[] {
   return out;
 }
 
+// Slice 0049: pool leads needing a PSI backfill — untouched, has-site, has-email leads
+// with NO done premium_analyses row carrying a PSI score yet. Same pool predicate as
+// getOutreachLeads (hasWebsite) so the backfill feeds exactly what the email lane ranks.
+// Ordered by current LeadScore (email lane, psiMobile null — that's what we're filling)
+// so the highest-priority leads analyze first; capped per run (paced render/PSI/vision).
+// The coverage filter is SQL-only (no premium-module import) to keep db/index cycle-free;
+// the REUSE_ANALYSIS_TTL_DAYS re-check is delegated to autoEnqueueForAnalysis downstream.
+export function getLeadsNeedingPsiBackfill(limit: number): string[] {
+  const { clause, params } = buildOutreachWhere({ hasWebsite: true });
+  const raw = sqlite.prepare<(string | number)[], {
+    id: string; phone: string | null; emails_json: string | null;
+    category: string | null; rating: number | null; review_count: number | null;
+  }>(
+    `SELECT b.id, b.phone, b.emails_json, b.category, b.rating, b.review_count
+     FROM businesses b
+     WHERE ${clause}
+       AND NOT EXISTS (
+         SELECT 1 FROM premium_analyses pa
+         WHERE pa.business_id = b.id AND pa.status = 'done' AND pa.psi_json IS NOT NULL
+       )`
+  ).all(...params);
+
+  const validityMap = getEmailValidityMany(raw.flatMap(r => parseEmails(r.emails_json)));
+  const scored = raw.map(r => {
+    const best = pickBestCachedEmail(parseEmails(r.emails_json), validityMap);
+    const { score } = computeLeadScore({
+      rating: r.rating,
+      reviewCount: r.review_count,
+      category: r.category,
+      emailValidity: resolveValidity(best, validityMap),
+      hasPhone: r.phone !== null && r.phone.trim() !== '',
+      psiMobile: null,
+      gapCount: null,
+    }, 'email');
+    return { id: r.id, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, limit).map(s => s.id);
+}
+
 export interface OutreachLead {
   id: string;
   name: string;
@@ -691,6 +731,7 @@ type RawLeadRow = {
   tiktok: string | null; linkedin: string | null; youtube: string | null;
   has_draft: number;
   outreach_analysis_json: string | null;
+  psi_json?: string | null; // slice 0049: latest done premium_analyses PSI (email lane only)
 };
 
 export interface OutreachLeadFilters {
@@ -741,6 +782,15 @@ function buildOutreachWhere(filters: OutreachLeadFilters = {}): { clause: string
   return { clause: conditions.join(' AND '), params };
 }
 
+// slice 0049: pull the mobile PSI score out of a premium_analyses.psi_json blob, tolerant
+// of a malformed/degraded row (→ null) so one bad row can't 500 the whole queue read.
+// A degraded PSI entry has mobileScore === null → null here → visiblePain stays neutral.
+function psiMobileOf(json: string | null | undefined): number | null {
+  if (!json) return null;
+  try { return (JSON.parse(json) as { mobileScore: number | null }).mobileScore ?? null; }
+  catch { return null; }
+}
+
 export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadFilters = {}): { rows: OutreachLead[]; total: number } {
   const { clause, params } = buildOutreachWhere(filters);
 
@@ -754,7 +804,10 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
     SELECT b.id, b.name, b.address, b.phone, b.website, b.emails_json, b.category, b.rating, b.review_count,
            b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status, b.outreach_analysis_json,
            b.latitude, b.longitude, b.instagram, b.facebook, b.twitter, b.tiktok, b.linkedin, b.youtube,
-           CASE WHEN d.business_id IS NOT NULL THEN 1 ELSE 0 END AS has_draft
+           CASE WHEN d.business_id IS NOT NULL THEN 1 ELSE 0 END AS has_draft,
+           (SELECT pa.psi_json FROM premium_analyses pa
+            WHERE pa.business_id = b.id AND pa.status = 'done' AND pa.psi_json IS NOT NULL
+            ORDER BY pa.created_at DESC LIMIT 1) AS psi_json
     FROM businesses b
     LEFT JOIN outreach_drafts d ON b.id = d.business_id
     WHERE ${clause}
@@ -773,17 +826,18 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
     const best = pickBestCachedEmail(parseEmails(r.emails_json), validityMap);
     const validEmail = best !== null && validateEmail(best);
     const email_validity = resolveValidity(best, validityMap);
-    // slice 0045: reachability/establishment/category drive the order. psiMobile +
-    // gapCount are passed null (unprobed → neutral); the read path stays network-
-    // free and PSI cache is URL-keyed with JS-side TTL, so a clean join isn't cheap.
-    // The ranking sharpens once 0049 backfills PSI and a later wire-up feeds it here.
+    // slice 0045/0049: reachability/establishment/category drive the order; psiMobile is
+    // the latest done premium_analyses PSI (correlated subquery above), so visiblePain is
+    // now data-driven wherever 0049 has backfilled coverage and neutral (0.4) elsewhere.
+    // gapCount stays null — deriving it on-read needs a full signals/analysis parse per
+    // row (see slice 0049 follow-up: persist gap_count as an additive column if wanted).
     const { score, grade } = computeLeadScore({
       rating: r.rating,
       reviewCount: r.review_count,
       category: r.category,
       emailValidity: email_validity,
       hasPhone: r.phone !== null && r.phone.trim() !== '',
-      psiMobile: null,
+      psiMobile: psiMobileOf(r.psi_json),
       gapCount: null,
     }, 'email');
     return {

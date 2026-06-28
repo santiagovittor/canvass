@@ -870,6 +870,7 @@ Reglas:
 - Largo de WhatsApp: 3 a 5 oraciones, máximo ~50 palabras. Sin asunto, sin firma, sin enlaces.
 - Empezá con el saludo "{{GREETING}}" y, si corresponde por el rubro, el título "{{PROFESSIONAL_TITLE}}".
 - Decí que los encontraste en Google Maps y que notaste que no tienen sitio web. Es el gancho; NO digas que eso esté "mal" ni los hagas sentir en falta.
+- Si el payload trae "establishmentHint" (un número, no null), abrí anclando en la demanda comprobable: que ya tienen "<establishmentHint>+ reseñas" en Google y todavía no tienen sitio web — concreto, real, nada genérico. Si "establishmentHint" es null o no está, usá el gancho general de arriba sin mencionar reseñas.
 - Mencioná UN solo beneficio concreto de tener presencia online, pensado para su rubro y zona. No una lista.
 - Cerrá ofreciendo una breve reunión o llamada, sin compromiso, para mostrarle cómo se vería su presencia online.
 - Terminá con UNA línea corta y natural de baja: que si no le interesa, le avise y no le volvés a escribir.
@@ -884,6 +885,7 @@ Reglas:
 - Longitud de WhatsApp: 3 a 5 frases, máximo ~50 palabras. Sin asunto, sin firma, sin enlaces.
 - Empieza con el saludo "{{GREETING}}" y, si procede por el sector, el título "{{PROFESSIONAL_TITLE}}".
 - Di que los encontraste en Google Maps y que viste que no tienen web. Es el gancho; NO digas que eso esté "mal".
+- Si el payload trae "establishmentHint" (un número, no null), abre anclando en la demanda comprobable: que ya tienen "<establishmentHint>+ reseñas" en Google y todavía no tienen web — concreto, real, nada genérico. Si "establishmentHint" es null o no está, usa el gancho general de arriba sin mencionar reseñas.
 - Menciona UN solo beneficio concreto de tener presencia online, pensado para su sector y zona. No una lista.
 - Cierra ofreciendo una breve reunión o llamada, sin compromiso, para mostrarle cómo se vería su presencia online.
 - Termina con UNA línea corta y natural de baja: que si no le interesa, te avise y no le vuelves a escribir.
@@ -897,12 +899,25 @@ Rules:
 - Plain, direct, friendly American English.
 - WhatsApp length: 3 to 5 sentences, max ~50 words. No subject, no signature, no links.
 - Mention you found them on Google Maps and noticed they don't have a website. That's the hook; do NOT say that's "bad" or make them feel behind.
+- If the payload has "establishmentHint" (a number, not null), open by anchoring on provable demand: they already have "<establishmentHint>+ reviews" on Google and still no website — concrete, real, not generic. If "establishmentHint" is null or absent, use the general hook above without mentioning reviews.
 - Mention ONE concrete benefit of having an online presence, tailored to their category and area. Not a list.
 - Close by offering a short, no-commitment meeting or call to show them what their online presence could look like.
 - End with ONE short, natural opt-out line: if they're not interested, they can tell you and you won't message again.
 - Natural, not robotic. Don't invent facts not in the payload.
 
 Return ONLY JSON: { "subject": "", "body": "<the WhatsApp message>" }. The subject field is ALWAYS empty.`;
+
+// slice 0048: establishment anchor for the opener. Floor reviewCount to a clean band
+// ("680 reseñas" → "600+") so the claim is always conservative-true and never creepy-
+// precise. Below 50 reviews returns null: a brand-new business gets the generic
+// no-website hook, not an embarrassing "tiene 3 reseñas" opener (honors F7 — startups
+// rank low but aren't pitched a demand they don't have yet).
+function establishmentHintBand(reviewCount: number | null): number | null {
+  const n = reviewCount ?? 0;
+  if (n < 50) return null;
+  if (n < 100) return 50;
+  return Math.floor(n / 100) * 100;
+}
 
 // Compose a first-contact WhatsApp cheap-site offer for a no-website lead.
 export async function composeWhatsApp(
@@ -921,6 +936,7 @@ export async function composeWhatsApp(
     neighbourhood: business.locNeighbourhood,
     rating: business.rating,
     reviewCount: business.reviewCount,
+    establishmentHint: establishmentHintBand(business.reviewCount),
   });
   return { message: body };
 }

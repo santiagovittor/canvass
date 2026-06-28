@@ -426,8 +426,9 @@ export function LeadQueue({ activeLead, onSelect, onLeadsChange, refreshTrigger,
                     {lead.name}
                   </div>
                   {/* slice 0045: LeadScore grade chip. JetBrains Mono letter; amber only
-                      for grade A (top opportunity), neutral otherwise; score on hover. */}
-                  {mode === 'new' && lead.grade && (
+                      for grade A (top opportunity), neutral otherwise; score on hover.
+                      slice 0048: also shown for the no-site lane (scored lane 'nosite'). */}
+                  {(mode === 'new' || mode === 'no-site') && lead.grade && (
                     <span
                       title={`LeadScore ${lead.score?.toFixed(2)}`}
                       style={{

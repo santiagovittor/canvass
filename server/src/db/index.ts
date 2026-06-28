@@ -817,7 +817,6 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
 // outreach_drafts join (has_draft) and the OutreachLead type; email fields are
 // empty for these rows by definition.
 export function getNoSiteLeads(page = 1, pageSize = 25, filters: { search?: string } = {}): { rows: OutreachLead[]; total: number } {
-  const offset = (page - 1) * pageSize;
   const conditions = [
     `(b.website IS NULL OR trim(b.website) = '')`,
     `b.phone IS NOT NULL AND trim(b.phone) != ''`,
@@ -830,6 +829,11 @@ export function getNoSiteLeads(page = 1, pageSize = 25, filters: { search?: stri
   }
   const clause = conditions.join(' AND ');
 
+  // slice 0048: same load-all → score → sort-desc → paginate-in-TS as 0045's email
+  // lane, but with lane 'nosite' (establishment × weightedRating × categoryFit, phone
+  // as a 0/1 reachability gate). SQL still orders scraped_at DESC so the stable JS
+  // sort keeps "newest first" as the score tie-break for free.
+  // ponytail: same load-all-then-sort ceiling as 0045 (~1.3k rows, fine).
   const leadsSQL = `
     SELECT b.id, b.name, b.address, b.phone, b.website, b.emails_json, b.category, b.rating, b.review_count,
            b.loc_country, b.loc_neighbourhood, b.loc_city, b.outreach_status, b.outreach_analysis_json,
@@ -839,22 +843,34 @@ export function getNoSiteLeads(page = 1, pageSize = 25, filters: { search?: stri
     LEFT JOIN outreach_drafts d ON b.id = d.business_id
     WHERE ${clause}
     ORDER BY b.scraped_at DESC
-    LIMIT ? OFFSET ?
   `;
   const countSQL = `SELECT COUNT(*) AS n FROM businesses b WHERE ${clause}`;
 
-  const raw = sqlite.prepare<(string | number)[], RawLeadRow>(leadsSQL).all(...params, pageSize, offset);
+  const raw = sqlite.prepare<(string | number)[], RawLeadRow>(leadsSQL).all(...params);
   const total = sqlite.prepare<(string | number)[], { n: number }>(countSQL).get(...params)?.n ?? 0;
 
-  // Batch-load cached probe results for ALL of this page's emails (one query) so
+  // Batch-load cached probe results for ALL eligible emails (one query) so
   // pickBestCachedEmail (slice 0025) can rank every candidate. No-site leads have
   // no email by definition, so best stays null here — kept consistent regardless.
   const validityMap = getEmailValidityMany(raw.flatMap(r => parseEmails(r.emails_json)));
 
-  const rows: OutreachLead[] = raw.map(r => {
+  const scored: OutreachLead[] = raw.map(r => {
     const best = pickBestCachedEmail(parseEmails(r.emails_json), validityMap);
     const validEmail = best !== null && validateEmail(best);
     const email_validity = resolveValidity(best, validityMap);
+    // slice 0048: nosite lane ignores emailValidity (no email by definition); phone
+    // is guaranteed present by the query, so reachability is effectively 1 and the
+    // order is establishment × weightedRating × categoryFit. psiMobile/gapCount are
+    // null (no-site leads have no website to analyze) → visiblePain is unused here.
+    const { score, grade } = computeLeadScore({
+      rating: r.rating,
+      reviewCount: r.review_count,
+      category: r.category,
+      emailValidity: email_validity,
+      hasPhone: r.phone !== null && r.phone.trim() !== '',
+      psiMobile: null,
+      gapCount: null,
+    }, 'nosite');
     return {
       id: r.id, name: r.name, address: r.address, phone: r.phone,
       website: r.website, emailsJson: r.emails_json, category: r.category,
@@ -869,8 +885,13 @@ export function getNoSiteLeads(page = 1, pageSize = 25, filters: { search?: stri
       tiktok: r.tiktok, linkedin: r.linkedin, youtube: r.youtube,
       has_draft: r.has_draft === 1,
       outreachAnalysisJson: r.outreach_analysis_json,
+      score, grade,
     };
   });
+
+  // Stable sort: ties retain the SQL scraped_at-DESC order (V8 Array.sort is stable).
+  scored.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  const rows = scored.slice((page - 1) * pageSize, page * pageSize);
 
   return { rows, total };
 }

@@ -794,6 +794,24 @@ function buildSignalContext(signalMap: SignalMap | undefined, isAR: boolean): st
   return `\n\nVERIFIED ABSENCES (render + DOM + network + vision all found nothing): use observational phrasing — NEVER assert absence as absolute fact. Phrase as personal observation:\n${absentHedges.join('\n')}`;
 }
 
+// Slice 0050: a business already running paid-acquisition pixels (Meta Pixel / Google
+// Ads conversion) is paying per click — the AI-assistant offer (0047) lands hardest as
+// "convert more of the traffic you already pay for". This is a FRAMING BIAS ONLY: it
+// must NOT assert the pixel/ads as a fact about their site (that would be an
+// unverifiable claim the verifier would flag). Verifier-safe by construction — it adds
+// no checkable claim, only steers tone toward ROI/return.
+function buildAdIntentContext(signalMap: SignalMap | undefined, isAR: boolean): string {
+  if (!signalMap) return '';
+  const advertising =
+    signalMap.hasMetaPixel?.state === 'PRESENT' || signalMap.hasGoogleAds?.state === 'PRESENT';
+  if (!advertising) return '';
+
+  if (isAR) {
+    return '\n\nSEÑAL DE INTENCIÓN (uso interno, NO mencionar como dato ni afirmar nada sobre su publicidad): este negocio ya invierte en captación paga. Orientá el enfoque hacia el RETORNO — convertir mejor el tráfico y los clics que ya está pagando. NUNCA afirmar que usan un pixel ni describir su publicidad como un hecho verificado; es solo una guía de tono.';
+  }
+  return '\n\nINTENT SIGNAL (internal use, do NOT mention as a fact or assert anything about their advertising): this business already invests in paid acquisition. Steer the framing toward RETURN — converting more of the traffic and clicks they already pay for. NEVER claim they run a pixel or describe their advertising as a verified fact; this is only a tone hint.';
+}
+
 async function callGemini(systemPrompt: string, userPayload: Record<string, unknown>): Promise<{ subject: string; body: string }> {
   const composeModel = getString('GEMINI_MODEL');
   const timeoutMs = getNumber('GEMINI_TIMEOUT_MS');
@@ -1059,12 +1077,13 @@ export async function composeEmail(
   const psiContext = buildPsiContext(psiData, isSpanish);
   const visionContext = buildVisionContext(visionResult, isSpanish);
   const signalContext = buildSignalContext(signalMap, isSpanish);
+  const adIntentContext = buildAdIntentContext(signalMap, isSpanish);
   const greeting = getGreeting();
   const title = getProfessionalTitle(business.category);
   const basePrompt =
     locale === 'es-AR' ? SYSTEM_ES : locale === 'es-ES' ? SYSTEM_ES_ES : SYSTEM_EN;
   const systemPrompt = basePrompt
-    .replace('{{OFFER_CONTEXT}}', offerContext + analysisContext + psiContext + visionContext + signalContext)
+    .replace('{{OFFER_CONTEXT}}', offerContext + analysisContext + psiContext + visionContext + signalContext + adIntentContext)
     .replaceAll('{{TONE_DIRECTIVE}}', getString(isSpanish ? 'SITE_TONE_DIRECTIVE_ES' : 'SITE_TONE_DIRECTIVE_EN'))
     .replaceAll('{{ASSISTANT_OFFER}}', getString(isSpanish ? 'ASSISTANT_OFFER_ES' : 'ASSISTANT_OFFER_EN'))
     .replaceAll('{{NICHE_OFFER}}', buildNicheOffer(business.category, isSpanish) ?? '')

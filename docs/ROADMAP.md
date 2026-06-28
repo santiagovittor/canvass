@@ -17,7 +17,7 @@ Status legend: `planned` · `in-progress` · `done`.
 | 5 | `0007-no-website-lead-outreach` | Contact lane (phone/WhatsApp) + cheap-site offer for no-website leads | planned (needs diagnosis) | [0007](SLICES/0007-no-website-lead-outreach.md) |
 | 6 | `0008-daily-operational-digest` | Daily summary of sends / replies / queue health | planned | _(not created)_ |
 | 7 | `0009-auto-compose-schedule-high-confidence` | Auto compose + schedule leads above a confidence bar | planned | _(not created)_ |
-| 8 | `0010-new-lead-sources-meta-ad-library` | Add Meta Ad Library as a new lead source | planned | _(not created)_ |
+| 8 | `0010-new-lead-sources-meta-ad-library` | Add Meta Ad Library as a new lead source | **rejected for AR (see 0050)** | _(not created)_ |
 | — | `0011-ux-clarity-and-outreach-audit` | Diagnosis: cross-tab run persistence, reply visibility, email validity, open-tracking honesty, type/declutter | diagnosis done | [0011](SLICES/0011-ux-clarity-and-outreach-audit.md) |
 | next·1 | `0012-active-runs-persistence` | Server-authoritative active-runs, SSE-rehydrated — runs survive tab switch + show concurrently | planned | [0012](SLICES/0012-active-runs-persistence.md) |
 | next·2 | `0013-email-validity-gate-and-bounce-ingestion` | MX + SMTP-RCPT validity gate before compose + bounce/DSN ingestion | planned | [0013](SLICES/0013-email-validity-gate-and-bounce-ingestion.md) |

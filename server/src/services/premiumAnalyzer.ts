@@ -135,7 +135,7 @@ const DETECTORS: { key: string; dom?: RegExp; network?: RegExp; source: 'html' |
 
 const RAW_FETCH_BOOLEAN_KEYS = [
   ...DETECTORS.map(d => d.key),
-  'hasContactForm', 'hasSSL', 'hasMetaPixel',
+  'hasContactForm', 'hasSSL', 'hasMetaPixel', 'hasGoogleAds', 'hasGtm',
 ] as const;
 
 // Raw-fetch reinterpretation: a positive is real evidence, a negative proves
@@ -222,6 +222,27 @@ function detectSignals(html: string, networkUrls: string[], finalUrl: string): S
       }
     : { state: 'UNKNOWN', checkedBy: ['dom', 'network'] };
 
+  // Slice 0050: ad-conversion pixels = the business is running paid acquisition.
+  // Both mirror detectMetaPixel; a positive is real evidence, absence stays UNKNOWN
+  // (a raw/single-pass scan can't prove a JS-injected tag is absent).
+  const googleAds = detectGoogleAds(html, networkUrls);
+  signals.hasGoogleAds = googleAds
+    ? {
+        state: 'PRESENT',
+        evidence: { kind: googleAds.evidenceKind, value: googleAds.evidenceValue },
+        checkedBy: ['dom', 'network'],
+      }
+    : { state: 'UNKNOWN', checkedBy: ['dom', 'network'] };
+
+  const gtm = detectGtm(html, networkUrls);
+  signals.hasGtm = gtm
+    ? {
+        state: 'PRESENT',
+        evidence: { kind: gtm.evidenceKind, value: gtm.evidenceValue },
+        checkedBy: ['dom', 'network'],
+      }
+    : { state: 'UNKNOWN', checkedBy: ['dom', 'network'] };
+
   return signals;
 }
 
@@ -263,6 +284,75 @@ function detectMetaPixel(html: string, networkUrls: string[]): {
   return {
     evidenceKind,
     evidenceValue: `markers=[${uniqueMarkers.join(',')}]; pixelId=${uniqueIds[0] ?? 'unknown'}`,
+  };
+}
+
+// Google Ads / AdWords conversion tag. The `AW-` conversion ID (distinct from GA4's
+// `G-` and GTM's `GTM-`) is the canonical paid-acquisition fingerprint; it appears in
+// gtag('config','AW-…'), send_to:'AW-…', and bare in the conversion snippet. Network
+// conversion endpoints are the higher-signal evidence.
+function detectGoogleAds(html: string, networkUrls: string[]): {
+  evidenceKind: 'dom' | 'network';
+  evidenceValue: string;
+} | null {
+  const markers: string[] = [];
+  const ids: string[] = [];
+  let evidenceKind: 'dom' | 'network' = 'dom';
+
+  if (networkUrls.some(u => /googleadservices\.com\/pagead\/conversion/i.test(u))) {
+    markers.push('network:googleadservices_conversion');
+    evidenceKind = 'network';
+  }
+  if (networkUrls.some(u => /googleads\.g\.doubleclick\.net\/pagead/i.test(u))) {
+    markers.push('network:doubleclick_pagead');
+    evidenceKind = 'network';
+  }
+  for (const match of html.matchAll(/\bAW-\d{6,}/gi)) {
+    markers.push('dom:aw_id');
+    ids.push(match[0].toUpperCase());
+  }
+
+  if (markers.length === 0) return null;
+
+  const uniqueMarkers = [...new Set(markers)];
+  const uniqueIds = [...new Set(ids)];
+  return {
+    evidenceKind,
+    evidenceValue: `markers=[${uniqueMarkers.join(',')}]; conversionId=${uniqueIds[0] ?? 'unknown'}`,
+  };
+}
+
+// Google Tag Manager. Recorded as a signal but a WEAKER advertising indicator than a
+// conversion pixel (GTM frequently hosts analytics-only): the GTM-… container ID and
+// gtm.js loader are the fingerprints. advertisingIntent does NOT trigger on GTM alone
+// (see advertisingIntentOf in db/index) — it would fire on too many non-advertisers.
+function detectGtm(html: string, networkUrls: string[]): {
+  evidenceKind: 'dom' | 'network';
+  evidenceValue: string;
+} | null {
+  const markers: string[] = [];
+  const ids: string[] = [];
+  let evidenceKind: 'dom' | 'network' = 'dom';
+
+  if (networkUrls.some(u => /googletagmanager\.com\/gtm\.js/i.test(u))) {
+    markers.push('network:gtm_js');
+    evidenceKind = 'network';
+  }
+  if (/googletagmanager\.com\/gtm\.js/i.test(html)) {
+    markers.push('dom:gtm_js');
+  }
+  for (const match of html.matchAll(/\bGTM-[A-Z0-9]{4,}/g)) {
+    markers.push('dom:gtm_id');
+    ids.push(match[0]);
+  }
+
+  if (markers.length === 0) return null;
+
+  const uniqueMarkers = [...new Set(markers)];
+  const uniqueIds = [...new Set(ids)];
+  return {
+    evidenceKind,
+    evidenceValue: `markers=[${uniqueMarkers.join(',')}]; containerId=${uniqueIds[0] ?? 'unknown'}`,
   };
 }
 

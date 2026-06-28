@@ -18,6 +18,7 @@ export interface LeadScoreInput {
   hasPhone: boolean;
   psiMobile: number | null;            // null = no PSI yet (0049 hasn't run)
   gapCount: number | null;             // buildAnalysisGaps().count, null = no analysis
+  advertisingIntent?: boolean;         // slice 0050: site runs ad pixels (Meta/Google Ads). undefined/false = neutral
 }
 
 export type Grade = 'A' | 'B' | 'C' | 'D';
@@ -29,6 +30,12 @@ export interface LeadScoreResult {
 }
 
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
+
+// Slice 0050: boost-only additive term for a lead whose site runs paid-acquisition
+// pixels (Meta Pixel / Google Ads conversion). A business already paying to acquire
+// customers is the highest-intent buyer of marketing/AI services (0043 F8). Modest +
+// (never negative — a non-advertiser is NOT penalized, only an advertiser lifted).
+const AD_INTENT_BOOST = 0.10;
 
 // log-scaled: 0 reviews → 0, ~500+ → 1. A 500-review business is "established".
 export function establishmentScore(reviewCount: number | null): number {
@@ -104,8 +111,9 @@ export function computeLeadScore(input: LeadScoreInput, lane: Lane): LeadScoreRe
   let components: Record<string, number>;
 
   if (lane === 'email') {
-    score = reachability * 0.40 + visiblePain * 0.20 + establishment * 0.20 + categoryFit * 0.20;
-    components = { reachability, visiblePain, establishment, categoryFit };
+    const advertisingIntent = input.advertisingIntent ? AD_INTENT_BOOST : 0;
+    score = reachability * 0.40 + visiblePain * 0.20 + establishment * 0.20 + categoryFit * 0.20 + advertisingIntent;
+    components = { reachability, visiblePain, establishment, categoryFit, advertisingIntent };
   } else {
     // establishment-led; reachability is a 0/1 phone gate that zeroes phoneless leads
     // out of the queue entirely.

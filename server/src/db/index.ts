@@ -719,6 +719,9 @@ export interface OutreachLead {
   // populates these; no-site (0048) / follow-up / replied lanes leave them undefined.
   score?: number;
   grade?: 'A' | 'B' | 'C' | 'D';
+  // slice 0050: explainable score breakdown (incl. advertisingIntent boost). Same
+  // populate-only contract as score/grade — only getOutreachLeads sets it.
+  components?: Record<string, number>;
 }
 
 type RawLeadRow = {
@@ -732,6 +735,7 @@ type RawLeadRow = {
   has_draft: number;
   outreach_analysis_json: string | null;
   psi_json?: string | null; // slice 0049: latest done premium_analyses PSI (email lane only)
+  signals_json?: string | null; // slice 0050: latest done premium_analyses signals (ad-intent flags)
 };
 
 export interface OutreachLeadFilters {
@@ -791,6 +795,19 @@ function psiMobileOf(json: string | null | undefined): number | null {
   catch { return null; }
 }
 
+// slice 0050: derive advertisingIntent from the latest done premium_analyses signals.
+// Trigger = Meta Pixel OR Google Ads conversion pixel PRESENT — a site running paid
+// acquisition. GTM (hasGtm) is recorded by the analyzer but deliberately EXCLUDED here:
+// it sits on too many analytics-only sites to discriminate buyers. Tolerant of a
+// malformed blob (→ false) so one bad row can't 500 the queue read.
+function advertisingIntentOf(json: string | null | undefined): boolean {
+  if (!json) return false;
+  try {
+    const s = JSON.parse(json) as Record<string, { state?: string } | undefined>;
+    return s.hasMetaPixel?.state === 'PRESENT' || s.hasGoogleAds?.state === 'PRESENT';
+  } catch { return false; }
+}
+
 export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadFilters = {}): { rows: OutreachLead[]; total: number } {
   const { clause, params } = buildOutreachWhere(filters);
 
@@ -807,7 +824,10 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
            CASE WHEN d.business_id IS NOT NULL THEN 1 ELSE 0 END AS has_draft,
            (SELECT pa.psi_json FROM premium_analyses pa
             WHERE pa.business_id = b.id AND pa.status = 'done' AND pa.psi_json IS NOT NULL
-            ORDER BY pa.created_at DESC LIMIT 1) AS psi_json
+            ORDER BY pa.created_at DESC LIMIT 1) AS psi_json,
+           (SELECT pa.signals_json FROM premium_analyses pa
+            WHERE pa.business_id = b.id AND pa.status = 'done' AND pa.signals_json IS NOT NULL
+            ORDER BY pa.created_at DESC LIMIT 1) AS signals_json
     FROM businesses b
     LEFT JOIN outreach_drafts d ON b.id = d.business_id
     WHERE ${clause}
@@ -831,7 +851,7 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
     // now data-driven wherever 0049 has backfilled coverage and neutral (0.4) elsewhere.
     // gapCount stays null — deriving it on-read needs a full signals/analysis parse per
     // row (see slice 0049 follow-up: persist gap_count as an additive column if wanted).
-    const { score, grade } = computeLeadScore({
+    const { score, grade, components } = computeLeadScore({
       rating: r.rating,
       reviewCount: r.review_count,
       category: r.category,
@@ -839,6 +859,7 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
       hasPhone: r.phone !== null && r.phone.trim() !== '',
       psiMobile: psiMobileOf(r.psi_json),
       gapCount: null,
+      advertisingIntent: advertisingIntentOf(r.signals_json),
     }, 'email');
     return {
       id: r.id, name: r.name, address: r.address, phone: r.phone,
@@ -854,7 +875,7 @@ export function getOutreachLeads(page = 1, pageSize = 25, filters: OutreachLeadF
       tiktok: r.tiktok, linkedin: r.linkedin, youtube: r.youtube,
       has_draft: r.has_draft === 1,
       outreachAnalysisJson: r.outreach_analysis_json,
-      score, grade,
+      score, grade, components,
     };
   });
 

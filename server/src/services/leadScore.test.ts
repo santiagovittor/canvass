@@ -72,4 +72,25 @@ assert.ok(
 // --- phone gate zeroes a phoneless nosite lead out of the queue ---
 assert.equal(computeLeadScore({ ...established, hasPhone: false }, 'nosite').score, 0, 'phoneless nosite not zeroed');
 
+// --- slice 0050: advertisingIntent is boost-only on the email lane ---
+const baseLead: LeadScoreInput = {
+  rating: 4.4, reviewCount: 120, category: 'Restaurante', emailValidity: 'unknown',
+  hasPhone: true, psiMobile: 60, gapCount: 1,
+};
+const nonAd = computeLeadScore(baseLead, 'email');
+const ad = computeLeadScore({ ...baseLead, advertisingIntent: true }, 'email');
+// undefined advertisingIntent === false === neutral: identical to omitting the field
+assert.deepEqual(computeLeadScore({ ...baseLead, advertisingIntent: false }, 'email'), nonAd, 'false advertisingIntent must be neutral');
+approx(ad.score, nonAd.score + 0.10);          // exactly the boost (pre-clamp here, score < 0.9)
+assert.ok(ad.score >= nonAd.score, 'advertiser never scores below non-advertiser');
+assert.equal(ad.components.advertisingIntent, 0.10, 'advertiser component is the boost');
+assert.equal(nonAd.components.advertisingIntent, 0, 'non-advertiser component is 0, not negative');
+assert.ok('DCBA'.indexOf(ad.grade) >= 'DCBA'.indexOf(nonAd.grade), 'advertiser grade is never lower'); // A best
+// boost is capped by clamp01 — a near-perfect lead can't exceed 1.0
+const top: LeadScoreInput = {
+  rating: 4.9, reviewCount: 800, category: 'Servicios legales', emailValidity: 'valid',
+  hasPhone: true, psiMobile: 5, gapCount: 4, advertisingIntent: true,
+};
+assert.ok(computeLeadScore(top, 'email').score <= 1, 'boost stays clamped at 1.0');
+
 console.log('leadScore.test.ts: all asserts passed');

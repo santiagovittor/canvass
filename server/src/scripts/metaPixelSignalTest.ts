@@ -49,6 +49,39 @@ function run(): void {
   const noPixelSignals = detectSignalsForTest('<html></html>', [], 'https://example.test');
   assert('Meta Pixel absence stays UNKNOWN', noPixelSignals.hasMetaPixel?.state === 'UNKNOWN');
 
+  // Slice 0050: Google Ads conversion + GTM detection.
+  const adTechSignals = detectSignalsForTest(
+    `<html><head>
+       <script async src="https://www.googletagmanager.com/gtm.js?id=GTM-ABCD123"></script>
+       <script>gtag('config','AW-998877665');gtag('event','conversion',{'send_to':'AW-998877665/abc'});</script>
+     </head></html>`,
+    ['https://www.googleadservices.com/pagead/conversion/998877665/'],
+    'https://advertiser.test',
+  );
+  assert('Google Ads is PRESENT from AW- id + conversion endpoint', adTechSignals.hasGoogleAds?.state === 'PRESENT');
+  assert(
+    'Google Ads evidence carries conversion id + network marker',
+    /conversionId=AW-998877665/.test(adTechSignals.hasGoogleAds?.evidence?.value ?? '') &&
+      /network:googleadservices_conversion/.test(adTechSignals.hasGoogleAds?.evidence?.value ?? ''),
+    adTechSignals.hasGoogleAds?.evidence?.value,
+  );
+  assert('GTM is PRESENT from container id + gtm.js', adTechSignals.hasGtm?.state === 'PRESENT');
+  assert(
+    'GTM evidence carries container id',
+    /containerId=GTM-ABCD123/.test(adTechSignals.hasGtm?.evidence?.value ?? ''),
+    adTechSignals.hasGtm?.evidence?.value,
+  );
+
+  // A static brochure (GA4 only, no AW- / GTM- / fbq) shows none of the ad-intent flags.
+  const brochureSignals = detectSignalsForTest(
+    `<html><head><script>gtag('config','G-ABCDEF1234');</script></head><body>Welcome</body></html>`,
+    ['https://www.google-analytics.com/g/collect'],
+    'https://brochure.test',
+  );
+  assert('Brochure: Google Ads stays UNKNOWN (GA4 G- is not AW-)', brochureSignals.hasGoogleAds?.state === 'UNKNOWN');
+  assert('Brochure: GTM stays UNKNOWN', brochureSignals.hasGtm?.state === 'UNKNOWN');
+  assert('Brochure: Meta Pixel stays UNKNOWN', brochureSignals.hasMetaPixel?.state === 'UNKNOWN');
+
   const absentChatSignals: SignalMap = {
     hasLiveChatWidget: { state: 'UNKNOWN', checkedBy: ['dom', 'network'] },
   };

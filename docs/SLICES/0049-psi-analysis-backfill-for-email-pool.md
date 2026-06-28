@@ -118,7 +118,7 @@ _Filled DURING execution (2026-06-27, small proof drain — `backfillPsi 3`)._
 
 ## Completion record
 
-- Commit SHAs: _(this commit)_
+- Commit SHAs: `928e44c` (feat), this commit (docs: record SHA)
 - What changed:
   - `server/src/db/index.ts` — new `getLeadsNeedingPsiBackfill(limit)` selector (pool
     predicate + SQL `NOT EXISTS` PSI filter, ranked by email-lane LeadScore, capped); and

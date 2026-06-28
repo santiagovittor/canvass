@@ -140,7 +140,7 @@ _Filled DURING execution (2026-06-27, live against scraper.db + running stack)._
 
 ## Completion record
 
-- Commit SHAs: _recorded in follow-up commit._
+- Commit SHAs: `62ebb1a` (implementation + this slice).
 - What changed:
   - **`premiumAnalyzer.ts`** — new `detectGoogleAds` + `detectGtm` (mirror
     `detectMetaPixel`); `detectSignals` now writes `hasGoogleAds` / `hasGtm` beside the

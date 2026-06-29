@@ -130,6 +130,7 @@ export const FIELDS: SettingField[] = [
   {
     key: 'GEMINI_MODEL', group: 'Gemini & Rate Limits', label: 'Gemini model (compose)',
     type: 'string', default: 'gemini-2.5-flash',
+    help: 'Primary compose model. Accepts a `nim:<model-id>` to route compose to the free NVIDIA NIM provider (slice 0052; e.g. nim:meta/llama-3.3-70b-instruct) — a terminal NIM failure (credit/429/5xx/bad-JSON) falls back to GEMINI_COMPOSER_FALLBACK_MODEL, which must stay a real Gemini id.',
   },
   {
     key: 'GEMINI_VERIFIER_MODEL', group: 'Gemini & Rate Limits', label: 'Gemini model (verify)',

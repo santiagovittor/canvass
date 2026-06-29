@@ -1,6 +1,6 @@
 import { SchemaType } from '@google/generative-ai';
 import { withGeminiRate, GeminiRpdExhausted, GeminiProviderExhausted, describeGeminiError } from './geminiRateLimiter';
-import { makeGenerate } from './aiProvider';
+import { makeGenerate, providerFor } from './aiProvider';
 import { createQuarantine } from './modelQuarantine';
 import type { ResponseSchema } from '@google/generative-ai';
 import { z } from 'zod';
@@ -815,39 +815,61 @@ function buildAdIntentContext(signalMap: SignalMap | undefined, isAR: boolean): 
 async function callGemini(systemPrompt: string, userPayload: Record<string, unknown>): Promise<{ subject: string; body: string }> {
   const composeModel = getString('GEMINI_MODEL');
   const timeoutMs = getNumber('GEMINI_TIMEOUT_MS');
-  const generate = makeGenerate({ modelId: composeModel, systemInstruction: systemPrompt, json: true });
-  const result = await withGeminiRate(
-    signal => generate(JSON.stringify(userPayload), signal, timeoutMs),
-    'compose-followup',
-    { timeoutMs, model: composeModel },
-  );
-  const text = result.response.text().trim();
-  // Some models wrap JSON in ```json fences despite the prompt — strip them, as
-  // the structured composer path already does.
-  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    throw new Error(`Gemini returned non-JSON: ${cleaned.slice(0, 200)}`);
-  }
+  const runOn = async (modelId: string, label: string): Promise<{ subject: string; body: string }> => {
+    const generate = makeGenerate({ modelId, systemInstruction: systemPrompt, json: true });
+    const result = await withGeminiRate(
+      signal => generate(JSON.stringify(userPayload), signal, timeoutMs),
+      label,
+      { timeoutMs, model: modelId },
+    );
+    const text = result.response.text().trim();
+    // Some models wrap JSON in ```json fences despite the prompt — strip them, as
+    // the structured composer path already does.
+    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
 
-  if (
-    typeof parsed !== 'object' || parsed === null ||
-    typeof (parsed as Record<string, unknown>).subject !== 'string' ||
-    typeof (parsed as Record<string, unknown>).body !== 'string'
-  ) {
-    throw new Error(`Gemini JSON missing subject/body: ${text.slice(0, 200)}`);
-  }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      throw new Error(`Gemini returned non-JSON: ${cleaned.slice(0, 200)}`);
+    }
 
-  // Sanitize at the output boundary (slice 0034) — covers both composeFollowUp and
-  // composeWhatsApp, the two callers of this helper. composeEmail goes through
-  // callGeminiStructured and is sanitized at its own return.
-  return {
-    subject: stripEmDashes((parsed as { subject: string; body: string }).subject),
-    body: stripEmDashes((parsed as { subject: string; body: string }).body),
+    if (
+      typeof parsed !== 'object' || parsed === null ||
+      typeof (parsed as Record<string, unknown>).subject !== 'string' ||
+      typeof (parsed as Record<string, unknown>).body !== 'string'
+    ) {
+      throw new Error(`Gemini JSON missing subject/body: ${text.slice(0, 200)}`);
+    }
+
+    // Sanitize at the output boundary (slice 0034) — covers both composeFollowUp and
+    // composeWhatsApp, the two callers of this helper. composeEmail goes through
+    // callGeminiStructured and is sanitized at its own return.
+    return {
+      subject: stripEmDashes((parsed as { subject: string; body: string }).subject),
+      body: stripEmDashes((parsed as { subject: string; body: string }).body),
+    };
   };
+
+  // NIM primary (slice 0052): a terminal NIM failure (credit/429/5xx/bad-JSON) falls
+  // back to the Gemini compose-fallback model so follow-up/WhatsApp degrade like the
+  // structured composer does instead of throwing. RPD/provider-exhaustion stays a
+  // run-pause control signal — never swallowed by the fallback.
+  const fallbackModelId = getString('GEMINI_COMPOSER_FALLBACK_MODEL');
+  if (providerFor(composeModel) === 'nim' && !!fallbackModelId && fallbackModelId !== composeModel) {
+    try {
+      return await runOn(composeModel, 'compose-followup');
+    } catch (err) {
+      if (err instanceof GeminiRpdExhausted || err instanceof GeminiProviderExhausted) throw err;
+      console.warn(
+        `[gemini] followup/wa NIM primary failed (${err instanceof Error ? err.message : String(err)}), ` +
+        `falling back to ${fallbackModelId}`,
+      );
+      return await runOn(fallbackModelId, 'compose-followup-fallback');
+    }
+  }
+  return runOn(composeModel, 'compose-followup');
 }
 
 export async function composeFollowUp(
@@ -997,6 +1019,12 @@ async function callGeminiStructured(systemPrompt: string, userPayload: Record<st
     responseSchema: COMPOSED_RESPONSE_SCHEMA, json: true,
   });
 
+  // slice 0052: when NIM is primary, a terminal failure of ANY kind (free-tier
+  // 429/credit 402/403, 5xx, timeout, or persistent bad JSON) must route to the
+  // Gemini fallback — the old 5xx-only gate let a NIM credit/limit event throw
+  // instead of falling through. Gemini primary keeps its 5xx-only behavior.
+  const primaryIsNim = providerFor(composeModel) === 'nim';
+
   let lastErr: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -1016,21 +1044,28 @@ async function callGeminiStructured(systemPrompt: string, userPayload: Record<st
       // batch pauses resumably (and the single-lead path maps to a friendly message).
       if (err instanceof GeminiRpdExhausted || err instanceof GeminiProviderExhausted) throw err;
       const errInfo = describeGeminiError(err);
-      if (errInfo.status !== null && errInfo.status >= 500) composerQuarantine.record5xx(composeModel);
+      // Quarantine the primary so the rest of a batch skips straight to the fallback
+      // instead of re-storming a dead provider every lead: 5xx (any provider) or NIM
+      // credit-exhaustion (402/403). A NIM 429 is transient rate-limiting — withGeminiRate
+      // already backs off and the per-lead fallback below still fires for that lead, so
+      // do NOT lock the whole batch onto paid Gemini for a passing rate spike.
+      const nimCreditDown = primaryIsNim && (errInfo.status === 402 || errInfo.status === 403);
+      if ((errInfo.status !== null && errInfo.status >= 500) || nimCreditDown) {
+        composerQuarantine.record5xx(composeModel);
+      }
       lastErr = err;
     }
   }
   const msg = lastErr instanceof Error ? lastErr.message : String(lastErr);
   const errDesc = describeGeminiError(lastErr);
   const shouldFallback =
-    errDesc.status !== null &&
-    errDesc.status >= 500 &&
     !!fallbackModelId &&
-    fallbackModelId !== composeModel;
+    fallbackModelId !== composeModel &&
+    (primaryIsNim || (errDesc.status !== null && errDesc.status >= 500));
   if (shouldFallback) {
     console.warn(
-      `[gemini] composer 503 fallback: primary=${composeModel} exhausted ` +
-      `(status=${errDesc.status}), trying fallback=${fallbackModelId}`,
+      `[gemini] composer fallback: primary=${composeModel} exhausted ` +
+      `(status=${errDesc.status ?? 'n/a'}), trying fallback=${fallbackModelId}`,
     );
     return await runFallback();
   }

@@ -142,7 +142,7 @@ _Live evidence from `src/scripts/visionGateGate.ts` (server container), 2026-06-
 
 ## Completion record
 
-- Commit SHAs: _(feat SHA recorded in the follow-up docs commit, per repo convention)_
+- Commit SHAs: `1b3f253` (feat), + this docs commit recording the SHA.
 - What changed: Added a lead-score cost gate on the Gemini **vision** call. Cheap signals
   (render/PSI/signatures) still run on every analyzed lead; vision now fires only for
   forced (operator manual-analyze / batch prepare / dev gates), already-promoted

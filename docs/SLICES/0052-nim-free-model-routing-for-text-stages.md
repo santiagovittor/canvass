@@ -170,7 +170,7 @@ analyses; deleted after the run). Evidence from the run on 2026-06-29:
 
 ## Completion record
 
-- Commit SHAs: _this commit_
+- Commit SHAs: `623c207` (feat)
 - What changed:
   - `geminiComposer.ts` — `callGeminiStructured` falls back to Gemini on *any*
     terminal NIM-primary failure (was 5xx-only); NIM 429 stays transient (no batch

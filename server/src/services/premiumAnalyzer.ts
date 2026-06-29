@@ -1,10 +1,12 @@
 import fs from 'fs';
 import path from 'path';
-import { dataDir } from '../db';
+import { dataDir, getVisionGateContext } from '../db';
 import {
   completePremiumAnalysis, getBusinessWebsite,
   type PremiumAnalysisRow, type SignalMap, type DetectedSig,
 } from '../db/premium';
+import { computeLeadScore, type Grade } from './leadScore';
+import { getString } from './appSettings';
 import { SIGNATURES } from '../data/signatureLibrary';
 import { broadcast } from '../sse';
 import { renderSite, type RenderResult } from './playwrightRenderer';
@@ -454,6 +456,39 @@ async function runPsi(finalUrl: string): Promise<PsiData | null> {
   return null;
 }
 
+// Slice 0053 vision cost gate. ─────────────────────────────────────────────────
+// Vision was 61% of all AI spend (slice 0051 F1) yet ~88% of analyzed leads never get
+// emailed. The cheap signals (render/PSI/signatures) still run for everyone; the paid
+// Gemini vision call runs only for leads worth emailing: forced (operator/batch), already
+// promoted (outreach_status set), or above the email-lane LeadScore bar VISION_MIN_GRADE.
+const GRADE_RANK: Record<Grade, number> = { A: 4, B: 3, C: 2, D: 1 };
+function gradeAtLeast(g: Grade, min: Grade): boolean {
+  return GRADE_RANK[g] >= GRADE_RANK[min];
+}
+
+// Uses only PRE-vision signals (owned fields + the in-run PSI + ad-intent from the
+// just-detected signals), so there's no chicken-and-egg with the vision output. Mirrors
+// the email-lane inputs getOutreachLeads ranks on (psiMobile present, gapCount null).
+function shouldRunVisionByGate(businessId: string, signals: SignalMap, psiData: PsiData | null): boolean {
+  const ctx = getVisionGateContext(businessId);
+  if (!ctx) return false; // no business row → nothing to email → skip the paid call
+  if (ctx.outreachStatus !== null) return true; // operator already acted on this lead
+  const minGrade = getString('VISION_MIN_GRADE') as Grade;
+  const advertisingIntent =
+    signals.hasMetaPixel?.state === 'PRESENT' || signals.hasGoogleAds?.state === 'PRESENT';
+  const { grade } = computeLeadScore({
+    rating: ctx.rating,
+    reviewCount: ctx.reviewCount,
+    category: ctx.category,
+    emailValidity: ctx.emailValidity,
+    hasPhone: ctx.hasPhone,
+    psiMobile: psiData?.mobileScore ?? null,
+    gapCount: null,
+    advertisingIntent,
+  }, 'email');
+  return gradeAtLeast(grade, minGrade);
+}
+
 export async function runPremiumAnalysis(row: PremiumAnalysisRow): Promise<void> {
   await withAnalysis(row.businessId, 'premium', () => runPremiumAnalysisInner(row));
 }
@@ -515,16 +550,22 @@ async function runPremiumAnalysisInner(row: PremiumAnalysisRow): Promise<void> {
 
   // PSI: only on ok renders with a real finalUrl. Non-ok path above already returned.
   let psiJson: string | null = null;
+  let psiData: PsiData | null = null;
   try {
-    const psiData = await stage('psi', () => runPsi(render.finalUrl!));
+    psiData = await stage('psi', () => runPsi(render.finalUrl!));
     if (psiData) psiJson = JSON.stringify(psiData);
   } catch (err) {
     console.error('[psi] unexpected error, skipping:', err);
   }
 
-  // Vision pass — ok render only, screenshot guard, degrade cleanly on any failure
+  // Slice 0053 cost gate: decide whether this lead earns the paid vision call. forceVision
+  // (operator/batch intent persisted on the row) short-circuits; otherwise the lead-score
+  // gate decides. A denied lead is marked vision_gated (a COMPLETE row, not re-rendered).
+  const visionAllowed = row.forceVision === 1 || shouldRunVisionByGate(row.businessId, signalMap, psiData);
+
+  // Vision pass — gate-allowed + ok render + screenshot guard, degrade cleanly on any failure
   let visionJson: string | null = null;
-  if (render.desktopScreenshot) {
+  if (visionAllowed && render.desktopScreenshot) {
     try {
       const rubric = getRubric(biz.category ?? null);
       const visionResult: VisionResult | null = await stage('vision', () => runVision(
@@ -534,8 +575,7 @@ async function runPremiumAnalysisInner(row: PremiumAnalysisRow): Promise<void> {
         rubric,
       ));
       if (visionResult) {
-        const psiForCrossCheck: PsiData | null = psiJson ? JSON.parse(psiJson) : null;
-        applyVisionUpgrades(signalMap, visionResult, true, psiForCrossCheck);
+        applyVisionUpgrades(signalMap, visionResult, true, psiData);
         visionJson = JSON.stringify(visionResult);
         console.log(`[vision] ok for ${biz.website ?? row.businessId}`);
       }
@@ -543,12 +583,14 @@ async function runPremiumAnalysisInner(row: PremiumAnalysisRow): Promise<void> {
       if (err instanceof GeminiRpdExhausted) throw err; // budget cap: propagate to queue/batch, leave lead resumable
       console.error('[vision] unexpected error, skipping:', err);
     }
+  } else if (!visionAllowed) {
+    console.log(`[vision] gated (below grade bar, not promoted) for ${biz.website ?? row.businessId}`);
   }
 
   completePremiumAnalysis(row.id, {
     status: 'done', renderOutcome: 'ok', finalUrl: render.finalUrl,
     signals: signalMap, cookieWall: render.cookieWallDetected, consoleErrors: render.consoleErrors,
-    paths, detectedSigs, psiJson, visionJson,
+    paths, detectedSigs, psiJson, visionJson, visionGated: !visionAllowed,
   });
   broadcast('premium:progress', { businessId: row.businessId, analysisId: row.id, status: 'done', renderOutcome: 'ok' });
 }

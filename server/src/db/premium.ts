@@ -28,20 +28,27 @@ export interface DetectedSig {
 
 export type PremiumAnalysisRow = typeof premiumAnalyses.$inferSelect;
 
-export function enqueuePremiumAnalysis(businessId: string): { id: string; deduped: boolean } {
+// Slice 0053: `forceVision` carries operator/batch intent on the row so the async
+// worker (which only sees the row) runs vision unconditionally — bypassing the
+// lead-score cost gate. A manual request on an already-pending auto row upgrades it.
+export function enqueuePremiumAnalysis(businessId: string, forceVision = false): { id: string; deduped: boolean } {
   const open = db.select({ id: premiumAnalyses.id }).from(premiumAnalyses)
     .where(and(
       eq(premiumAnalyses.businessId, businessId),
       inArray(premiumAnalyses.status, ['pending', 'running']),
     ))
     .get();
-  if (open) return { id: open.id, deduped: true };
+  if (open) {
+    if (forceVision) db.update(premiumAnalyses).set({ forceVision: 1 }).where(eq(premiumAnalyses.id, open.id)).run();
+    return { id: open.id, deduped: true };
+  }
 
   const id = randomUUID();
   db.insert(premiumAnalyses).values({
     id,
     businessId,
     status: 'pending',
+    forceVision: forceVision ? 1 : 0,
     createdAt: new Date().toISOString(),
   }).run();
   return { id, deduped: false };
@@ -52,7 +59,7 @@ export function enqueuePremiumAnalysis(businessId: string): { id: string; dedupe
 // row back to 'pending' at boot — REUSE and claim it (pending→running) instead of
 // inserting a duplicate. Claiming flips it out of 'pending' so the background
 // claimNextPending worker can never also run it (no double Gemini spend on restart).
-export function createPremiumAnalysisRunning(businessId: string): PremiumAnalysisRow {
+export function createPremiumAnalysisRunning(businessId: string, forceVision = false): PremiumAnalysisRow {
   const existing = db.select().from(premiumAnalyses)
     .where(and(
       eq(premiumAnalyses.businessId, businessId),
@@ -62,10 +69,14 @@ export function createPremiumAnalysisRunning(businessId: string): PremiumAnalysi
     .limit(1)
     .get();
   if (existing) {
+    // Slice 0053: a batch claim (forceVision) reusing an auto-enqueued pending row must
+    // carry the force flag forward, else the gate could skip vision on a prepared lead.
     if (existing.status === 'pending') {
-      db.update(premiumAnalyses).set({ status: 'running' })
+      db.update(premiumAnalyses).set({ status: 'running', ...(forceVision ? { forceVision: 1 } : {}) })
         .where(and(eq(premiumAnalyses.id, existing.id), eq(premiumAnalyses.status, 'pending')))
         .run();
+    } else if (forceVision) {
+      db.update(premiumAnalyses).set({ forceVision: 1 }).where(eq(premiumAnalyses.id, existing.id)).run();
     }
     return db.select().from(premiumAnalyses).where(eq(premiumAnalyses.id, existing.id)).get()!;
   }
@@ -74,6 +85,7 @@ export function createPremiumAnalysisRunning(businessId: string): PremiumAnalysi
     id,
     businessId,
     status: 'running',
+    forceVision: forceVision ? 1 : 0,
     createdAt: new Date().toISOString(),
   }).run();
   return db.select().from(premiumAnalyses).where(eq(premiumAnalyses.id, id)).get()!;
@@ -136,6 +148,9 @@ export function completePremiumAnalysis(id: string, r: {
   errorMessage?: string;
   psiJson?: string | null;
   visionJson?: string | null;
+  // Slice 0053: true ⟹ vision was deliberately skipped by the cost gate. Persisted so
+  // isAnalysisFresh treats the row as complete (no perpetual re-render).
+  visionGated?: boolean;
 }): void {
   db.update(premiumAnalyses).set({
     status: r.status,
@@ -151,6 +166,7 @@ export function completePremiumAnalysis(id: string, r: {
     detectedSigsJson: JSON.stringify(r.detectedSigs),
     psiJson: r.psiJson ?? null,
     visionJson: r.visionJson ?? null,
+    visionGated: r.visionGated ? 1 : 0,
     errorMessage: r.errorMessage ?? null,
     completedAt: new Date().toISOString(),
   }).where(eq(premiumAnalyses.id, id)).run();
@@ -182,5 +198,7 @@ export function isAnalysisFresh(businessId: string, ttlDays: number): boolean {
     && ttlDays !== 0
     && Date.now() - new Date(premium.completedAt).getTime() <= ttlDays * 86400000
     && !!premium.detectedSigsJson && !!premium.psiJson
-    && !!premium.visionJson && !!premium.signalsJson;
+    // Slice 0053: a deliberately vision-gated row is COMPLETE — counting it fresh stops
+    // the re-render storm (no visionJson would otherwise re-enqueue it on every scrape).
+    && (!!premium.visionJson || premium.visionGated === 1) && !!premium.signalsJson;
 }

@@ -66,7 +66,7 @@ async function analyzeAndCompose(target: Target): Promise<{ row: Row; syntheticI
 
   const previousDraft = getDraft(businessId);
   try {
-    const analysisRow = createPremiumAnalysisRunning(businessId);
+    const analysisRow = createPremiumAnalysisRunning(businessId, true); // slice 0053: gate exercises vision → force
     await runPremiumAnalysis(analysisRow);
 
     const premium = getLatestPremiumAnalysis(businessId);

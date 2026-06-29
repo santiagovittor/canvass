@@ -320,6 +320,14 @@ if (!premiumCols.includes('psi_json')) {
 if (!premiumCols.includes('vision_json')) {
   sqlite.exec('ALTER TABLE premium_analyses ADD COLUMN vision_json TEXT');
 }
+// Slice 0053 vision-gating: force_vision = input intent (1 ⟹ run vision unconditionally);
+// vision_gated = output fact (1 ⟹ gate skipped vision; still a COMPLETE analysis for reuse).
+if (!premiumCols.includes('force_vision')) {
+  sqlite.exec('ALTER TABLE premium_analyses ADD COLUMN force_vision INTEGER NOT NULL DEFAULT 0');
+}
+if (!premiumCols.includes('vision_gated')) {
+  sqlite.exec('ALTER TABLE premium_analyses ADD COLUMN vision_gated INTEGER NOT NULL DEFAULT 0');
+}
 
 export const db = drizzle(sqlite, { schema });
 export { sqlite };
@@ -686,6 +694,40 @@ export function getLeadsNeedingPsiBackfill(limit: number): string[] {
   });
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, limit).map(s => s.id);
+}
+
+// Slice 0053: per-lead email-lane scoring context for the vision cost gate
+// (premiumAnalyzer.shouldRunVisionByGate). Returns the SAME owned signals
+// getOutreachLeads ranks on — the analyzer supplies the in-run PSI + ad-intent itself,
+// so those are intentionally absent here. outreachStatus non-null ⟹ the operator already
+// acted on this lead, so the gate lets vision through regardless of grade.
+export function getVisionGateContext(businessId: string): {
+  rating: number | null;
+  reviewCount: number | null;
+  category: string | null;
+  emailValidity: EmailValidity | null;
+  hasPhone: boolean;
+  outreachStatus: string | null;
+} | null {
+  const row = sqlite.prepare<[string], {
+    rating: number | null; review_count: number | null; category: string | null;
+    phone: string | null; emails_json: string | null; outreach_status: string | null;
+  }>(
+    `SELECT rating, review_count, category, phone, emails_json, outreach_status
+     FROM businesses WHERE id = ?`
+  ).get(businessId);
+  if (!row) return null;
+  const emails = parseEmails(row.emails_json);
+  const validityMap = getEmailValidityMany(emails);
+  const best = pickBestCachedEmail(emails, validityMap);
+  return {
+    rating: row.rating,
+    reviewCount: row.review_count,
+    category: row.category,
+    emailValidity: resolveValidity(best, validityMap),
+    hasPhone: row.phone !== null && row.phone.trim() !== '',
+    outreachStatus: row.outreach_status,
+  };
 }
 
 export interface OutreachLead {

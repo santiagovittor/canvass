@@ -89,6 +89,11 @@ export const FIELDS: SettingField[] = [
     help: 'Mobile PageSpeed below this is an assertable slow-site anchor.',
   },
   {
+    key: 'VISION_MIN_GRADE', group: 'Analysis & Claim-Gating', label: 'Min lead grade for auto vision',
+    type: 'enum', enum: ['A', 'B', 'C', 'D'], default: 'B',
+    help: 'Slice 0053 cost gate. Auto-analyze runs the cheap signals (render/PSI/signatures) on every lead but only fires the paid Gemini vision call when the lead’s email-lane LeadScore grade is at least this. Leads promoted to outreach (manual analyze / batch prepare / already-contacted) always get vision regardless. A = strictest (vision only on top leads), D = run vision on everyone (gate effectively off).',
+  },
+  {
     key: 'VISION_OPP_MIN', group: 'Analysis & Claim-Gating', label: 'Vision opportunity min confidence',
     type: 'number', min: 0, max: 1, default: 0.75,
   },

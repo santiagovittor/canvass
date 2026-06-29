@@ -133,7 +133,10 @@ async function processItem(runId: string, item: BatchItemRow, dryRun: boolean): 
   let premium = getLatestPremiumAnalysis(businessId);
   const ttlDays = getNumber('REUSE_ANALYSIS_TTL_DAYS');
   const forceRefresh = forceRefreshRuns.has(runId);
-  const isStale = forceRefresh || !isAnalysisFresh(businessId, ttlDays);
+  // Slice 0053: the batch prepares leads for outreach, so they MUST have vision. A prior
+  // auto-run may have gated it (vision_gated=1, fresh-but-no-vision) — treat that as stale
+  // so the forced re-run below actually fires vision instead of reusing the gated row.
+  const isStale = forceRefresh || !isAnalysisFresh(businessId, ttlDays) || premium?.visionGated === 1;
 
   if (isStale) {
     // F2 (slice 0031): if the auto-analyze queue (or a manual analysis) already owns an
@@ -147,7 +150,7 @@ async function processItem(runId: string, item: BatchItemRow, dryRun: boolean): 
       transitionItem(itemRef, 'pending');
       return broadcastProgress(runId);
     }
-    const fresh = createPremiumAnalysisRunning(businessId);
+    const fresh = createPremiumAnalysisRunning(businessId, true); // slice 0053: batch = prepare-for-outreach → force vision
     await withTimeout(runPremiumAnalysis(fresh), getNumber('BATCH_ANALYZE_TIMEOUT_MS'), 'analyze_timeout');
     premium = getLatestPremiumAnalysis(businessId);
   } else {

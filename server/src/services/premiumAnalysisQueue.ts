@@ -49,9 +49,11 @@ export function kickPremiumAnalysis(): void {
     });
 }
 
-// Service-layer entry point for routes: enqueue (deduped) and wake the worker.
+// Service-layer entry point for routes: enqueue (deduped) and wake the worker. This is
+// the operator's manual "analyze this lead" path — an explicit promote signal, so it
+// FORCES vision past the slice-0053 cost gate (forceVision=true).
 export function requestPremiumAnalysis(businessId: string): { id: string; deduped: boolean } {
-  const result = enqueuePremiumAnalysis(businessId);
+  const result = enqueuePremiumAnalysis(businessId, true);
   broadcast('premium:progress', { businessId, analysisId: result.id, status: 'pending' });
   kickPremiumAnalysis();
   return result;

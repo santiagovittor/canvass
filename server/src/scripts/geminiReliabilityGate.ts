@@ -140,7 +140,7 @@ async function partB(leadArg: string | undefined): Promise<void> {
 
     const t0 = Date.now();
     try {
-      const analysisRow = createPremiumAnalysisRunning(id);
+      const analysisRow = createPremiumAnalysisRunning(id, true); // slice 0053: gate exercises vision → force
       await runPremiumAnalysis(analysisRow);
 
       const premium = getLatestPremiumAnalysis(id);

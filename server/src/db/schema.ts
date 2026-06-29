@@ -137,6 +137,12 @@ export const premiumAnalyses = sqliteTable('premium_analyses', {
   detectedSigsJson: text('detected_sigs_json'),
   psiJson: text('psi_json'),
   visionJson: text('vision_json'),
+  // Slice 0053: vision-gating. force_vision = input intent (1 ⟹ run vision
+  // unconditionally — manual analyze / batch prepare / dev gates). vision_gated =
+  // output fact (1 ⟹ the lead-score gate deliberately skipped vision; counts as a
+  // COMPLETE analysis for the TTL reuse gate so it isn't re-rendered forever).
+  forceVision: integer('force_vision').notNull().default(0),
+  visionGated: integer('vision_gated').notNull().default(0),
   errorMessage: text('error_message'),
   createdAt: text('created_at').notNull(),
   completedAt: text('completed_at'),

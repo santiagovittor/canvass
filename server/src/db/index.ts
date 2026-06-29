@@ -150,6 +150,7 @@ sqlite.exec(`
     analysis_id TEXT,
     in_tokens INTEGER NOT NULL DEFAULT 0,
     out_tokens INTEGER NOT NULL DEFAULT 0,
+    cached_tokens INTEGER NOT NULL DEFAULT 0,
     usd REAL NOT NULL DEFAULT 0
   );
   CREATE INDEX IF NOT EXISTS gemini_cost_log_ts_idx ON gemini_cost_log(ts);
@@ -305,6 +306,14 @@ if (!sendCols.includes('sender')) {
 sqlite.exec('CREATE INDEX IF NOT EXISTS email_sends_sender_idx ON email_sends(sender)');
 sqlite.exec('CREATE INDEX IF NOT EXISTS email_sends_tracking_token_idx ON email_sends(tracking_token)');
 sqlite.exec('CREATE INDEX IF NOT EXISTS email_sends_scheduled_send_id_idx ON email_sends(scheduled_send_id)');
+
+// cached_tokens (slice 0054): Gemini 2.5 implicit caching reports cachedContentTokenCount
+// in usageMetadata. Additive backfill for pre-0054 DBs; new rows carry it natively.
+// Must run before stmtInsertGeminiCost is prepared.
+const costCols = (sqlite.prepare('PRAGMA table_info(gemini_cost_log)').all() as { name: string }[]).map(r => r.name);
+if (!costCols.includes('cached_tokens')) {
+  sqlite.exec('ALTER TABLE gemini_cost_log ADD COLUMN cached_tokens INTEGER NOT NULL DEFAULT 0');
+}
 
 // Must run before stmtInsertExample is prepared. Follow-ups are excluded from
 // the few-shot pool that seeds initial-email generation.
@@ -1547,25 +1556,25 @@ export function deleteAppSetting(key: string): void {
 
 // ── Gemini cost ledger ────────────────────────────────────────────────────────
 const stmtInsertGeminiCost = sqlite.prepare<
-  [string, string, string, string | null, string | null, number, number, number],
+  [string, string, string, string | null, string | null, number, number, number, number],
   void
 >(`
-  INSERT INTO gemini_cost_log (ts, label, model, business_id, analysis_id, in_tokens, out_tokens, usd)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO gemini_cost_log (ts, label, model, business_id, analysis_id, in_tokens, out_tokens, cached_tokens, usd)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 export function insertGeminiCost(row: {
   label: string; model: string; businessId: string | null; analysisId: string | null;
-  inTokens: number; outTokens: number; usd: number;
+  inTokens: number; outTokens: number; cachedTokens: number; usd: number;
 }): void {
   stmtInsertGeminiCost.run(
     new Date().toISOString(), row.label, row.model, row.businessId, row.analysisId,
-    row.inTokens, row.outTokens, row.usd,
+    row.inTokens, row.outTokens, row.cachedTokens, row.usd,
   );
 }
 
 // Cost ledger rollups for the cost-report script. `sinceIso` filters by ts (null = all time).
 export interface CostRollups {
-  byStage: { label: string; calls: number; inTokens: number; outTokens: number; usd: number }[];
+  byStage: { label: string; calls: number; inTokens: number; outTokens: number; cachedTokens: number; usd: number }[];
   byModel: { model: string; calls: number; usd: number }[];
   byDay: { day: string; calls: number; usd: number }[];
   topLeads: { business_id: string | null; calls: number; usd: number }[];
@@ -1574,7 +1583,7 @@ export interface CostRollups {
 export function getCostRollups(sinceIso: string | null): CostRollups {
   const w = sinceIso ? `WHERE ts >= '${sinceIso}'` : '';
   return {
-    byStage: sqlite.prepare(`SELECT label, COUNT(*) calls, SUM(in_tokens) inTokens, SUM(out_tokens) outTokens, ROUND(SUM(usd),4) usd FROM gemini_cost_log ${w} GROUP BY label ORDER BY usd DESC`).all() as CostRollups['byStage'],
+    byStage: sqlite.prepare(`SELECT label, COUNT(*) calls, SUM(in_tokens) inTokens, SUM(out_tokens) outTokens, SUM(cached_tokens) cachedTokens, ROUND(SUM(usd),4) usd FROM gemini_cost_log ${w} GROUP BY label ORDER BY usd DESC`).all() as CostRollups['byStage'],
     byModel: sqlite.prepare(`SELECT model, COUNT(*) calls, ROUND(SUM(usd),4) usd FROM gemini_cost_log ${w} GROUP BY model ORDER BY usd DESC`).all() as CostRollups['byModel'],
     byDay: sqlite.prepare(`SELECT substr(ts,1,10) day, COUNT(*) calls, ROUND(SUM(usd),4) usd FROM gemini_cost_log ${w} GROUP BY day ORDER BY day DESC LIMIT 14`).all() as CostRollups['byDay'],
     topLeads: sqlite.prepare(`SELECT business_id, COUNT(*) calls, ROUND(SUM(usd),4) usd FROM gemini_cost_log ${w} GROUP BY business_id ORDER BY usd DESC LIMIT 15`).all() as CostRollups['topLeads'],

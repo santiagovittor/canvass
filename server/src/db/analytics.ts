@@ -185,3 +185,62 @@ export function getBandYields(): BandYieldRow[] {
     GROUP BY ratingBand, reviewBand
   `).all() as BandYieldRow[];
 }
+
+// ── Cost-per-outcome read-model (slice 0054) ──────────────────────────────────
+// Joins the durable gemini_cost_log ledger to the outreach outcome so a token cut
+// (NIM swap 0052, vision gate 0053) lands with a quality number, not just a $ number.
+// LEFT joins keep null-context and never-sent cost rows so Σ usd reconciles exactly
+// against getCostRollups (db/index.ts). Reuses replied() — "reply" stays single-sourced.
+const COST_OUTCOME_FROM = `
+  FROM gemini_cost_log c
+  LEFT JOIN (SELECT DISTINCT business_id FROM email_sends WHERE status = 'sent') s ON s.business_id = c.business_id
+  LEFT JOIN businesses b ON b.id = c.business_id`;
+// `until` excludes its own instant — pass it for a closed "before" window in a split,
+// omit for an open window. Mirrors the since/until pattern in getResponseMatrix.
+function costRange(since?: string, until?: string): { w: string; args: string[] } {
+  if (since && until) return { w: `WHERE c.ts >= ? AND c.ts < ?`, args: [since, until] };
+  if (since) return { w: `WHERE c.ts >= ?`, args: [since] };
+  return { w: '', args: [] };
+}
+
+export interface CostOutcomeRow {
+  label: string; model: string;
+  calls: number; usd: number;
+  inTokens: number; outTokens: number; cachedTokens: number;
+  leads: number; sentLeads: number; repliedLeads: number;
+}
+
+// Per stage×model: spend + distinct leads that incurred cost, of those how many were
+// sent, and of those how many became a real reply. cost-per-sent = usd/sentLeads and
+// cost-per-reply = usd/repliedLeads are computed by the caller (0 ⇒ unattributable).
+export function getCostPerOutcome(since?: string, until?: string): CostOutcomeRow[] {
+  const { w, args } = costRange(since, until);
+  return sqlite.prepare(`
+    SELECT c.label AS label, c.model AS model,
+      COUNT(*) AS calls, ROUND(SUM(c.usd), 4) AS usd,
+      SUM(c.in_tokens) AS inTokens, SUM(c.out_tokens) AS outTokens, SUM(c.cached_tokens) AS cachedTokens,
+      COUNT(DISTINCT c.business_id) AS leads,
+      COUNT(DISTINCT CASE WHEN s.business_id IS NOT NULL THEN c.business_id END) AS sentLeads,
+      COUNT(DISTINCT CASE WHEN ${replied('b.')} THEN c.business_id END) AS repliedLeads
+    ${COST_OUTCOME_FROM}
+    ${w}
+    GROUP BY c.label, c.model
+    ORDER BY usd DESC
+  `).all(...args) as CostOutcomeRow[];
+}
+
+export interface CostOutcomeTotals { usd: number | null; calls: number; leads: number; sentLeads: number; repliedLeads: number }
+
+// Window-level pipeline totals. Distinct sent/replied leads cannot be summed from the
+// per-stage rows (one lead spans compose/vision/verify), so compute them ungrouped.
+export function getCostOutcomeTotals(since?: string, until?: string): CostOutcomeTotals {
+  const { w, args } = costRange(since, until);
+  return sqlite.prepare(`
+    SELECT ROUND(SUM(c.usd), 4) AS usd, COUNT(*) AS calls,
+      COUNT(DISTINCT c.business_id) AS leads,
+      COUNT(DISTINCT CASE WHEN s.business_id IS NOT NULL THEN c.business_id END) AS sentLeads,
+      COUNT(DISTINCT CASE WHEN ${replied('b.')} THEN c.business_id END) AS repliedLeads
+    ${COST_OUTCOME_FROM}
+    ${w}
+  `).get(...args) as CostOutcomeTotals;
+}

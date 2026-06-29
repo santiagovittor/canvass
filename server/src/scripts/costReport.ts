@@ -21,7 +21,7 @@ console.log(`TOTAL: ${usd(r.total.usd)} across ${r.total.calls} billed calls\n`)
 
 console.log('By stage:');
 for (const s of r.byStage) {
-  console.log(`  ${s.label.padEnd(18)} ${usd(s.usd).padStart(10)}  ${String(s.calls).padStart(4)} calls  in=${s.inTokens} out=${s.outTokens}`);
+  console.log(`  ${s.label.padEnd(18)} ${usd(s.usd).padStart(10)}  ${String(s.calls).padStart(4)} calls  in=${s.inTokens} out=${s.outTokens} cached=${s.cachedTokens}`);
 }
 
 console.log('\nBy model:');

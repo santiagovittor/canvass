@@ -177,10 +177,14 @@ const GEMINI_PRICING: Record<string, { in: number; out: number }> = {
 const DEFAULT_PRICING = { in: 0.30, out: 2.50 };
 function recordCost(label: string, model: string | undefined, out: unknown): void {
   if (!model) return;
-  const um = (out as { response?: { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number } } })?.response?.usageMetadata;
+  const um = (out as { response?: { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; cachedContentTokenCount?: number } } })?.response?.usageMetadata;
   if (!um) return;
   const inT = um.promptTokenCount ?? 0;
   const outT = um.candidatesTokenCount ?? 0;
+  // Gemini 2.5 implicit caching: cachedContentTokenCount is the prompt-token subset
+  // served from cache (a subset of inT, already billed at a discount). 0/undefined on
+  // NIM and when no cache hit. Logged to *see* whether implicit caching is discounting.
+  const cachedT = um.cachedContentTokenCount ?? 0;
   // NIM (slice 0026) is free — ledger NIM rows at $0 instead of the Gemini default estimate.
   const p = model.startsWith('nim:') ? { in: 0, out: 0 } : (GEMINI_PRICING[model] ?? DEFAULT_PRICING);
   const usd = (inT / 1e6) * p.in + (outT / 1e6) * p.out;
@@ -192,12 +196,12 @@ function recordCost(label: string, model: string | undefined, out: unknown): voi
   try {
     insertGeminiCost({
       label, model, businessId: meta?.businessId ?? null, analysisId: meta?.analysisId ?? null,
-      inTokens: inT, outTokens: outT, usd,
+      inTokens: inT, outTokens: outT, cachedTokens: cachedT, usd,
     });
   } catch (e) {
     console.error('[gemini][cost] ledger write failed:', e instanceof Error ? e.message : String(e));
   }
-  console.log(`[gemini][cost] ${label} ${model} in=${inT} out=${outT} ~$${usd.toFixed(4)}`);
+  console.log(`[gemini][cost] ${label} ${model} in=${inT} out=${outT} cached=${cachedT} ~$${usd.toFixed(4)}`);
 }
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));

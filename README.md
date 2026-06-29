@@ -1,8 +1,8 @@
 # Canvass
 
-A self-built prospecting and outreach tool for finding local businesses, qualifying them as leads, and sending AI-crafted emails. Built to support my own client acquisition workflow for web and digital services.
+A self-built prospecting and outreach tool: it maps local businesses, scores them as leads, looks at their websites, and writes cold emails that talk about the specific thing each business is missing. I built it to run my own client acquisition for web and AI assistant work, and I use it most weeks.
 
-> This is a personal tool, not a general-purpose product. It reflects how I actually work: map a neighborhood, identify who needs a website or a chatbot, and reach out with a message that doesn't read like a template.
+> Personal tool, not a product. It mirrors how I actually prospect: pick a neighborhood, find who needs a website or a chatbot, rank them by how good a fit they are, and send something that doesn't read like a template.
 
 ---
 
@@ -10,41 +10,72 @@ A self-built prospecting and outreach tool for finding local businesses, qualify
 
 ---
 
-## The problem it solves
+## What it does, in plain English
 
-Cold outreach at scale is either generic or slow. Generic emails get ignored. Manual personalization doesn't scale. Canvass sits in the middle: it scrapes real business data, evaluates each lead's digital presence, and uses that context to generate emails that are specific without requiring you to write each one from scratch.
+Cold outreach usually breaks one of two ways. Mass-send a generic template and everyone ignores it; or hand-write every email and you send four a day. Canvass sits between those: it pulls real business data off Google Maps, figures out which leads are worth my time, reads each one's web presence, and drafts an email grounded in that lead's actual gap so I can review and send instead of writing from a blank page.
 
-It also closes the loop. Most outreach tools stop at "sent." Canvass tracks opens, detects replies by reading the inbox, tells apart a real answer from an out-of-office bot, and surfaces who to follow up with next.
+It also doesn't stop at "sent." It watches the inbox, catches replies, tells a real human answer apart from an out-of-office bot, tracks opens, and tells me who's gone quiet and is due a follow-up. The whole thing runs in Docker on my machine and streams its state to the UI live, no refresh.
 
-## How it works
+## The pipeline
 
-Canvass is a four-tab pipeline.
+Five tabs, left to right, in the order I work them.
 
-**Scraper.** Draw a polygon over any area on the map, set a keyword and grid resolution, and the tool splits the area into cells and pulls matching businesses from Google Maps through a self-hosted gosom instance. Progress streams live over SSE. Jobs survive crashes: if the server restarts mid-scrape, the job resumes on boot from the last completed cell instead of failing.
+**Scraper.** Draw a polygon over a map, or type a city or area name and let it tile the region for you. Set a keyword and a grid resolution; the tool splits the area into cells and pulls matching businesses from Google Maps through a self-hosted [gosom](https://github.com/gosom/google-maps-scraper) instance. Progress streams over Server-Sent Events. Jobs are crash-safe: kill the server mid-scrape and it resumes from the last finished cell on boot instead of starting over or dying. gosom itself wedges at random sometimes (a known upstream bug), so the runner watches for a stalled download and restarts the container through the Docker socket to unstick it.
 
-**Explorer.** A filterable database of every scraped business. Filter by category, location hierarchy, or contact status; open their website; mark each one as contacted, replied, or converted. Auto-detected replies get their own visual treatment so a bot answer never looks like a warm lead.
+**Explorer.** A filterable table of every business scraped. Filter by category, by the country/state/city/neighborhood hierarchy, or by contact status; open a site; mark a lead contacted, replied, or converted. Auto-detected replies get their own styling so a bot answer never gets mistaken for a warm lead.
 
-**Outreach.** A ranked lead queue. Before composing, a website analyzer visits the lead's site and checks what's actually there: SSL, mobile viewport, contact form, online booking, WhatsApp link. Those findings feed the Gemini prompt, so the email talks about the specific gap that business has rather than a generic pitch. Drafts persist, sends are capped per day to protect deliverability, and a follow-up view resurfaces contacted leads after a configurable number of days of silence.
+**Outreach.** This is the core. Leads arrive in a queue ranked by a lead score, not by scrape order, so the best opportunities sit at the top. Two lanes run side by side: businesses that already have a site (pitch a rebuild, a fix, or an AI assistant) and businesses with no site at all (pitch building one). Before I compose, the analyzer visits the lead's website and checks what's really there, then a vision pass screenshots the site and reads its design. Those findings feed the email prompt, so the draft names one concrete gap rather than a vague pitch. Drafts persist, sends are capped per day per sender to protect deliverability, and a follow-up view resurfaces quiet leads after a configurable number of silent days.
 
-**Analytics.** KPI strip, pipeline funnel, a hex map of lead density, a category-by-zone yield matrix, a send-streak calendar, and auto-generated insights about which categories and neighborhoods actually convert.
+**Automate.** Scheduled scrapes that recur, and scheduled sends that drip out across the day inside the daily cap instead of firing all at once.
+
+**Analytics.** A KPI strip, a pipeline funnel, a hex-density map of leads, a category-by-zone yield matrix, a send-streak calendar, and insights that surface which categories and neighborhoods actually convert rather than which ones I scraped most.
+
+## Lead scoring
+
+Every lead gets a score from 0 to 1 and a letter grade A through D, computed by pure deterministic math so the queue order is stable and I can explain why any given lead ranks where it does. The factors, weighted differently per lane:
+
+- **Rating, shrunk toward the real database mean.** A 5.0 with two reviews shouldn't outrank a 4.6 with four hundred, so the rating is pulled toward the prior with Bayesian shrinkage. That alone killed roughly 720 low-sample 5.0s that used to flood the top of the queue.
+- **Establishment**, log-scaled on review count, because a business with 500 reviews is a real operation with money to spend.
+- **Category fit.** Legal, dental, medical, and real estate score highest; they have the budget and the clearest fit for booking and assistant automation. Bookable services sit in the middle. Everything else is baseline.
+- **Reachability.** On the email lane this keys off whether the address actually verifies; on the no-site lane a phone is the only channel, so it's a hard gate that drops phoneless leads out entirely.
+- **Visible pain**, from the site's mobile PageSpeed score plus how many concrete gaps the analysis found. A slow, broken site is a lead with a problem I can name.
+- **Advertising intent.** If a site runs a Meta Pixel or Google Ads conversion tag, it gets a boost. A business already paying to acquire customers is the most likely buyer of more marketing and automation. Non-advertisers aren't punished; advertisers are lifted.
+
+The weights are a calibration knob, not gospel. The plan is to retune them against real reply data once enough sends accumulate.
+
+## Reading the website before pitching
+
+Two layers feed the email, and the expensive one is gated so I'm not paying to analyze leads I'll never contact.
+
+The cheap layer crawls the site and checks the basics: SSL, a mobile viewport, a contact form, online booking, a WhatsApp link, the social profiles. It also pulls a Google PageSpeed Insights mobile score.
+
+The expensive layer renders the site in headless Chromium with Playwright, takes a desktop and a mobile screenshot, and sends both to Gemini 2.5 Flash as a vision prompt. The model returns specific, ranked observations: real strengths, concrete opportunities, whether a chat or booking widget is actually visible, whether the layout survives on mobile, roughly what design era the site is from. That vision pass only runs for leads heading into outreach, which is the difference between a Gemini bill of a few cents and a few dollars.
+
+## Writing the email
+
+Composition routes by country. Argentina gets a Spanish prompt in the usted register with a time-of-day greeting and a professional title derived from the category (Dr./Dra. for medical and legal, Arq. for architects, and so on); Spain gets its own Spanish variant; everywhere else gets American English. Each prompt is seeded with a few past emails that landed, picked from a pool bucketed by category, so the model copies a voice that has worked rather than inventing one. The offer adapts to the lead: build from scratch, fix a specific gap, or pitch the AI assistant, never a list of everything at once.
+
+Output runs through a sanitizer that strips em dashes and a few other tells before the draft hits the screen, because nothing says "a robot wrote this" louder than an em dash in a cold email.
+
+## Free model routing and cost tracking
+
+The text stages (compose and verify) default to NVIDIA's NIM free tier, currently Llama 3.3 70B and DeepSeek, with Gemini kept as a paid fallback. The provider seam is a single function the composer and verifier call through, so swapping a model is one string in Settings (`nim:meta/llama-3.3-70b-instruct` versus a Gemini id) with no change to the rate-limiting, retry, timeout, or budget machinery underneath. A model that starts failing gets quarantined and traffic falls back automatically.
+
+Every billed call lands in a durable ledger keyed by stage, model, and lead. Two scripts read it: one rolls spend up by stage, model, day, and priciest leads; the other joins that ledger to the outreach outcome and reports cost-per-sent and cost-per-reply by stage and model, so a cost cut lands with a quality number attached instead of just a smaller bill. Right now the cost-per-reply sample is too thin to trust and the report says so out loud rather than pretending otherwise. The same instrumentation records Gemini's cached-token count, which is how I can see that implicit prompt caching isn't discounting anything yet.
+
+## Protecting deliverability
+
+Every address is verified before it can be sent to: an MX lookup, then an SMTP probe, marking it valid, invalid, or unknown, with an extra distrust pass for providers that accept everything at the door. Bounces come back as DSN messages and flip the address to bounced so it's never tried again. Sends are capped per day per sender, a second Gmail identity rotates in to spread volume, and a suppression list keeps anyone who asked off the list for good.
 
 ## Reply detection
 
-This is the part I'm most happy with. Every ten minutes the server connects to Gmail over IMAP and scans the inbox for messages from contacted leads. A match flips the lead to "replied" and pushes the update to the UI over SSE, no refresh needed.
+The part I'm happiest with. Every ten minutes the server connects to Gmail over IMAP and scans for messages from contacted leads; a match flips the lead to replied and pushes it to the UI over SSE, no refresh.
 
-The catch with inbox matching is that autoresponders look like replies. Canvass classifies each reply before counting it, using three signals in order:
+The trap with inbox matching is that autoresponders look exactly like replies, so each one is classified before it counts, using three signals in order. First, RFC 3834 headers (`Auto-Submitted`, `Precedence: bulk`, `X-Auto-Response-Suppress`); machines usually announce themselves. Second, subject heuristics in English and Spanish ("out of office", "respuesta automática", "fuera de la oficina"). Third, reply velocity: an answer inside three minutes of the send is a machine, because a human reading a cold email doesn't move that fast. Auto-replies stay out of the response rate and keep the lead in the follow-up queue, since an out-of-office isn't engagement; real replies leave the queue immediately so nobody who answered gets pestered. Opens are tracked with a per-send pixel when the app sits behind a public URL.
 
-1. RFC 3834 headers: `Auto-Submitted`, `Precedence: bulk`, `X-Auto-Response-Suppress` and friends. Machines usually confess.
-2. Subject heuristics in English and Spanish ("out of office", "respuesta automática", "fuera de la oficina").
-3. Reply velocity. An answer that lands within three minutes of the send is a machine; a human reading cold email doesn't move that fast.
+## Batch processing
 
-Auto-replies are excluded from the response rate, and the lead stays in the follow-up queue, because an out-of-office message is not engagement. Real replies drop out of the queue immediately so nobody who answered gets pestered.
-
-Opens are tracked with a per-send pixel when the app is deployed behind a public URL.
-
-## Enrichment
-
-After every scrape, two enrichment passes run automatically. The first visits each business website and extracts social links (Instagram, Facebook, LinkedIn and others), with hostname resolution and private-IP rejection to keep the crawler from being pointed at internal networks. The second reverse-geocodes coordinates into a country / state / city / neighborhood hierarchy, which is what powers the location filters and the zone analytics.
+For volume, a batch orchestrator walks the whole queue: verify, analyze, compose, in sequence, on one rate-limited Gemini lane so it can't burst past the quota. It runs a watchdog that recovers stuck calls, and when the daily Google request budget is spent it pauses the run and resumes on its own after the quota resets at midnight Pacific instead of dead-lettering every remaining lead. A health banner in the UI shows the Gemini state in three colors before anything actually fails, not after.
 
 ## Stack
 
@@ -52,39 +83,60 @@ After every scrape, two enrichment passes run automatically. The first visits ea
 |---|---|
 | Backend | Node.js, Express, TypeScript |
 | Database | SQLite via better-sqlite3, Drizzle ORM |
-| Frontend | React, TypeScript, Vite |
-| Maps | Leaflet |
-| Scraping | gosom (self-hosted, REST) |
-| AI | Google Gemini Flash |
-| Email | Nodemailer + Gmail App Password, imapflow for reply detection |
+| Frontend | React, TypeScript, Vite, Leaflet |
+| Scraping | gosom, self-hosted over REST |
+| Text AI | NVIDIA NIM free tier (Llama 3.3 70B, DeepSeek), Google Gemini 2.5 Flash fallback |
+| Vision AI | Google Gemini 2.5 Flash, screenshots via Playwright |
+| Site signals | Google PageSpeed Insights |
+| Rate control | Bottleneck plus p-retry, per-minute and per-day budgets |
+| Email | Nodemailer over Gmail App Password, imapflow for reply detection |
 | Realtime | Server-Sent Events |
-| Infrastructure | Docker, Docker Compose |
+| Infra | Docker, Docker Compose |
 
 ## Getting started
 
-Canvass runs entirely in Docker. You need a Gemini API key and a Gmail account with an [App Password](https://myaccount.google.com/apppasswords) configured.
+Runs entirely in Docker. You need a Gemini API key and a Gmail account with an [App Password](https://myaccount.google.com/apppasswords). An NVIDIA NIM key is optional; without it, text generation falls back to Gemini.
 
 ```bash
 git clone https://github.com/santiagovittor/canvass
 cd canvass
 cp .env.example .env
-# Open .env and fill in GEMINI_API_KEY, GMAIL_FROM, GMAIL_APP_PASSWORD, GMAIL_SENDER_NAME
+# Fill in GEMINI_API_KEY, GMAIL_FROM, GMAIL_APP_PASSWORD, GMAIL_SENDER_NAME
+# Optional: NVIDIA_NIM_API_KEY to route text stages to the free tier
 docker compose up
 ```
 
-The app runs at `http://localhost:3001`. The database and data directory are created automatically on first run. All environment variables are documented with comments in `.env.example`.
+The app comes up at `http://localhost:3001`. The database and data directory are created on first run, and every environment variable is documented inline in `.env.example`.
 
 ## Architecture notes
 
-The project follows a clean client/server split with an explicit layering rule on the backend: routes call services, services call the database. No direct db access from routes. The AI layer lives in `server/src/services/geminiComposer.ts` and uses a multi-prompt system with separate context builders for business profile, offer framing, and tone calibration.
+Clean client/server split with a strict backend layering rule: routes call services, services call the database, and nothing reaches past its layer. No SQL outside the db folder, no fetch inside a component. The AI layer is its own seam so providers swap behind one interface. Grid math runs identically on the client (for the live preview) and the server (for the real job), kept in sync on purpose. Coordinates are stored as strings because SQLite's REAL type loses precision past zoom 17, and that precision is the whole point of a map tool.
 
-The prompt system is calibrated to my specific services and market. Adapting it to a different context means modifying the prompt constructors in `geminiComposer.ts`.
+The prompt system is tuned to my specific services and market. Pointing it at a different offer means editing the prompt constructors in `geminiComposer.ts`.
 
 ## Design
 
-UI design system developed with [Impeccable](https://impeccable.style), a design skill for AI coding tools built to fight generic AI aesthetics. North star: **The Darkroom**. Warm blacks, amber safelight, analog grain. A tool that looks like it was made by someone who cares about how things look.
+UI built with [Impeccable](https://impeccable.style), a design skill for AI coding tools made to fight generic AI aesthetics. North star: **The Darkroom**. Warm blacks, amber safelight, analog grain, a tool that looks like someone cared how it looked. Built and iterated with [Claude Code](https://claude.ai/code).
 
-Built and iterated with [Claude Code](https://claude.ai/code).
+---
+
+## En español
+
+Canvass es una herramienta que me armé para conseguir clientes. Hace cuatro cosas: mapea negocios locales sacándolos de Google Maps, los ordena por qué tan buena oportunidad son, mira la web de cada uno, y escribe un mail en frío que habla del problema puntual que ese negocio tiene, no un texto genérico.
+
+La idea es simple. El mail masivo genérico lo ignora todo el mundo; escribir cada mail a mano no escala. Canvass queda en el medio: trae datos reales, decide qué leads valen la pena, lee la presencia web de cada uno, y redacta un borrador apoyado en eso para que yo revise y mande en lugar de escribir desde cero.
+
+Cómo funciona, por pasos:
+
+- **Scraper.** Dibujo un polígono en el mapa o escribo el nombre de una zona, elijo un rubro y la resolución de la grilla, y la app parte el área en celdas y trae los negocios. Si el servidor se cae a mitad del trabajo, retoma desde la última celda terminada al reiniciar.
+- **Explorer.** Una tabla filtrable de todo lo scrapeado. Filtro por rubro, por país, provincia, ciudad y barrio, o por estado de contacto.
+- **Outreach.** El corazón. Los leads llegan ordenados por un puntaje, así las mejores oportunidades quedan arriba. Hay dos carriles: los que ya tienen web (les ofrezco rehacerla, arreglarla, o un asistente con IA) y los que no tienen (les ofrezco construirla). Antes de escribir, la app revisa la web del negocio y le saca capturas que analiza un modelo de visión, y con eso el borrador habla de un problema concreto.
+- **Automate.** Scrapeos programados que se repiten, y envíos que se reparten a lo largo del día sin pasarse del límite diario.
+- **Analytics.** Métricas, embudo, un mapa de densidad de leads, y qué rubros y barrios convierten de verdad.
+
+Detalles que me importan: cada dirección de mail se verifica antes de mandarle nada (consulta MX y una prueba SMTP), los rebotes se procesan solos, y hay un tope diario por remitente para cuidar la reputación de envío. Cada diez minutos revisa la casilla por IMAP y detecta respuestas, distinguiendo una respuesta humana real de un contestador automático con tres señales: los encabezados RFC 3834, palabras clave en el asunto en español e inglés, y la velocidad de respuesta (si contesta en menos de tres minutos, es una máquina). Los stages de texto usan modelos gratuitos de NVIDIA NIM, con Gemini como respaldo pago, y cada llamada facturada queda registrada para saber el costo por mail enviado y por respuesta. El borrador pasa por un filtro que saca los guiones largos antes de mostrarse, porque nada grita "lo escribió un robot" más fuerte que un guion largo en un mail en frío.
+
+Todo corre en Docker en mi máquina y actualiza la interfaz en vivo, sin refrescar.
 
 ---
 

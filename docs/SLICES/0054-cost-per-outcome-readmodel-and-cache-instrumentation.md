@@ -129,7 +129,7 @@ Live evidence, captured 2026-06-29 (server dev container):
 
 ## Completion record
 
-- Commit SHAs: _feature_ `<pending>` · _SHA record_ `<follow-up>`
+- Commit SHAs: _feature_ `ba1aa60` · _SHA record_ (this docs commit)
 - What changed: `gemini_cost_log.cached_tokens` (additive col + backfill ALTER);
   `recordCost`/`insertGeminiCost`/`getCostRollups` thread it; `costReport.ts` shows
   `cached=`. New read-model `getCostPerOutcome` + `getCostOutcomeTotals`

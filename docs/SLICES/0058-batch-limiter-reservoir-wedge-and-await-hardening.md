@@ -79,7 +79,7 @@ mass failure.
 
 ## Completion record
 
-- Commit SHAs: <this commit>
+- Commit SHAs: `cf25938`
 - What changed: 7 files — `geminiRateLimiter.ts` (reservoir→minTime),
   `batchOrchestrator.ts` (analyze await + orphan-safe + sentinel narrow),
   `db/batch.ts` (watchdog clock + enqueue terminalize), `playwrightRenderer.ts`

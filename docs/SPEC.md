@@ -163,16 +163,18 @@ relative to repo root.
 
 From `server/src/env.ts` and `docs/diagnosis/2026-pipeline-cost-and-503.md`.
 
-- **Gemini rate/budget:** `GEMINI_RPM` default 120 (Bottleneck in-memory,
-  `minTime = 60000/RPM` ms); `GEMINI_RPD` default 1000 (persisted, Pacific-date
-  keyed). Per-attempt hard timeout ~30s. Bounded retry: up to 5 inner
-  (`withGeminiRate`) × 3 outer ⇒ ≤15 calls per email before giving up.
-  Composer 503 fallback via `GEMINI_COMPOSER_FALLBACK_MODEL`. Both vision and
-  compose/verify models bill $0.30/M input + $2.50/M output — output is ~8×
-  input per token, so output length is the primary cost lever.
-- **Playwright / analyze:** `PREMIUM_RENDER_TIMEOUT_MS` 20000;
-  `BATCH_ANALYZE_TIMEOUT_MS` 120000 (render + PSI + vision can hang);
-  `BATCH_PREPARE_CONCURRENCY` 3 (a throttle, not a speed dial).
+- **Gemini rate/budget:** `GEMINI_RPM` default 120 (Bottleneck in-memory, rate
+  enforced by `minTime = 60000/RPM` ms spacing alone — NO reservoir: its auto-refill
+  did not re-arm and wedged the lane after ~RPM calls, slice 0058); `GEMINI_RPD`
+  default 1000 (persisted, Pacific-date keyed). Per-attempt hard timeout ~30s.
+  Bounded retry: up to 5 inner (`withGeminiRate`) × 3 outer ⇒ ≤15 calls per email
+  before giving up. Composer 503 fallback via `GEMINI_COMPOSER_FALLBACK_MODEL`. Both
+  vision and compose/verify models bill $0.30/M input + $2.50/M output — output is
+  ~8× input per token, so output length is the primary cost lever.
+- **Playwright / analyze:** `PREMIUM_RENDER_TIMEOUT_MS` 20000 (also bounds
+  `chromium.connect`); `BATCH_PREPARE_CONCURRENCY` 3 (a throttle, not a speed dial).
+  Batch analyze is awaited to completion, not abandoned on a wall-clock budget
+  (slice 0058) — the run-level stall watchdog is the genuine-wedge backstop.
 - **Send pacing:** `OUTREACH_DAILY_CAP` 15 (rolling 24h; fresh identity, ramp to
   30 warmed). Governor enforces cap + per-business-type window + pacing delay.
 - **Enrichment:** `SOCIAL_ENRICHMENT_TIMEOUT_MS` 8000, `SOCIAL_ENRICHMENT_MAX_BYTES`

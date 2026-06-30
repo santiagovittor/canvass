@@ -232,10 +232,6 @@ export const FIELDS: SettingField[] = [
     type: 'number', min: 1, max: 32, default: 3, envVar: 'BATCH_PREPARE_CONCURRENCY',
   },
   {
-    key: 'BATCH_ANALYZE_TIMEOUT_MS', group: 'Batch & Automation', label: 'Per-item analyze timeout',
-    type: 'number', unit: 'ms', min: 1000, max: 600_000, default: 120_000, envVar: 'BATCH_ANALYZE_TIMEOUT_MS',
-  },
-  {
     key: 'BATCH_COMPOSE_TIMEOUT_MS', group: 'Batch & Automation', label: 'Per-item compose timeout',
     type: 'number', unit: 'ms', min: 1000, max: 600_000, default: 180_000, envVar: 'BATCH_COMPOSE_TIMEOUT_MS',
     help: 'A stuck compose (Gemini call that never returns) fails the lead at this bound; the batch continues. Above worst-case-legit, well under "stuck".',

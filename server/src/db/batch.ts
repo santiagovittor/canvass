@@ -32,6 +32,14 @@ function isTerminalBump(state: BatchItemState): state is keyof typeof TERMINAL_B
   return state in TERMINAL_BUMP;
 }
 
+// Advance a run's updated_at without touching counters. The stall watchdog reads
+// updated_at as "last activity"; bumping it on every item transition (not just terminal
+// ones) is what lets a slow-but-progressing run stay alive — a run that is steadily
+// moving items through stages keeps resetting the watchdog clock. Terminal transitions
+// already write updated_at via TERMINAL_BUMP, so this fires for the non-terminal ones.
+const BUMP_RUN_UPDATED_AT = sqlite.prepare<[string, string], void>(
+  `UPDATE batch_runs SET updated_at = ? WHERE id = ?`);
+
 export function createBatchRun(input: { size: number; dryRun: boolean; total: number }): BatchRunRow {
   const id = randomUUID();
   const now = nowUtcMinus3();
@@ -104,13 +112,17 @@ export function transitionItem(
   if ('lastError' in opts) patch.lastError = opts.lastError ?? null;
   db.update(batchItems).set(patch).where(eq(batchItems.id, item.id)).run();
   if (isTerminalBump(state)) TERMINAL_BUMP[state].run(now, item.batchId);
+  else BUMP_RUN_UPDATED_AT.run(now, item.batchId); // keep the stall watchdog clock fresh on non-terminal progress
 }
 
 // Persist a new self-timeout attempt count on an item (slice 0032). Separate from
 // transitionItem so an F2-revert (queue owns the render) can move state→pending WITHOUT
 // consuming a retry; only a real analyze/compose timeout calls this.
 export function bumpBatchItemAttempt(itemId: string, count: number): void {
-  db.update(batchItems).set({ attemptCount: count, updatedAt: nowUtcMinus3() }).where(eq(batchItems.id, itemId)).run();
+  const now = nowUtcMinus3();
+  const row = db.update(batchItems).set({ attemptCount: count, updatedAt: now })
+    .where(eq(batchItems.id, itemId)).returning({ batchId: batchItems.batchId }).get();
+  if (row) BUMP_RUN_UPDATED_AT.run(now, row.batchId); // a compose retry is progress — keep the watchdog clock fresh
 }
 
 // Enqueue + mark in ONE transaction: a crash rolls back both, so batch_item.state is
@@ -122,7 +134,14 @@ const enqueueTxn = sqlite.transaction((args: {
 }): { scheduledId: string | null; alreadyQueued: boolean } => {
   const cur = db.select({ state: batchItems.state }).from(batchItems).where(eq(batchItems.id, args.item.id)).get();
   if (cur?.state === 'queued_for_send') return { scheduledId: null, alreadyQueued: true };
-  if (hasActiveScheduledSend(args.scheduled.businessId)) return { scheduledId: null, alreadyQueued: true };
+  if (hasActiveScheduledSend(args.scheduled.businessId)) {
+    // The lead is already queued (a prior batch/manual schedule). Don't create a duplicate
+    // send — but DO terminalize this item, else it stays non-terminal and the driver
+    // re-composes it every pass forever (the run never finalizes). Its goal — get the lead
+    // queued — is already met.
+    transitionItem(args.item, 'queued_for_send', { disposition: 'already_scheduled' });
+    return { scheduledId: null, alreadyQueued: true };
+  }
   const sched = createScheduledSend(args.scheduled);
   transitionItem(args.item, 'queued_for_send', { disposition: 'sent_specific' });
   return { scheduledId: sched.id, alreadyQueued: false };

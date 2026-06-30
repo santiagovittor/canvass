@@ -11,6 +11,7 @@ import {
 import { UTC_MINUS_3_OFFSET_MS } from '../util/time';
 import {
   getLatestPremiumAnalysis, createPremiumAnalysisRunning, isAnalysisFresh, getRunningAnalysis,
+  resetAnalysisToPending,
   type DetectedSig, type SignalMap,
 } from '../db/premium';
 import { kickPremiumAnalysis } from './premiumAnalysisQueue';
@@ -58,18 +59,23 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 // user-facing operation; the backlog is opportunistic and re-runnable.
 const BATCH_PRIORITY = 1;
 
-// Self-timeout recovery (slice 0032). A slow site that blows the analyze/compose budget
+// Self-timeout recovery for COMPOSE (slice 0032). A slow compose that blows the budget
 // must not dead-letter the lead: up to TIMEOUT_RETRIES attempts before it goes terminal.
 // Between retries driveRun re-drives in-run; a stagnant pass (every remaining item still
-// waiting on its in-flight analysis to finish) sleeps REDRIVE_DELAY_MS before retrying,
+// waiting on its in-flight work to finish) sleeps REDRIVE_DELAY_MS before retrying,
 // bounded by MAX_STAGNANT_PASSES so a genuine wedge falls through to the stall watchdog
 // rather than spinning forever.
+// ANALYZE no longer uses this path: it is AWAITED to completion (no abandon-timeout) — see
+// processItem. Abandoning an uncancellable analyze left the premium_analyses row stuck
+// 'running', which the F2 guard then bounced forever until the stall watchdog mass-failed
+// the run. The analyzer is internally bounded (render/PSI/vision each self-timeout), so the
+// await always settles; a genuine hang falls through to the run-level stall watchdog.
 // ponytail: K and delays are fixed consts, not env/Settings — promote to env only if the
 // operator ever needs to tune them live.
 const TIMEOUT_RETRIES = 2;
 const REDRIVE_DELAY_MS = 3000;
-const MAX_STAGNANT_PASSES = 100; // ~300s ceiling; in-flight analyses always settle well within this
-const TIMEOUT_SENTINELS = new Set(['analyze_timeout', 'compose_timeout']);
+const MAX_STAGNANT_PASSES = 100; // ~300s ceiling; in-flight work always settles well within this
+const TIMEOUT_SENTINELS = new Set(['compose_timeout']);
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 // One driver per run at a time. startBatch/resumeBatch are idempotent against this.
@@ -151,7 +157,17 @@ async function processItem(runId: string, item: BatchItemRow, dryRun: boolean): 
       return broadcastProgress(runId);
     }
     const fresh = createPremiumAnalysisRunning(businessId, true); // slice 0053: batch = prepare-for-outreach → force vision
-    await withTimeout(runPremiumAnalysis(fresh), getNumber('BATCH_ANALYZE_TIMEOUT_MS'), 'analyze_timeout');
+    // AWAIT to completion — never abandon. An abandon-timeout here can't cancel the work, so
+    // it left an orphaned 'running' row the F2 guard bounced forever (→ stall-watchdog mass
+    // kill). The analyzer is internally bounded (render/PSI/vision each self-timeout); a true
+    // hang is caught by the run-level stall watchdog. On ANY throw (incl. RPD/provider
+    // exhaustion), settle the row back to 'pending' so it is never left orphaned 'running'.
+    try {
+      await runPremiumAnalysis(fresh);
+    } catch (err) {
+      resetAnalysisToPending(fresh.id);
+      throw err;
+    }
     premium = getLatestPremiumAnalysis(businessId);
   } else {
     await withAnalysis(businessId, 'premium', async () => {
@@ -263,12 +279,12 @@ async function driveRun(runId: string): Promise<void> {
           }
           const msg = err instanceof Error ? err.message : String(err);
           if (TIMEOUT_SENTINELS.has(msg)) {
-            // Self-inflicted slowness (slice 0032): the wall-clock budget fired but the
-            // in-flight analyze/compose is NOT cancelled and finishes moments later. Don't
-            // dead-letter — retry up to TIMEOUT_RETRIES. On the retry the analysis is
-            // 'done' + TTL-fresh → reused with no re-render (F2 guard). Only a site that
-            // can't finish within budget across all attempts goes terminal, tagged so the
-            // operator can tell "genuinely slow" from "broken".
+            // Self-inflicted COMPOSE slowness (slice 0032): the wall-clock budget fired but
+            // the in-flight compose is NOT cancelled and finishes moments later. Don't
+            // dead-letter — retry up to TIMEOUT_RETRIES. On the retry the analysis is already
+            // 'done' + TTL-fresh → reused with no re-render. Only a lead that can't finish
+            // within budget across all attempts goes terminal, tagged so the operator can
+            // tell "genuinely slow" from "broken". (Analyze is awaited, never timed out here.)
             const next = (item.attemptCount ?? 0) + 1;
             if (next >= TIMEOUT_RETRIES) {
               transitionItem({ id: item.id, batchId: runId }, 'failed', {
@@ -362,9 +378,11 @@ function scheduleRecoveryProbe(): void {
 // low-frequency sweep finalizes any running run whose updated_at has not advanced
 // within BATCH_STALL_TIMEOUT_MS: its non-terminal items fail (last_error='stalled')
 // and the run is marked done, so the factory never needs a manual nudge. updated_at
-// only advances on a terminal-item bump or a status change, so a healthy run (each
-// item terminalizing within analyze+compose ≈ 300s, bound 600s) never trips. Armed by
-// startBatch/resumeBatch, re-armed on boot; self-stops when no run is running.
+// advances on ANY item transition or status change (not just terminal bumps — see
+// transitionItem), so a healthy-but-slow run that is steadily moving items through
+// stages keeps resetting the clock and never trips; only a run with NO activity at
+// all for the full bound is treated as wedged. Armed by startBatch/resumeBatch,
+// re-armed on boot; self-stops when no run is running.
 // unref'd so it never holds the process open.
 const STALL_SWEEP_MS = 60_000;
 let stallTimer: ReturnType<typeof setTimeout> | null = null;

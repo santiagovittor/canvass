@@ -44,14 +44,6 @@ const schema = z.object({
   // Batch automation — single config surface for the bulk-prepare layer.
   // Concurrency is a throttle, not a speed dial: how many leads prepare at once.
   BATCH_PREPARE_CONCURRENCY: z.coerce.number().int().positive().default(3),
-  // Per-item analyze timeout (Playwright render + PSI + vision can hang). Sized for a
-  // worst-case-LEGIT analyze: render ~20s + PSI up to 60s + vision up to the Gemini
-  // total cap (slice 0032 raised 120→180s — the old 120s cut off slow-but-completing
-  // analyses, dead-lettering leads and throwing away full PSI/vision signal that the
-  // compose anchors on; a tighter PSI cap would lose that quality). Overruns past this
-  // are now RECOVERABLE (driveRun retries; the in-flight analysis finishes and is
-  // reused), not terminal. Still well under the 600s stall watchdog.
-  BATCH_ANALYZE_TIMEOUT_MS: z.coerce.number().int().positive().default(180000),
   // Per-item compose timeout (slice 0023). composeVerifiedEmail can issue ~12 Gemini
   // calls; each bounded by GEMINI_TOTAL_CAP_MS. Ceiling above worst-case-legit, well
   // under "stuck" — a timeout throws → item failed (compose_timeout), batch continues.

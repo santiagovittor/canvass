@@ -34,13 +34,15 @@ export class GeminiProviderExhausted extends Error {
   }
 }
 
-// RPM enforced in-memory: a reservoir of GEMINI_RPM refilled every 60s, plus minTime
-// spacing and a single in-flight call so even a burst can't exceed RPM in the window.
+// RPM enforced in-memory by minTime spacing alone: minTime = 60000/RPM ms between call
+// STARTS caps throughput to RPM per minute (steady, never bursting). We deliberately do
+// NOT use Bottleneck's reservoir/reservoirRefreshInterval: its auto-refill timer did not
+// re-arm reliably here (the reservoir stuck at 0 after the first window), which wedged the
+// entire Gemini lane permanently after ~RPM calls — the true cause of large batches
+// stalling. minTime is the simple, well-tested path and is strictly safer for the
+// provider's per-minute quota (even spacing vs. a refilled burst).
 const RPM = env.GEMINI_RPM;
 const limiter = new Bottleneck({
-  reservoir: RPM,
-  reservoirRefreshAmount: RPM,
-  reservoirRefreshInterval: 60_000,
   minTime: Math.ceil(60_000 / RPM),
   maxConcurrent: 1,
 });
@@ -56,15 +58,12 @@ export function withGeminiPriority<T>(priority: number, fn: () => Promise<T>): P
   return priorityAls.run(priority, fn);
 }
 
-// Live RPM retune from the Settings tab. Updates the reservoir + spacing in place so
-// a new rate takes effect on the next refresh window — no restart, no re-import.
+// Live RPM retune from the Settings tab. Updates minTime spacing in place so a new rate
+// takes effect immediately — no restart, no re-import. minTime alone enforces RPM (no
+// reservoir; see the limiter construction note on why the reservoir was removed).
 export function applyRpm(rpm: number): void {
   if (!Number.isFinite(rpm) || rpm < 1) return;
-  void limiter.updateSettings({
-    reservoir: rpm,
-    reservoirRefreshAmount: rpm,
-    minTime: Math.ceil(60_000 / rpm),
-  });
+  void limiter.updateSettings({ minTime: Math.ceil(60_000 / rpm) });
 }
 
 // Live concurrency retune. maxConcurrent=1 keeps vision image calls serialized so a

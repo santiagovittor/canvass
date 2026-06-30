@@ -78,7 +78,9 @@ export async function renderSite(url: string): Promise<RenderResult> {
   const consoleErrors: string[] = [];
 
   try {
-    browser = await chromium.connect(env.PLAYWRIGHT_WS_URL);
+    // Bound the connect: a wedged/unreachable Playwright server would otherwise hang here
+    // with no timeout, stalling the whole analyze (which is now awaited, not abandoned).
+    browser = await chromium.connect(env.PLAYWRIGHT_WS_URL, { timeout: env.PREMIUM_RENDER_TIMEOUT_MS });
     const context = await browser.newContext({ viewport: DESKTOP_VIEWPORT });
     const page = await context.newPage();
 

@@ -124,7 +124,7 @@ The prompt system is tuned to my specific services and market. Pointing it at a 
 
 ## Design
 
-UI built with [Impeccable](https://impeccable.style), a design skill for AI coding tools made to fight generic AI aesthetics. North star: **The Darkroom**. Warm blacks, amber safelight, analog grain, a tool that looks like someone cared how it looked. Built and iterated with [Claude Code](https://claude.ai/code).
+UI built with [Impeccable](https://impeccable.style), a design skill for AI coding tools made to fight generic AI aesthetics. North star: **The Darkroom**. Warm blacks, amber safelight, analog grain, a tool that looks like someone cared how it looked.
 
 ---
 

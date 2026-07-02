@@ -6,7 +6,7 @@ A self-built prospecting and outreach tool: it maps local businesses, scores the
 
 ---
 
-<!-- Screenshots coming soon, UI redesign in progress -->
+<!-- SCREENSHOT: hero shot, full app with the map + scrape grid overlay visible -->
 
 ---
 
@@ -22,13 +22,19 @@ Five tabs, left to right, in the order I work them.
 
 **Scraper.** Draw a polygon over a map, or type a city or area name and let it tile the region for you. Set a keyword and a grid resolution; the tool splits the area into cells and pulls matching businesses from Google Maps through a self-hosted [gosom](https://github.com/gosom/google-maps-scraper) instance. Progress streams over Server-Sent Events. Jobs are crash-safe: kill the server mid-scrape and it resumes from the last finished cell on boot instead of starting over or dying. gosom itself wedges at random sometimes (a known upstream bug), so the runner watches for a stalled download and restarts the container through the Docker socket to unstick it.
 
+<!-- SCREENSHOT: Scraper tab, polygon drawn over a neighborhood with the grid cells visible -->
+
 **Explorer.** A filterable table of every business scraped. Filter by category, by the country/state/city/neighborhood hierarchy, or by contact status; open a site; mark a lead contacted, replied, or converted. Auto-detected replies get their own styling so a bot answer never gets mistaken for a warm lead.
 
 **Outreach.** This is the core. Leads arrive in a queue ranked by a lead score, not by scrape order, so the best opportunities sit at the top. Two lanes run side by side: businesses that already have a site (pitch a rebuild, a fix, or an AI assistant) and businesses with no site at all (pitch building one). Before I compose, the analyzer visits the lead's website and checks what's really there, then a vision pass screenshots the site and reads its design. Those findings feed the email prompt, so the draft names one concrete gap rather than a vague pitch. Drafts persist, sends are capped per day per sender to protect deliverability, and a follow-up view resurfaces quiet leads after a configurable number of silent days.
 
+<!-- SCREENSHOT: Outreach queue, lead score chips + a drafted email showing a specific anchored gap -->
+
 **Automate.** Scheduled scrapes that recur, and scheduled sends that drip out across the day inside the daily cap instead of firing all at once.
 
 **Analytics.** A KPI strip, a pipeline funnel, a hex-density map of leads, a category-by-zone yield matrix, a send-streak calendar, and insights that surface which categories and neighborhoods actually convert rather than which ones I scraped most.
+
+<!-- SCREENSHOT: Analytics tab, hex-density map or the category-by-zone yield matrix -->
 
 ## Lead scoring
 
@@ -76,6 +82,8 @@ The trap with inbox matching is that autoresponders look exactly like replies, s
 ## Batch processing
 
 For volume, a batch orchestrator walks the whole queue: verify, analyze, compose, in sequence, on one rate-limited Gemini lane so it can't burst past the quota. It runs a watchdog that recovers stuck calls, and when the daily Google request budget is spent it pauses the run and resumes on its own after the quota resets at midnight Pacific instead of dead-lettering every remaining lead. A health banner in the UI shows the Gemini state in three colors before anything actually fails, not after.
+
+A 30-lead batch used to fail hard partway through, and tracking it down took a while. The rate limiter's token bucket had a refill timer that silently stopped re-arming after a settings change, so the single Gemini lane locked up for good once a run crossed roughly one minute's worth of calls; the stall watchdog would then declare the run dead and force-fail everything still in flight. The fix dropped the broken refill logic in favor of plain fixed-interval spacing, made the analyze step something the orchestrator actually waits on instead of abandoning on a timer, and closed a couple of related edge cases where a slow-but-alive run got mistaken for a dead one. Same 30 leads, same rate cap: the run now pushes past 190 calls without a single stall.
 
 ## Stack
 

@@ -6,7 +6,8 @@ A self-built prospecting and outreach tool: it maps local businesses, scores the
 
 ---
 
-<!-- SCREENSHOT: hero shot, full app with the map + scrape grid overlay visible -->
+<img width="1920" height="912" alt="image" src="https://github.com/user-attachments/assets/0a749b3d-2e65-4b03-a25e-b1c8025a2a7d" />
+
 
 ---
 
@@ -22,19 +23,22 @@ Five tabs, left to right, in the order I work them.
 
 **Scraper.** Draw a polygon over a map, or type a city or area name and let it tile the region for you. Set a keyword and a grid resolution; the tool splits the area into cells and pulls matching businesses from Google Maps through a self-hosted [gosom](https://github.com/gosom/google-maps-scraper) instance. Progress streams over Server-Sent Events. Jobs are crash-safe: kill the server mid-scrape and it resumes from the last finished cell on boot instead of starting over or dying. gosom itself wedges at random sometimes (a known upstream bug), so the runner watches for a stalled download and restarts the container through the Docker socket to unstick it.
 
-<!-- SCREENSHOT: Scraper tab, polygon drawn over a neighborhood with the grid cells visible -->
+<img width="1920" height="912" alt="image" src="https://github.com/user-attachments/assets/7a1ce843-82ef-47b7-bffb-5ce5edc3e968" />
+
 
 **Explorer.** A filterable table of every business scraped. Filter by category, by the country/state/city/neighborhood hierarchy, or by contact status; open a site; mark a lead contacted, replied, or converted. Auto-detected replies get their own styling so a bot answer never gets mistaken for a warm lead.
 
 **Outreach.** This is the core. Leads arrive in a queue ranked by a lead score, not by scrape order, so the best opportunities sit at the top. Two lanes run side by side: businesses that already have a site (pitch a rebuild, a fix, or an AI assistant) and businesses with no site at all (pitch building one). Before I compose, the analyzer visits the lead's website and checks what's really there, then a vision pass screenshots the site and reads its design. Those findings feed the email prompt, so the draft names one concrete gap rather than a vague pitch. Drafts persist, sends are capped per day per sender to protect deliverability, and a follow-up view resurfaces quiet leads after a configurable number of silent days.
 
-<!-- SCREENSHOT: Outreach queue, lead score chips + a drafted email showing a specific anchored gap -->
+<img width="1920" height="925" alt="image" src="https://github.com/user-attachments/assets/06b37955-7cc0-4eaa-9e2d-15758becee99" />
+
 
 **Automate.** Scheduled scrapes that recur, and scheduled sends that drip out across the day inside the daily cap instead of firing all at once.
 
 **Analytics.** A KPI strip, a pipeline funnel, a hex-density map of leads, a category-by-zone yield matrix, a send-streak calendar, and insights that surface which categories and neighborhoods actually convert rather than which ones I scraped most.
 
-<!-- SCREENSHOT: Analytics tab, hex-density map or the category-by-zone yield matrix -->
+<img width="1920" height="918" alt="image" src="https://github.com/user-attachments/assets/bd54a93a-75ef-43ec-a3fd-584c78b6040c" />
+
 
 ## Lead scoring
 
